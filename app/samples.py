@@ -9,7 +9,7 @@ COMPLETE_SYSTEM_SAMPLE: dict[str, Any] = {
         {"id": "meeting_1", "floor_id": "default_floor", "name": "meeting_1", "device_ids": ["fcu_1"], "area_m2": 60, "height_m": 3.2, "people": 20, "purpose": "meeting"},
     ],
     "devices": [
-        {"id": "chiller_1", "type": "冷源机组", "name": "LG340MCF"},
+        {"id": "chiller_1", "type": "冷源机组", "name": "SCWE-90H+B"},
         {"id": "pump_1", "type": "循环泵", "name": "EC80"},
         {"id": "tower_1", "type": "冷却塔", "name": "CT-100"},
         {"id": "fcu_1", "type": "风机盘管", "name": "MCW1000V", "quantity": 6},
@@ -35,7 +35,7 @@ COMPLETE_SYSTEM_SAMPLE: dict[str, Any] = {
 
 
 AIR_SYSTEM_SAMPLE = deepcopy(COMPLETE_SYSTEM_SAMPLE)
-AIR_SYSTEM_SAMPLE["devices"][-1] = {"id": "ahu_1", "type": "组合式空调机组", "name": "K39G1015"}
+AIR_SYSTEM_SAMPLE["devices"][-1] = {"id": "ahu_1", "type": "组合式空调机组", "name": "AHU-08-11-6排"}
 for _room in AIR_SYSTEM_SAMPLE["rooms"]:
     _room["device_ids"] = ["ahu_1"]
 AIR_SYSTEM_SAMPLE["pipes"].append({"id": "duct_1", "system": "air", "length_m": 18, "width_mm": 630, "height_mm": 400})
@@ -54,7 +54,7 @@ BAD_SYSTEM_SAMPLE = {
     "floors": [{"id": "default_floor", "name": "默认楼层", "level": 0, "elevation_m": 0, "height_m": 3.6}],
     "rooms": [{"name": "mall_1", "device_ids": ["fcu_1"], "area_m2": 280, "people": 80, "purpose": "mall"}],
     "devices": [
-        {"id": "chiller_1", "type": "冷源机组", "name": "LG340MCF", "capacity_kw": 20},
+        {"id": "chiller_1", "type": "冷源机组", "name": "SCWE-90H+B", "capacity_kw": 20},
         {"id": "tower_1", "type": "冷却塔", "name": "CT-100"},
         {"id": "fcu_1", "type": "风机盘管", "name": "MCW200V", "quantity": 1},
     ],
@@ -78,7 +78,7 @@ MULTI_FLOOR_SAMPLE = {
         {"id": "r201", "floor_id": "F2", "name": "二层办公区", "device_ids": ["fcu_f2"], "area_m2": 220, "people": 36, "purpose": "office"},
     ],
     "devices": [
-        {"id": "chiller_b1", "type": "冷源机组", "name": "LG340MCF", "floor_id": "B1F", "location_type": "equipment_room"},
+        {"id": "chiller_b1", "type": "冷源机组", "name": "SCWE-90H+B", "floor_id": "B1F", "location_type": "equipment_room"},
         {"id": "pump_b1", "type": "循环泵", "name": "EC80", "floor_id": "B1F", "location_type": "equipment_room"},
         {"id": "tower_roof", "type": "冷却塔", "name": "CT-100", "floor_id": "F2", "location_type": "roof"},
         {"id": "fcu_f1", "type": "风机盘管", "name": "MCW1000V", "quantity": 8, "floor_id": "F1"},
@@ -136,7 +136,7 @@ MANIFOLD_FCU_SAMPLE: dict[str, Any] = {
         {
             "id": "chiller_b1",
             "type": "冷源机组",
-            "name": "LG340MCF",
+            "name": "SCWE-90H+B",
             "floor_id": "B1F",
         },
         {
@@ -228,7 +228,7 @@ MANIFOLD_FCU_DUAL_WATER_SAMPLE["devices"].extend(
         {
             "id": "heat_source_b1",
             "type": "空气源热泵",
-            "name": "ASHP-240",
+            "name": "SHAF-80H",
             "floor_id": "B1F",
         },
         {
@@ -322,12 +322,12 @@ FOUR_FLOOR_FCU_FRESH_AIR_SAMPLE = {
         {"id": "training_f3", "floor_id": "F3", "name": "三层培训室", "device_ids": ["fcu_f3", "fau_f3"], "area_m2": 110, "people": 32, "purpose": "classroom"},
     ],
     "devices": [
-        {"id": "chiller_b1", "type": "冷源机组", "name": "30XW-P0312P", "floor_id": "B1F", "location_type": "equipment_room"},
+        {"id": "chiller_b1", "type": "冷源机组", "name": "SCWE-90H+B", "floor_id": "B1F", "location_type": "equipment_room"},
         {"id": "chw_pump_b1", "type": "循环泵", "name": "TPE3 40-200", "floor_id": "B1F", "location_type": "equipment_room"},
         {"id": "cw_pump_b1", "type": "循环泵", "name": "TPE3 40-200", "floor_id": "B1F", "location_type": "equipment_room"},
         {"id": "hw_pump_b1", "type": "循环泵", "name": "TPE3 40-200", "floor_id": "B1F", "location_type": "equipment_room"},
         {"id": "tower_roof", "type": "冷却塔", "name": "S15E-1285-06JN", "floor_id": "F3", "location_type": "roof"},
-        {"id": "ashp_roof", "type": "空气源热泵", "name": "CGK-100V3L-B", "quantity": 3, "floor_id": "F3", "location_type": "roof"},
+        {"id": "ashp_roof", "type": "空气源热泵", "name": "SHAF-80H", "quantity": 3, "floor_id": "F3", "location_type": "roof"},
         {"id": "fcu_f1", "type": "风机盘管", "name": "FP-204WA", "quantity": 14, "floor_id": "F1"},
         {"id": "fcu_f2", "type": "风机盘管", "name": "FP-204WA", "quantity": 15, "floor_id": "F2"},
         {"id": "fcu_f3", "type": "风机盘管", "name": "FP-204WA", "quantity": 14, "floor_id": "F3"},
@@ -479,16 +479,16 @@ MULTI_ZONE_ALL_AIR_SAMPLE = {
         },
     ],
     "devices": [
-        {"id": "chiller_b1", "type": "冷源机组", "name": "30XW-P0312P", "floor_id": "B1F", "location_type": "equipment_room"},
+        {"id": "chiller_b1", "type": "冷源机组", "name": "SCWE-90H+B", "floor_id": "B1F", "location_type": "equipment_room"},
         {"id": "chw_pump_b1", "type": "循环泵", "name": "TPE3 40-200", "floor_id": "B1F", "location_type": "equipment_room"},
         {"id": "cw_pump_b1", "type": "循环泵", "name": "TPE3 40-200", "floor_id": "B1F", "location_type": "equipment_room"},
         {"id": "tower_rf", "type": "冷却塔", "name": "S15E-1285-06JN", "floor_id": "RF", "location_type": "roof"},
-        {"id": "ashp_rf", "type": "空气源热泵", "name": "CGK-100V3L-B", "quantity": 3, "floor_id": "RF", "location_type": "roof"},
+        {"id": "ashp_rf", "type": "空气源热泵", "name": "SHAF-80H", "quantity": 3, "floor_id": "RF", "location_type": "roof"},
         {"id": "hw_pump_b1", "type": "循环泵", "name": "TPE3 40-200", "floor_id": "B1F", "location_type": "equipment_room"},
         {
             "id": "ahu_f1",
             "type": "组合式空调机组",
-            "name": "39HQ AiroVision",
+            "name": "AHU-13-18-6排",
             "floor_id": "F1",
         },
         {"id": "outlet_office", "type": "送风口", "floor_id": "F1"},

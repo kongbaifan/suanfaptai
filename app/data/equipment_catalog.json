@@ -2157,6 +2157,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2178,6 +2179,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2199,6 +2201,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2220,6 +2223,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2241,6 +2245,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2262,6 +2267,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2283,6 +2289,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2304,6 +2311,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2325,6 +2333,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2346,6 +2355,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2367,6 +2377,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2388,6 +2399,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2409,6 +2421,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2430,6 +2443,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2451,6 +2465,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2472,6 +2487,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2493,6 +2509,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2514,6 +2531,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2535,6 +2553,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2556,6 +2575,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2577,6 +2597,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2598,6 +2619,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2619,6 +2641,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2640,6 +2663,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2661,6 +2685,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2682,6 +2707,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2703,6 +2729,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2724,6 +2751,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2745,6 +2773,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2766,6 +2795,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2787,6 +2817,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2808,6 +2839,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2829,6 +2861,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2850,6 +2883,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2871,6 +2905,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2892,6 +2927,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2913,6 +2949,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2934,6 +2971,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2955,6 +2993,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2976,6 +3015,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -2997,6 +3037,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -3018,6 +3059,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -3039,6 +3081,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -3060,6 +3103,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",
@@ -3081,6 +3125,7 @@
     "role": "terminal",
     "systems": [
       "chilled_water",
+      "hot_water",
       "air"
     ],
     "brand": "",

@@ -1133,7 +1133,15 @@
     "iplv": 4.1,
     "heating_capacity_kw": 270.7,
     "heating_power_kw": 79.6,
-    "flow_m3_h": 45.4
+    "flow_m3_h": 45.4,
+    "cooling_capacity_kw": 191.1,
+    "cooling_power_kw": 79.6,
+    "eer": 2.4,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "空气源热泵",
@@ -1152,7 +1160,15 @@
     "iplv": 4.05,
     "heating_capacity_kw": 379.1,
     "heating_power_kw": 110.5,
-    "flow_m3_h": 64.6
+    "flow_m3_h": 64.6,
+    "cooling_capacity_kw": 268.6,
+    "cooling_power_kw": 110.5,
+    "eer": 2.43,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "空气源热泵",
@@ -1171,7 +1187,15 @@
     "iplv": 4.05,
     "heating_capacity_kw": 455.9,
     "heating_power_kw": 133.9,
-    "flow_m3_h": 77.1
+    "flow_m3_h": 77.1,
+    "cooling_capacity_kw": 322.0,
+    "cooling_power_kw": 133.9,
+    "eer": 2.4,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "空气源热泵",
@@ -1190,7 +1214,15 @@
     "iplv": 4.05,
     "heating_capacity_kw": 492.4,
     "heating_power_kw": 144.0,
-    "flow_m3_h": 85.8
+    "flow_m3_h": 85.8,
+    "cooling_capacity_kw": 348.4,
+    "cooling_power_kw": 144.0,
+    "eer": 2.42,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "空气源热泵",
@@ -1209,7 +1241,15 @@
     "iplv": 4.09,
     "heating_capacity_kw": 571.4,
     "heating_power_kw": 167.1,
-    "flow_m3_h": 100.4
+    "flow_m3_h": 100.4,
+    "cooling_capacity_kw": 404.3,
+    "cooling_power_kw": 167.1,
+    "eer": 2.42,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "空气源热泵",
@@ -1228,7 +1268,15 @@
     "iplv": 4.07,
     "heating_capacity_kw": 588.4,
     "heating_power_kw": 171.8,
-    "flow_m3_h": 108.4
+    "flow_m3_h": 108.4,
+    "cooling_capacity_kw": 416.6,
+    "cooling_power_kw": 171.8,
+    "eer": 2.42,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "空气源热泵",
@@ -1247,7 +1295,15 @@
     "iplv": 4.05,
     "heating_capacity_kw": 703.1,
     "heating_power_kw": 205.6,
-    "flow_m3_h": 126.1
+    "flow_m3_h": 126.1,
+    "cooling_capacity_kw": 497.5,
+    "cooling_power_kw": 205.6,
+    "eer": 2.42,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "空气源热泵",
@@ -1266,7 +1322,15 @@
     "iplv": 4.09,
     "heating_capacity_kw": 767.4,
     "heating_power_kw": 225.0,
-    "flow_m3_h": 137.2
+    "flow_m3_h": 137.2,
+    "cooling_capacity_kw": 542.4,
+    "cooling_power_kw": 225.0,
+    "eer": 2.41,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "空气源热泵",
@@ -1285,7 +1349,15 @@
     "iplv": 4.05,
     "heating_capacity_kw": 835.0,
     "heating_power_kw": 244.4,
-    "flow_m3_h": 141.7
+    "flow_m3_h": 141.7,
+    "cooling_capacity_kw": 590.6,
+    "cooling_power_kw": 244.4,
+    "eer": 2.42,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "空气源热泵",
@@ -1304,7 +1376,15 @@
     "iplv": 4.05,
     "heating_capacity_kw": 911.8,
     "heating_power_kw": 267.8,
-    "flow_m3_h": 154.3
+    "flow_m3_h": 154.3,
+    "cooling_capacity_kw": 644.0,
+    "cooling_power_kw": 267.8,
+    "eer": 2.4,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "空气源热泵",
@@ -1323,7 +1403,15 @@
     "iplv": 4.05,
     "heating_capacity_kw": 948.3,
     "heating_power_kw": 277.9,
-    "flow_m3_h": 162.9
+    "flow_m3_h": 162.9,
+    "cooling_capacity_kw": 670.4,
+    "cooling_power_kw": 277.9,
+    "eer": 2.41,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "空气源热泵",
@@ -1342,7 +1430,15 @@
     "iplv": 4.05,
     "heating_capacity_kw": 984.8,
     "heating_power_kw": 288.7,
-    "flow_m3_h": 171.6
+    "flow_m3_h": 171.6,
+    "cooling_capacity_kw": 696.1,
+    "cooling_power_kw": 288.7,
+    "eer": 2.41,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "空气源热泵",
@@ -1361,7 +1457,15 @@
     "iplv": 4.07,
     "heating_capacity_kw": 1064.0,
     "heating_power_kw": 311.1,
-    "flow_m3_h": 186.2
+    "flow_m3_h": 186.2,
+    "cooling_capacity_kw": 752.9,
+    "cooling_power_kw": 311.1,
+    "eer": 2.42,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "空气源热泵",
@@ -1380,7 +1484,15 @@
     "iplv": 4.09,
     "heating_capacity_kw": 1143.0,
     "heating_power_kw": 334.2,
-    "flow_m3_h": 208.8
+    "flow_m3_h": 208.8,
+    "cooling_capacity_kw": 808.8,
+    "cooling_power_kw": 334.2,
+    "eer": 2.42,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "空气源热泵",
@@ -1399,7 +1511,15 @@
     "iplv": 4.08,
     "heating_capacity_kw": 1190.0,
     "heating_power_kw": 338.9,
-    "flow_m3_h": 208.9
+    "flow_m3_h": 208.9,
+    "cooling_capacity_kw": 851.1,
+    "cooling_power_kw": 338.9,
+    "eer": 2.51,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "空气源热泵",
@@ -1418,7 +1538,15 @@
     "iplv": 4.07,
     "heating_capacity_kw": 1177.0,
     "heating_power_kw": 343.6,
-    "flow_m3_h": 216.9
+    "flow_m3_h": 216.9,
+    "cooling_capacity_kw": 833.4,
+    "cooling_power_kw": 343.6,
+    "eer": 2.43,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "空气源热泵",
@@ -1437,7 +1565,15 @@
     "iplv": 4.06,
     "heating_capacity_kw": 1292.0,
     "heating_power_kw": 379.4,
-    "flow_m3_h": 234.6
+    "flow_m3_h": 234.6,
+    "cooling_capacity_kw": 912.6,
+    "cooling_power_kw": 379.4,
+    "eer": 2.41,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "空气源热泵",
@@ -1456,7 +1592,15 @@
     "iplv": 4.05,
     "heating_capacity_kw": 1406.0,
     "heating_power_kw": 411.2,
-    "flow_m3_h": 252.2
+    "flow_m3_h": 252.2,
+    "cooling_capacity_kw": 994.8,
+    "cooling_power_kw": 411.2,
+    "eer": 2.42,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "空气源热泵",
@@ -1475,7 +1619,15 @@
     "iplv": 4.07,
     "heating_capacity_kw": 1471.0,
     "heating_power_kw": 430.6,
-    "flow_m3_h": 263.4
+    "flow_m3_h": 263.4,
+    "cooling_capacity_kw": 1040.4,
+    "cooling_power_kw": 430.6,
+    "eer": 2.42,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "空气源热泵",
@@ -1494,7 +1646,15 @@
     "iplv": 4.09,
     "heating_capacity_kw": 1535.0,
     "heating_power_kw": 450.0,
-    "flow_m3_h": 274.5
+    "flow_m3_h": 274.5,
+    "cooling_capacity_kw": 1085.0,
+    "cooling_power_kw": 450.0,
+    "eer": 2.41,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "水源热泵",
@@ -1512,7 +1672,15 @@
     "cop": 6.78,
     "heating_capacity_kw": 375.7,
     "heating_power_kw": 76.16,
-    "flow_m3_h": 62.36
+    "flow_m3_h": 62.36,
+    "cooling_capacity_kw": 299.5,
+    "cooling_power_kw": 76.16,
+    "eer": 3.93,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "水源热泵",
@@ -1530,7 +1698,15 @@
     "cop": 6.91,
     "heating_capacity_kw": 477.4,
     "heating_power_kw": 94.83,
-    "flow_m3_h": 77.6
+    "flow_m3_h": 77.6,
+    "cooling_capacity_kw": 382.6,
+    "cooling_power_kw": 94.83,
+    "eer": 4.03,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "水源热泵",
@@ -1548,7 +1724,15 @@
     "cop": 6.91,
     "heating_capacity_kw": 582.7,
     "heating_power_kw": 116.3,
-    "flow_m3_h": 94.48
+    "flow_m3_h": 94.48,
+    "cooling_capacity_kw": 466.4,
+    "cooling_power_kw": 116.3,
+    "eer": 4.01,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "水源热泵",
@@ -1566,7 +1750,15 @@
     "cop": 6.82,
     "heating_capacity_kw": 644.4,
     "heating_power_kw": 128.1,
-    "flow_m3_h": 104.8
+    "flow_m3_h": 104.8,
+    "cooling_capacity_kw": 516.3,
+    "cooling_power_kw": 128.1,
+    "eer": 4.03,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "水源热泵",
@@ -1584,7 +1776,15 @@
     "cop": 6.87,
     "heating_capacity_kw": 757.5,
     "heating_power_kw": 149.0,
-    "flow_m3_h": 126.2
+    "flow_m3_h": 126.2,
+    "cooling_capacity_kw": 608.5,
+    "cooling_power_kw": 149.0,
+    "eer": 4.08,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "地源热泵",
@@ -1602,7 +1802,15 @@
     "cop": 6.3,
     "heating_capacity_kw": 358.9,
     "heating_power_kw": 75.52,
-    "flow_m3_h": 60.79
+    "flow_m3_h": 60.79,
+    "cooling_capacity_kw": 283.4,
+    "cooling_power_kw": 75.52,
+    "eer": 3.75,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "地源热泵",
@@ -1620,7 +1828,15 @@
     "cop": 6.45,
     "heating_capacity_kw": 456.3,
     "heating_power_kw": 94.05,
-    "flow_m3_h": 77.54
+    "flow_m3_h": 77.54,
+    "cooling_capacity_kw": 362.2,
+    "cooling_power_kw": 94.05,
+    "eer": 3.85,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "地源热泵",
@@ -1638,7 +1854,15 @@
     "cop": 6.41,
     "heating_capacity_kw": 556.9,
     "heating_power_kw": 115.2,
-    "flow_m3_h": 94.33
+    "flow_m3_h": 94.33,
+    "cooling_capacity_kw": 441.7,
+    "cooling_power_kw": 115.2,
+    "eer": 3.83,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "地源热泵",
@@ -1656,7 +1880,15 @@
     "cop": 6.38,
     "heating_capacity_kw": 615.7,
     "heating_power_kw": 126.9,
-    "flow_m3_h": 104.61
+    "flow_m3_h": 104.61,
+    "cooling_capacity_kw": 488.8,
+    "cooling_power_kw": 126.9,
+    "eer": 3.85,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "地源热泵",
@@ -1674,7 +1906,15 @@
     "cop": 6.44,
     "heating_capacity_kw": 724.2,
     "heating_power_kw": 147.7,
-    "flow_m3_h": 123.18
+    "flow_m3_h": 123.18,
+    "cooling_capacity_kw": 576.5,
+    "cooling_power_kw": 147.7,
+    "eer": 3.9,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "地源热泵",
@@ -1692,7 +1932,15 @@
     "cop": 6.36,
     "heating_capacity_kw": 837.7,
     "heating_power_kw": 173.8,
-    "flow_m3_h": 142.1
+    "flow_m3_h": 142.1,
+    "cooling_capacity_kw": 663.9,
+    "cooling_power_kw": 173.8,
+    "eer": 3.82,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "地源热泵",
@@ -1710,7 +1958,15 @@
     "cop": 6.34,
     "heating_capacity_kw": 904.6,
     "heating_power_kw": 187.1,
-    "flow_m3_h": 153.53
+    "flow_m3_h": 153.53,
+    "cooling_capacity_kw": 717.5,
+    "cooling_power_kw": 187.1,
+    "eer": 3.83,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "地源热泵",
@@ -1728,7 +1984,15 @@
     "cop": 6.35,
     "heating_capacity_kw": 1058.0,
     "heating_power_kw": 219.2,
-    "flow_m3_h": 180.05
+    "flow_m3_h": 180.05,
+    "cooling_capacity_kw": 838.8,
+    "cooling_power_kw": 219.2,
+    "eer": 3.83,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "地源热泵",
@@ -1746,7 +2010,15 @@
     "cop": 6.43,
     "heating_capacity_kw": 1109.0,
     "heating_power_kw": 229.3,
-    "flow_m3_h": 187.62
+    "flow_m3_h": 187.62,
+    "cooling_capacity_kw": 879.7,
+    "cooling_power_kw": 229.3,
+    "eer": 3.84,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "地源热泵",
@@ -1764,7 +2036,15 @@
     "cop": 6.38,
     "heating_capacity_kw": 1233.0,
     "heating_power_kw": 253.6,
-    "flow_m3_h": 209.29
+    "flow_m3_h": 209.29,
+    "cooling_capacity_kw": 979.4,
+    "cooling_power_kw": 253.6,
+    "eer": 3.86,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "地源热泵",
@@ -1782,7 +2062,15 @@
     "cop": 6.42,
     "heating_capacity_kw": 1446.0,
     "heating_power_kw": 294.7,
-    "flow_m3_h": 245.4
+    "flow_m3_h": 245.4,
+    "cooling_capacity_kw": 1151.3,
+    "cooling_power_kw": 294.7,
+    "eer": 3.91,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "地源热泵",
@@ -1800,7 +2088,15 @@
     "cop": 6.46,
     "heating_capacity_kw": 1636.0,
     "heating_power_kw": 335.0,
-    "flow_m3_h": 277.9
+    "flow_m3_h": 277.9,
+    "cooling_capacity_kw": 1301.0,
+    "cooling_power_kw": 335.0,
+    "eer": 3.88,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "地源热泵",
@@ -1818,7 +2114,15 @@
     "cop": 6.37,
     "heating_capacity_kw": 1802.0,
     "heating_power_kw": 371.1,
-    "flow_m3_h": 305.59
+    "flow_m3_h": 305.59,
+    "cooling_capacity_kw": 1430.9,
+    "cooling_power_kw": 371.1,
+    "eer": 3.86,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "地源热泵",
@@ -1836,7 +2140,15 @@
     "cop": 6.49,
     "heating_capacity_kw": 2116.0,
     "heating_power_kw": 438.6,
-    "flow_m3_h": 359.93
+    "flow_m3_h": 359.93,
+    "cooling_capacity_kw": 1677.4,
+    "cooling_power_kw": 438.6,
+    "eer": 3.82,
+    "derived_fields": [
+      "cooling_capacity_kw",
+      "cooling_power_kw",
+      "eer"
+    ]
   },
   {
     "type": "组合式空调机组",

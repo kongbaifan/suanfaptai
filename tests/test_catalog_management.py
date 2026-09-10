@@ -132,17 +132,13 @@ def test_catalog_quality_endpoint_reports_coverage():
     assert body["total"] > 0
     assert "cold_source" in body["role_quality"]
     assert "cop" in body["role_quality"]["cold_source"]["field_coverage"]
-    # 热泵家族 39 台当前只有制热工况样本参数：制冷三字段（容量/功率/EER）
-    # 是已知数据缺口，覆盖率如实为 0，待补厂家样本后回填。
+    # 热泵家族 39 台：制热工况来自厂家样本，制冷工况由能量平衡派生
+    # （制冷量 = 制热量 − 输入功率，EER 按同功率推算），均标 derived_fields。
     assert body["role_quality"]["heat_source"]["count"] == 39
-    assert body["role_quality"]["heat_source"]["missing_key_fields"] == [
-        "cooling_capacity_kw",
-        "cooling_power_kw",
-        "eer",
-    ]
-    for field in ("capacity_kw", "flow_m3_h", "power_kw", "cop"):
+    assert body["role_quality"]["heat_source"]["missing_key_fields"] == []
+    for field in ("capacity_kw", "flow_m3_h", "power_kw", "cop",
+                  "cooling_capacity_kw", "cooling_power_kw", "eer"):
         assert body["role_quality"]["heat_source"]["field_coverage"][field] == 1.0
-    assert body["role_quality"]["heat_source"]["field_coverage"]["cooling_capacity_kw"] == 0.0
     assert body["role_quality"]["pump"]["count"] == 7
     assert body["role_quality"]["pump"]["missing_key_fields"] == []
 

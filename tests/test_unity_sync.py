@@ -159,8 +159,9 @@ def test_quality_report_skips_placement_items(isolated_catalog, library_copy):
     unity_sync.import_device_library(library_copy)
 
     report = build_catalog_quality_report()
-    # 摆放条目不参与体检：告警数与同步前一致（207）；总条目 = 工程条目 + 摆放条目。
-    assert len(report["issues"]) == 207
+    # 摆放条目不参与体检：告警只剩组合式机组的水侧/风机功率缺失
+    # （热泵制冷工况补齐后由 207 降至 90）；总条目 = 工程条目 + 摆放条目。
+    assert len(report["issues"]) == 90
     engineering = sum(
         1 for item in _read_catalog(isolated_catalog) if not item.get("placement_only")
     )

@@ -132,13 +132,18 @@ def test_catalog_quality_endpoint_reports_coverage():
     assert body["total"] > 0
     assert "cold_source" in body["role_quality"]
     assert "cop" in body["role_quality"]["cold_source"]["field_coverage"]
-    assert body["role_quality"]["heat_source"]["count"] == 9
-    assert body["role_quality"]["heat_source"]["missing_key_fields"] == []
-    assert body["role_quality"]["heat_source"]["field_coverage"]["flow_m3_h"] == 1.0
-    assert body["role_quality"]["heat_source"]["field_coverage"]["cooling_capacity_kw"] == 1.0
-    assert body["role_quality"]["heat_source"]["field_coverage"]["cooling_power_kw"] == 1.0
-    assert body["role_quality"]["heat_source"]["field_coverage"]["eer"] == 1.0
-    assert body["role_quality"]["pump"]["count"] == 4
+    # 热泵家族 39 台当前只有制热工况样本参数：制冷三字段（容量/功率/EER）
+    # 是已知数据缺口，覆盖率如实为 0，待补厂家样本后回填。
+    assert body["role_quality"]["heat_source"]["count"] == 39
+    assert body["role_quality"]["heat_source"]["missing_key_fields"] == [
+        "cooling_capacity_kw",
+        "cooling_power_kw",
+        "eer",
+    ]
+    for field in ("capacity_kw", "flow_m3_h", "power_kw", "cop"):
+        assert body["role_quality"]["heat_source"]["field_coverage"][field] == 1.0
+    assert body["role_quality"]["heat_source"]["field_coverage"]["cooling_capacity_kw"] == 0.0
+    assert body["role_quality"]["pump"]["count"] == 7
     assert body["role_quality"]["pump"]["missing_key_fields"] == []
 
 
@@ -154,14 +159,23 @@ def test_catalog_quality_excludes_configurable_series_from_coverage():
     assert response.status_code == 200
     body = response.json()
     terminal = body["role_quality"]["terminal"]
-    total_terminals = sum(1 for item in catalog if item.get("role") == "terminal")
-    assert terminal["count"] == total_terminals - len(configurable)
-    assert terminal["missing_key_fields"] == []
+    # 系列条目与摆放条目都不计入覆盖率：只统计有具体规格的工程末端（当前 54 条）。
+    engineering_terminals = [
+        item
+        for item in catalog
+        if item.get("role") == "terminal" and not item.get("placement_only")
+    ]
+    assert terminal["count"] == len(engineering_terminals) - len(configurable)
     assert terminal["field_coverage"]["airflow_m3_h"] == 1.0
-    assert terminal["field_coverage"]["fan_power_kw"] == 1.0
-    assert [
+    # 组合式空调机组尚无水流量/风机功率样本，缺字段告警只落在工程条目上，
+    # 系列条目（62X-05/62X-12）不产生告警。
+    missing_issues = [
         issue for issue in body["issues"] if issue["code"] == "CATALOG_KEY_FIELD_MISSING"
-    ] == []
+    ]
+    assert missing_issues, "工程末端确有缺字段（组合式机组水侧/风机功率）"
+    assert not any(
+        issue["target"].split("/")[-1] in {"62X-05", "62X-12"} for issue in missing_issues
+    )
 
 
 def test_catalog_response_uses_chinese_field_names():
@@ -171,17 +185,15 @@ def test_catalog_response_uses_chinese_field_names():
     chiller = next(
         entry
         for entry in response.json()
-        if entry["设备类型"] == "冷源机组" and entry["型号"] == "30XW-P0312P"
+        if entry["设备类型"] == "冷源机组" and entry["型号"] == "SCWE-100H+B"
     )
     assert chiller["设备角色"] == "cold_source"
-    assert chiller["额定容量"] == 303.5
-    assert chiller["性能系数"] == 5.65
-    assert chiller["输入功率"] == 53.8
-    assert chiller["冷冻水流量"] == 47.16
-    assert chiller["冷却水流量"] == 58.68
-    assert chiller["品牌"] == "Carrier"
-    assert chiller["兼容旧型号"] == ["LG340MCF"]
-    assert chiller["制冷剂"] == "R134a"
+    assert chiller["额定容量"] == 333.8
+    assert chiller["性能系数"] == 5.81
+    assert chiller["输入功率"] == 57.41
+    assert chiller["冷冻水流量"] == 57.42
+    assert chiller["冷却水流量"] == 71.77
+    assert chiller["系列"] == "SCWE 高效满液"
     assert chiller["适用系统"] == ["chilled_water", "cooling_water"]
     assert "capacity_kw" not in chiller
     assert "type" not in chiller
@@ -195,48 +207,30 @@ def test_catalog_response_exposes_heat_pump_operating_data():
     water_source = next(
         entry
         for entry in catalog
-        if entry["设备类型"] == "水源热泵" and entry["型号"] == "CGS-42(HC)"
+        if entry["设备类型"] == "水源热泵" and entry["型号"] == "SHWE-100H-地下水"
     )
     ground_source = next(
         entry
         for entry in catalog
-        if entry["设备类型"] == "地源热泵机组" and entry["型号"] == "W-300-HAC"
+        if entry["设备类型"] == "地源热泵" and entry["型号"] == "SHWE-100H-地埋管"
     )
     air_source = next(
         entry
         for entry in catalog
-        if entry["设备类型"] == "空气源热泵" and entry["型号"] == "CGK-080V4-B"
+        if entry["设备类型"] == "空气源热泵" and entry["型号"] == "SHAF-80H"
     )
 
+    # 运行工况温度字段目前无样本数据，目录不伪造空值
     assert "制冷蒸发器进水温度" not in water_source
     assert "制冷蒸发器出水温度" not in water_source
-    assert "制冷冷凝器进水温度" not in water_source
-    assert "制冷冷凝器出水温度" not in water_source
-    assert water_source["制热蒸发器进水温度"] == 15.0
-    assert water_source["制热蒸发器出水温度"] == 10.0
-    assert water_source["制热冷凝器进水温度"] == 15.0
-    assert water_source["制热冷凝器出水温度"] == 55.0
-    assert water_source["额定制冷量"] == 39.1
-    assert water_source["制冷输入功率"] == 8.58
-    assert water_source["EER"] == 4.56
-    assert ground_source["制冷蒸发器进水温度"] == 12.0
-    assert ground_source["制冷冷凝器进水温度"] == 25.0
-    assert ground_source["制热蒸发器进水温度"] == 0.0
-    assert ground_source["制热冷凝器进水温度"] == 40.0
-    assert "制冷蒸发器出水温度" not in ground_source
-    assert "制热蒸发器出水温度" not in ground_source
-    assert ground_source["额定制冷量"] == 77.0
-    assert ground_source["制冷输入功率"] == 16.18
-    assert ground_source["EER"] == 4.75
-    assert ground_source["额定流量"] == 16.2
-    assert ground_source["源侧流量"] == 16.2
-    assert air_source["制冷蒸发器进水温度"] == 12.0
-    assert air_source["制热冷凝器进水温度"] == 30.0
-    assert air_source["制热冷凝器出水温度"] == 35.0
-    assert air_source["额定制冷量"] == 17.0
-    assert air_source["制冷输入功率"] == 6.641
-    assert air_source["EER"] == 2.56
-    assert air_source["制冷室外干球温度"] == 35.0
-    assert air_source["制热室外干球温度"] == 7.0
-    assert "制冷冷凝器进水温度" not in air_source
-    assert "制热蒸发器进水温度" not in air_source
+    assert "制热蒸发器进水温度" not in water_source
+    assert water_source["额定容量"] == 362.5
+    assert water_source["性能系数"] == 6.78
+    assert water_source["额定制热量"] == 375.7
+    assert water_source["制热输入功率"] == 76.16
+    assert water_source["额定流量"] == 62.36
+    assert ground_source["额定制热量"] == 358.9
+    assert ground_source["制热输入功率"] == 75.52
+    assert air_source["额定容量"] == 264.2
+    assert air_source["额定制热量"] == 270.7
+    assert air_source["性能系数"] == 3.43

@@ -1270,3 +1270,84 @@ def test_project_edit_keeps_websocket_subscribers_connected():
             assert project_id not in realtime._sessions
     finally:
         client.delete(f"/api/v1/projects/{project_id}")
+
+
+def test_realtime_device_states_lists_every_device_and_filters_by_type():
+    project_id, _ = _create_four_floor_project()
+    try:
+        # 未启动仿真时也应返回 tick-zero 只读快照（不创建 session 历史）
+        body = client.get(f"/api/v1/realtime/devices/{project_id}").json()
+        assert body["running"] is False
+        assert body["simcore_tick"] == 0
+        assert body["device_count"] == len(body["devices"]) > 0
+        assert body["filtered_by_type"] is None
+
+        first = body["devices"][0]
+        for field in ("device_id", "device_type", "role", "status", "values", "parameter_origin"):
+            assert field in first
+
+        chillers = client.get(
+            f"/api/v1/realtime/devices/{project_id}", params={"type": "冷源机组"}
+        ).json()
+        assert chillers["filtered_by_type"] == "冷源机组"
+        assert chillers["device_count"] >= 1
+        assert {row["device_type"] for row in chillers["devices"]} == {"冷源机组"}
+
+        fans = client.get(
+            f"/api/v1/realtime/devices/{project_id}", params={"type": "风机盘管"}
+        ).json()
+        assert all(row["device_type"] == "风机盘管" for row in fans["devices"])
+    finally:
+        client.delete(f"/api/v1/projects/{project_id}")
+
+
+def test_realtime_device_states_single_device_and_error_codes():
+    project_id, sample = _create_four_floor_project()
+    try:
+        device_id = sample["devices"][0]["id"]
+        body = client.get(f"/api/v1/realtime/devices/{project_id}/{device_id}").json()
+        assert body["device_count"] == 1
+        assert body["devices"][0]["device_id"] == device_id
+
+        assert client.get(
+            f"/api/v1/realtime/devices/{project_id}/not_a_device"
+        ).status_code == 404
+        assert client.get(
+            f"/api/v1/realtime/devices/{project_id}", params={"type": "不存在的设备类型"}
+        ).status_code == 422
+        assert client.get(
+            "/api/v1/realtime/devices/not_a_project"
+        ).status_code == 404
+    finally:
+        client.delete(f"/api/v1/projects/{project_id}")
+
+
+def test_device_state_updated_pushes_only_changed_devices():
+    """增量契约：device_state_updated 只携带本次变化的设备，客户端负责合并。"""
+    project_id, sample = _create_project()
+    try:
+        target = sample["devices"][0]["id"]
+        with client.websocket_connect(f"/ws/realtime/{project_id}") as websocket:
+            assert websocket.receive_json()["type"] == "connected"
+
+            client.post(
+                "/api/v1/realtime/update",
+                json={
+                    "project_id": project_id,
+                    "states": [
+                        {
+                            "project_id": project_id,
+                            "device_id": target,
+                            "status": "running",
+                            "values": {"load_ratio": 0.5},
+                        }
+                    ],
+                },
+            )
+            message = websocket.receive_json()
+            assert message["type"] == "device_state_updated"
+            # 只推变化的那一台，而非整项目的全量设备
+            assert list(message["data"]["devices"]) == [target]
+            assert message["data"]["project_id"] == project_id
+    finally:
+        client.delete(f"/api/v1/projects/{project_id}")

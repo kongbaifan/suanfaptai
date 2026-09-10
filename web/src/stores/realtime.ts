@@ -270,10 +270,18 @@ export const useRealtimeStore = defineStore("realtime", {
       };
       socket.onmessage = (event) => {
         const message = JSON.parse(event.data) as { type?: string; data?: unknown };
-        if (["connected", "system_tick", "device_state_updated"].includes(message.type ?? "") && this.isRealtimeState(message.data)) {
+        if (["connected", "system_tick"].includes(message.type ?? "") && this.isRealtimeState(message.data)) {
           this.current = message.data;
           this.stale = false;
           if (message.type === "system_tick") void Promise.all([this.loadRooms(target), this.loadPipes(target), this.loadControls(target)]);
+        } else if (message.type === "device_state_updated" && this.isRealtimeState(message.data)) {
+          // 增量事件只含本次变化的设备：合并进现有快照，不能整体替换。
+          const incoming = message.data;
+          this.current =
+            this.current && this.current.project_id === incoming.project_id
+              ? { ...this.current, ...incoming, devices: { ...this.current.devices, ...incoming.devices } }
+              : incoming;
+          this.stale = false;
         } else if (message.type === "simulation_status" && typeof message.data === "object" && message.data !== null) {
           this.running = (message.data as { running?: boolean }).running === true;
         }

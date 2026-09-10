@@ -23,7 +23,9 @@ from app.schemas import (
     RealtimeControlsResetRequest,
     RealtimeControlValue,
     RealtimeDeviceControls,
+    RealtimeDeviceReading,
     RealtimeDeviceState,
+    RealtimeDeviceStatesResult,
     RealtimeHistoryResult,
     RealtimePipeState,
     RealtimePipeStatesResult,
@@ -118,9 +120,17 @@ async def update_realtime_state(request: RealtimeUpdateRequest) -> RealtimeSyste
     system_state = _build_system_state(request.project_id)
     _append_history(request.project_id, system_state)
     system_state.history_count = len(_read_history(request.project_id))
-    await _broadcast(
-        request.project_id, "device_state_updated", system_state.model_dump()
-    )
+    # 增量推送：只发本次实际变化的设备，客户端按 device_id 合并进现有快照。
+    # 全量快照仍由 "connected"/"system_tick" 事件或 GET /realtime/state 提供，
+    # 因此大数据量项目下逐设备推送不再重传整份状态。
+    changed_ids = [state.device_id for state in request.states]
+    delta = system_state.model_dump()
+    delta["devices"] = {
+        device_id: system_state.devices[device_id].model_dump()
+        for device_id in changed_ids
+        if device_id in system_state.devices
+    }
+    await _broadcast(request.project_id, "device_state_updated", delta)
     return system_state
 
 
@@ -528,6 +538,80 @@ def get_pipe_states(project_id: str) -> RealtimePipeStatesResult:
         pipes=pipes,
         total_flow_by_system_m3_h=_pipe_flow_by_system(readings),
         most_loaded_pipe_id=_most_loaded_pipe_id(readings),
+    )
+
+
+def get_device_states(
+    project_id: str,
+    device_id: str | None = None,
+    device_type: str | None = None,
+) -> RealtimeDeviceStatesResult:
+    """当前 tick 的逐设备运行读数
+
+    与 `get_room_states`/`get_pipe_states` 同为只读投影：仿真未启动时返回
+    tick-zero 快照，不创建 session 历史、不广播。可按设备 id 精确取单台，
+    或按设备类型（如「冷源机组」）批量筛选。
+    """
+    record = get_project(project_id)
+    project = record.project
+    config = get_simulation_config(project_id)
+    session = _sessions.get(project_id)
+    if session is None:
+        resolved = build_runtime_layout(project)
+        session = SimulationSession(
+            resolved.layout, _simulation_config(project, config)
+        )
+    snapshot = session.snapshot
+    floor_names = {floor.id: floor.name or floor.id for floor in project.floors}
+
+    known_ids = {device.id for device in project.devices}
+    if device_id is not None and device_id not in known_ids:
+        raise KeyError(device_id)
+    if device_type is not None:
+        # 非法设备类型：目录类型解析会抛 ValueError，交给上层转 422。
+        if not any(device.type == device_type for device in project.devices):
+            raise ValueError(f"项目中不存在设备类型：{device_type}")
+
+    readings = []
+    roles_by_device = {
+        node.instance_id: node.rated.role for node in session.layout.devices
+    }
+    for device in project.devices:
+        if device_id is not None and device.id != device_id:
+            continue
+        if device_type is not None and device.type != device_type:
+            continue
+        reading = snapshot.devices[device.id]
+        values: dict[str, float | str | bool | None] = dict(reading.values)
+        role = _legacy_role(roles_by_device[device.id])
+        enabled = (
+            float(values.get("enabled", 1.0) or 0.0) >= 0.5
+            and float(values.get("active_count", 1.0) or 0.0) >= 0.5
+        )
+        readings.append(
+            RealtimeDeviceReading(
+                project_id=project_id,
+                device_id=device.id,
+                device_type=device.type,
+                model_name=device.name,
+                floor_id=device.floor_id,
+                floor_name=floor_names.get(device.floor_id or "", device.floor_id),
+                role=role,
+                status="running" if enabled else "stopped",
+                parameter_origin=reading.parameter_origin,
+                parameters_degraded=bool(reading.degraded_fields),
+                control_source=session.control_source(device.id),
+                values=values,
+            )
+        )
+
+    return RealtimeDeviceStatesResult(
+        project_id=project_id,
+        running=is_simulation_running(project_id),
+        simcore_tick=snapshot.tick,
+        devices=readings,
+        device_count=len(readings),
+        filtered_by_type=device_type,
     )
 
 

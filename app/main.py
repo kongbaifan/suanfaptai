@@ -45,6 +45,7 @@ from app.realtime import get_realtime_history
 from app.realtime import get_realtime_state
 from app.realtime import get_room_states
 from app.realtime import get_pipe_states
+from app.realtime import get_device_states
 from app.realtime import get_rated_devices
 from app.realtime import get_runtime_controls
 from app.realtime import reset_runtime_controls
@@ -93,6 +94,7 @@ from app.schemas import (
     RealtimeControlsResult,
     RealtimeControlsResetRequest,
     RealtimeHistoryResult,
+    RealtimeDeviceStatesResult,
     RealtimePipeStatesResult,
     RealtimeRoomStatesResult,
     RealtimeSimulationConfig,
@@ -276,6 +278,39 @@ def realtime_pipes(project_id: str) -> RealtimePipeStatesResult:
         return get_pipe_states(project_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Project not found.") from exc
+
+
+@app.get(
+    "/api/v1/realtime/devices/{project_id}",
+    response_model=RealtimeDeviceStatesResult,
+    responses={
+        404: {"description": "Project not found or unknown device id."},
+        422: {"description": "Unknown device type."},
+    },
+)
+def realtime_devices(project_id: str, type: str | None = None) -> RealtimeDeviceStatesResult:
+    """全项目逐设备运行读数，可用 `type` 按设备类型筛选。"""
+    try:
+        return get_device_states(project_id, device_type=type)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get(
+    "/api/v1/realtime/devices/{project_id}/{device_id}",
+    response_model=RealtimeDeviceStatesResult,
+    responses={404: {"description": "Project or device not found."}},
+)
+def realtime_device_detail(project_id: str, device_id: str) -> RealtimeDeviceStatesResult:
+    """单台设备的运行读数。"""
+    try:
+        return get_device_states(project_id, device_id=device_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found.") from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Device not found.") from exc
 
 
 @app.get("/api/v1/realtime/history/{project_id}", response_model=RealtimeHistoryResult)

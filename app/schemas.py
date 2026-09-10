@@ -536,6 +536,30 @@ class RealtimePipeStatesResult(BaseModel):
     most_loaded_pipe_id: str | None = None
 
 
+class RealtimeDeviceReading(BaseModel):
+    project_id: str
+    device_id: str
+    device_type: str
+    model_name: str | None = None
+    floor_id: str | None = None
+    floor_name: str | None = None
+    role: str | None = None
+    status: Literal["running", "stopped", "alarm", "offline"] = "running"
+    parameter_origin: str | None = None
+    parameters_degraded: bool = False
+    control_source: str | None = None
+    values: dict[str, float | str | bool | None] = {}
+
+
+class RealtimeDeviceStatesResult(BaseModel):
+    project_id: str
+    running: bool
+    simcore_tick: int
+    devices: list[RealtimeDeviceReading]
+    device_count: int = 0
+    filtered_by_type: str | None = None
+
+
 class RealtimeControlRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -1,0 +1,14 @@
+{
+  "product": "HVACAlgorithmService",
+  "app_version": "0.1.0",
+  "project_schema_version": "1.0",
+  "build_mode": "source",
+  "resources": [
+    "app/data/equipment_catalog.json",
+    "app/data/equipment_knowledge.json",
+    "app/data/rules.json",
+    "app/data/migrations/manifest.json",
+    "app/static",
+    "Assets/StreamingAssets/SoftwareSerializationData/Json/DeviceLibrary.json"
+  ]
+}

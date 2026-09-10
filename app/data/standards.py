@@ -1,0 +1,75 @@
+"""Engineering defaults and standard sizes used by the v1 calculators."""
+
+STANDARD_WATER_PIPES = [
+    {"dn": 15, "inner_diameter_mm": 16.0},
+    {"dn": 20, "inner_diameter_mm": 21.0},
+    {"dn": 25, "inner_diameter_mm": 27.0},
+    {"dn": 32, "inner_diameter_mm": 35.0},
+    {"dn": 40, "inner_diameter_mm": 41.0},
+    {"dn": 50, "inner_diameter_mm": 52.0},
+    {"dn": 65, "inner_diameter_mm": 68.0},
+    {"dn": 80, "inner_diameter_mm": 80.0},
+    {"dn": 100, "inner_diameter_mm": 102.0},
+    {"dn": 125, "inner_diameter_mm": 128.0},
+    {"dn": 150, "inner_diameter_mm": 154.0},
+    {"dn": 200, "inner_diameter_mm": 203.0},
+    {"dn": 250, "inner_diameter_mm": 254.0},
+    {"dn": 300, "inner_diameter_mm": 303.0},
+]
+
+STANDARD_RECT_DUCTS = [
+    (160, 120),
+    (200, 120),
+    (200, 160),
+    (250, 160),
+    (250, 200),
+    (320, 200),
+    (320, 250),
+    (400, 200),
+    (400, 250),
+    (400, 320),
+    (500, 250),
+    (500, 320),
+    (500, 400),
+    (630, 320),
+    (630, 400),
+    (630, 500),
+    (800, 400),
+    (800, 500),
+    (800, 630),
+    (1000, 500),
+    (1000, 630),
+    (1000, 800),
+    (1250, 630),
+    (1250, 800),
+    (1600, 800),
+    (1600, 1000),
+    (2000, 1000),
+]
+
+STANDARD_ROUND_DUCTS_MM = [
+    100,
+    125,
+    160,
+    200,
+    250,
+    315,
+    400,
+    500,
+    630,
+    800,
+    1000,
+    1250,
+    1600,
+]
+
+DEFAULT_DEVICE_CAPACITY_KW = {
+    "冷源机组": 340.0,
+    "冷水机组": 340.0,
+    "风机盘管": 3.5,
+    "组合式空调机组": 40.0,
+    "一体式新风机组": 12.0,
+    "冷却塔": 35.0,
+    "循环泵": 0.0,
+}
+

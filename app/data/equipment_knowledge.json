@@ -1,0 +1,248 @@
+[
+  {
+    "knowledge_id": "cold_source",
+    "device_type": "冷源机组",
+    "name": "冷水机组",
+    "overview": "集中制取冷冻水，为空调末端提供稳定冷量。",
+    "catalog_linked": true,
+    "catalog_device_type": "冷源机组",
+    "applicable_systems": ["chilled_water", "cooling_water", "refrigerant"],
+    "principle": "制冷剂在蒸发器中吸收冷冻水热量，经压缩后在冷凝器向冷却水放热，再经节流降压循环工作。",
+    "components": [
+      {"name": "蒸发器", "function": "让制冷剂吸收冷冻水热量并蒸发。"},
+      {"name": "压缩机", "function": "提高制冷剂蒸气的压力和温度。"},
+      {"name": "冷凝器", "function": "将制冷剂热量传给冷却水。"},
+      {"name": "节流装置", "function": "降低制冷剂压力并调节循环流量。"}
+    ],
+    "key_parameters": [
+      {"key": "capacity_kw", "name": "额定制冷量", "unit": "kW", "description": "机组在额定工况下可提供的冷量。", "catalog_field": "capacity_kw"},
+      {"key": "cop", "name": "性能系数", "unit": null, "description": "制冷量与输入功率之比，数值越大表示额定效率越高。", "catalog_field": "cop"},
+      {"key": "chilled_flow_m3_h", "name": "冷冻水流量", "unit": "m3/h", "description": "蒸发器侧额定水流量。", "catalog_field": "chilled_flow_m3_h"},
+      {"key": "cooling_flow_m3_h", "name": "冷却水流量", "unit": "m3/h", "description": "冷凝器侧额定水流量。", "catalog_field": "cooling_flow_m3_h"},
+      {"key": "power_kw", "name": "输入功率", "unit": "kW", "description": "机组在目录额定工况下的电功率。", "catalog_field": "power_kw"}
+    ]
+  },
+  {
+    "knowledge_id": "circulation_pump",
+    "device_type": "循环泵",
+    "name": "水系统循环泵",
+    "overview": "克服管路和设备阻力，维持水系统所需循环流量。",
+    "catalog_linked": true,
+    "catalog_device_type": "循环泵",
+    "applicable_systems": ["chilled_water", "cooling_water", "hot_water", "source_water"],
+    "principle": "电动机带动叶轮旋转，将机械能传给水流，使水获得流量和扬程并沿闭式或开式回路循环。",
+    "components": [
+      {"name": "叶轮", "function": "旋转做功并提高水流能量。"},
+      {"name": "泵壳", "function": "汇集水流并将部分速度能转为压力能。"},
+      {"name": "电动机", "function": "为叶轮提供驱动力。"},
+      {"name": "机械密封", "function": "限制泵轴穿出处的介质泄漏。"}
+    ],
+    "key_parameters": [
+      {"key": "flow_m3_h", "name": "额定流量", "unit": "m3/h", "description": "泵在额定工况下输送的水量。", "catalog_field": "flow_m3_h"},
+      {"key": "head_m", "name": "额定扬程", "unit": "m", "description": "单台泵在额定工况下可提供的水头。", "catalog_field": "head_m"},
+      {"key": "power_kw", "name": "额定功率", "unit": "kW", "description": "目录给出的泵输入功率。", "catalog_field": "power_kw"},
+      {"key": "efficiency", "name": "泵效率", "unit": null, "description": "有效水功率与输入功率之比。", "catalog_field": "efficiency"},
+      {"key": "variable_speed", "name": "变频能力", "unit": null, "description": "表示泵是否支持通过转速调节流量和扬程。", "catalog_field": "variable_speed"}
+    ]
+  },
+  {
+    "knowledge_id": "cooling_tower",
+    "device_type": "冷却塔",
+    "name": "机械通风冷却塔",
+    "overview": "把冷却水从冷凝器带来的热量排向室外空气。",
+    "catalog_linked": true,
+    "catalog_device_type": "冷却塔",
+    "applicable_systems": ["cooling_water", "air"],
+    "principle": "热水在填料表面形成水膜，与流动空气直接接触，通过显热交换和少量水蒸发带走热量。",
+    "components": [
+      {"name": "填料", "function": "扩大水与空气的接触面积和接触时间。"},
+      {"name": "风机", "function": "驱动空气穿过塔体和填料。"},
+      {"name": "布水器", "function": "将热水均匀分配到填料上。"},
+      {"name": "集水盘", "function": "收集降温后的循环水。"}
+    ],
+    "key_parameters": [
+      {"key": "capacity_kw", "name": "散热能力", "unit": "kW", "description": "冷却塔在额定工况下可排出的热量。", "catalog_field": "capacity_kw"},
+      {"key": "flow_m3_h", "name": "额定水量", "unit": "m3/h", "description": "冷却塔设计处理的循环水流量。", "catalog_field": "flow_m3_h"},
+      {"key": "fan_power_kw", "name": "风机功率", "unit": "kW", "description": "冷却塔风机的目录额定功率。", "catalog_field": "fan_power_kw"},
+      {"key": "approach_c", "name": "逼近度", "unit": "C", "description": "出塔水温与进塔空气湿球温度之差。", "catalog_field": "approach_c"}
+    ]
+  },
+  {
+    "knowledge_id": "fan_coil_unit",
+    "device_type": "风机盘管",
+    "name": "风机盘管机组",
+    "overview": "在房间或局部区域内完成空气循环和冷热量交换。",
+    "catalog_linked": true,
+    "catalog_device_type": "风机盘管",
+    "applicable_systems": ["chilled_water", "hot_water", "air"],
+    "principle": "小型风机驱动室内空气通过水盘管，空气与盘管内冷水或热水换热后送回房间。",
+    "components": [
+      {"name": "换热盘管", "function": "在空气与冷水或热水之间传递热量。"},
+      {"name": "风机", "function": "克服机内阻力并循环室内空气。"},
+      {"name": "空气过滤器", "function": "拦截回风中的较大颗粒物。"},
+      {"name": "凝结水盘", "function": "收集制冷时盘管表面产生的凝结水。"}
+    ],
+    "key_parameters": [
+      {"key": "capacity_kw", "name": "额定制冷量", "unit": "kW", "description": "机组在目录工况下可处理的显热和潜热总量。", "catalog_field": "capacity_kw"},
+      {"key": "airflow_m3_h", "name": "额定风量", "unit": "m3/h", "description": "风机盘管每小时循环的空气体积。", "catalog_field": "airflow_m3_h"},
+      {"key": "water_flow_m3_h", "name": "额定水量", "unit": "m3/h", "description": "盘管达到目录能力时所需的水流量。", "catalog_field": "water_flow_m3_h"},
+      {"key": "fan_power_kw", "name": "风机功率", "unit": "kW", "description": "机组风机的目录额定功率。", "catalog_field": "fan_power_kw"},
+      {"key": "noise_db", "name": "噪声", "unit": "dB(A)", "description": "目录工况下的运行声压级参考值。", "catalog_field": "noise_db"}
+    ]
+  },
+  {
+    "knowledge_id": "air_handling_unit",
+    "device_type": "组合式空调机组",
+    "name": "组合式空气处理机组",
+    "overview": "集中完成过滤、冷却或加热，并向一个或多个区域送风。",
+    "catalog_linked": true,
+    "catalog_device_type": "组合式空调机组",
+    "applicable_systems": ["chilled_water", "hot_water", "air"],
+    "principle": "回风与新风按设计比例混合后依次经过过滤和盘管处理，再由送风机克服风道阻力送至各区域。",
+    "components": [
+      {"name": "过滤段", "function": "去除空气中的颗粒物并保护下游部件。"},
+      {"name": "表冷或加热盘管", "function": "调节空气温度，制冷时同时可除湿。"},
+      {"name": "风机段", "function": "提供机组和风管系统所需静压。"},
+      {"name": "混风与风阀段", "function": "组织新风、回风和排风的比例与流向。"}
+    ],
+    "key_parameters": [
+      {"key": "airflow_min_m3_h", "name": "系列最小风量", "unit": "m3/h", "description": "厂家公布的39HQ系列风量范围下限。", "catalog_field": "airflow_min_m3_h"},
+      {"key": "airflow_max_m3_h", "name": "系列最大风量", "unit": "m3/h", "description": "厂家公布的39HQ系列风量范围上限。", "catalog_field": "airflow_max_m3_h"},
+      {"key": "configurable_series", "name": "按项目选型", "unit": null, "description": "具体容量、风量、压降和风机功率由项目选型确定。", "catalog_field": "configurable_series"}
+    ]
+  },
+  {
+    "knowledge_id": "fresh_air_unit",
+    "device_type": "一体式新风机组",
+    "name": "一体式新风机组",
+    "overview": "对室外新风进行过滤和温湿度处理后送入使用区域。",
+    "catalog_linked": true,
+    "catalog_device_type": "一体式新风机组",
+    "applicable_systems": ["chilled_water", "hot_water", "air"],
+    "principle": "室外空气经过过滤和水盘管处理，由送风机输送到室内，用于满足卫生新风和部分冷热负荷。",
+    "components": [
+      {"name": "新风过滤器", "function": "拦截室外空气中的颗粒物。"},
+      {"name": "换热盘管", "function": "对新风进行冷却、除湿或加热。"},
+      {"name": "送风机", "function": "驱动新风通过机组和送风管道。"},
+      {"name": "新风阀", "function": "控制进风通断和设计风量。"}
+    ],
+    "key_parameters": [
+      {"key": "nominal_capacity_ton", "name": "名义冷吨", "unit": "ton", "description": "62X型号名称对应的名义容量。", "catalog_field": "nominal_capacity_ton"},
+      {"key": "capacity_kw", "name": "名义容量换算值", "unit": "kW", "description": "由名义冷吨进行单位换算，仅用于系列容量识别。", "catalog_field": "capacity_kw"},
+      {"key": "refrigerant", "name": "制冷剂", "unit": null, "description": "厂家公布的系列制冷剂。", "catalog_field": "refrigerant"},
+      {"key": "configurable_series", "name": "按项目选型", "unit": null, "description": "具体风量、风机功率和工况性能由DOAS Builder确定。", "catalog_field": "configurable_series"}
+    ]
+  },
+  {
+    "knowledge_id": "air_source_heat_pump",
+    "device_type": "空气源热泵",
+    "name": "空气源热泵",
+    "overview": "从室外空气吸收低品位热量，通过负荷侧热水环路为建筑供热。",
+    "catalog_linked": true,
+    "catalog_device_type": "空气源热泵",
+    "applicable_systems": ["air", "refrigerant", "hot_water"],
+    "principle": "制冷剂循环在空气侧换热器与负荷侧换热器之间搬运热量；室外温度和结霜会影响实际制热表现，目录额定值仅描述规定工况。",
+    "components": [
+      {"name": "压缩机", "function": "驱动制冷剂循环并提升蒸气压力。"},
+      {"name": "空气侧换热器", "function": "与室外空气交换热量。"},
+      {"name": "负荷侧换热器", "function": "向建筑热水环路传递热量。"},
+      {"name": "节流与除霜控制", "function": "调节制冷剂流量并在低温结霜时组织除霜。"}
+    ],
+    "key_parameters": [
+      {"key": "capacity_kw", "name": "额定制热量", "unit": "kW", "description": "规定室外空气和出水条件下设备可提供的热量。", "catalog_field": "capacity_kw"},
+      {"key": "flow_m3_h", "name": "负荷侧热水流量", "unit": "m3/h", "description": "负荷侧换热器达到目录制热量时所需的热水流量。", "catalog_field": "flow_m3_h"},
+      {"key": "power_kw", "name": "额定输入功率", "unit": "kW", "description": "规定制热工况下机组消耗的电功率。", "catalog_field": "power_kw"},
+      {"key": "cop", "name": "额定制热性能系数", "unit": null, "description": "额定制热量与输入功率之比，实际值会随室外温度和除霜状态变化。", "catalog_field": "cop"}
+    ]
+  },
+  {
+    "knowledge_id": "water_source_heat_pump",
+    "device_type": "水源热泵",
+    "name": "水源热泵",
+    "overview": "利用地下水或其他稳定水体作为低品位热源，通过负荷侧热水环路为建筑供热。",
+    "catalog_linked": true,
+    "catalog_device_type": "水源热泵",
+    "applicable_systems": ["source_water", "refrigerant", "hot_water"],
+    "principle": "制冷剂循环在源侧水换热器和负荷侧换热器之间搬运热量，源水环路与负荷侧热水环路相互独立，目录仅描述负荷侧额定能力。",
+    "components": [
+      {"name": "压缩机", "function": "驱动制冷剂循环并提高压力。"},
+      {"name": "源侧换热器", "function": "与源水环路交换热量。"},
+      {"name": "负荷侧换热器", "function": "向建筑热水环路提供热量。"},
+      {"name": "膨胀阀", "function": "节流降压并调节制冷剂流量。"}
+    ],
+    "key_parameters": [
+      {"key": "capacity_kw", "name": "额定制热量", "unit": "kW", "description": "规定源水和负荷水条件下设备可提供的热量。", "catalog_field": "capacity_kw"},
+      {"key": "flow_m3_h", "name": "负荷侧热水流量", "unit": "m3/h", "description": "负荷侧换热器达到目录制热量时所需的热水流量；源侧流量不在本目录建模。", "catalog_field": "flow_m3_h"},
+      {"key": "power_kw", "name": "额定输入功率", "unit": "kW", "description": "规定制热工况下机组消耗的电功率。", "catalog_field": "power_kw"},
+      {"key": "cop", "name": "额定制热性能系数", "unit": null, "description": "额定制热量与输入功率之比，源水温度变化会影响实际值。", "catalog_field": "cop"}
+    ]
+  },
+  {
+    "knowledge_id": "ground_source_heat_pump",
+    "device_type": "地源热泵机组",
+    "name": "地源热泵机组",
+    "overview": "利用地埋管环路与土壤交换热量，通过负荷侧热水环路为建筑供热。",
+    "catalog_linked": true,
+    "catalog_device_type": "地源热泵机组",
+    "applicable_systems": ["source_water", "refrigerant", "hot_water"],
+    "principle": "制冷剂循环从地埋管源侧环路吸收热量，再经负荷侧换热器送入建筑热水环路；地埋管场的长期热平衡不属于本目录模型。",
+    "components": [
+      {"name": "压缩机", "function": "驱动制冷剂循环并提高压力。"},
+      {"name": "地源侧换热器", "function": "与地埋管循环水交换热量。"},
+      {"name": "负荷侧换热器", "function": "向建筑热水环路提供热量。"},
+      {"name": "膨胀阀", "function": "节流降压并调节制冷剂流量。"}
+    ],
+    "key_parameters": [
+      {"key": "capacity_kw", "name": "额定制热量", "unit": "kW", "description": "规定地源侧和负荷侧水温条件下设备可提供的热量。", "catalog_field": "capacity_kw"},
+      {"key": "source_flow_m3_h", "name": "地源侧额定流量", "unit": "m3/h", "description": "厂家Ground Loop工况下35%丙二醇地源侧流量。", "catalog_field": "source_flow_m3_h"},
+      {"key": "power_kw", "name": "额定输入功率", "unit": "kW", "description": "规定制热工况下机组消耗的电功率。", "catalog_field": "power_kw"},
+      {"key": "cop", "name": "额定制热性能系数", "unit": null, "description": "额定制热量与输入功率之比，地埋管进水温度会影响实际值。", "catalog_field": "cop"}
+    ]
+  },
+  {
+    "knowledge_id": "heat_exchanger",
+    "device_type": "换热器",
+    "name": "水系统换热器",
+    "overview": "在互不混合的两种流体之间传递热量并隔离水质或压力等级。",
+    "catalog_linked": false,
+    "catalog_device_type": null,
+    "applicable_systems": ["chilled_water", "cooling_water", "hot_water", "source_water"],
+    "principle": "一次侧与二次侧流体分别流过传热表面，热量在温差驱动下通过金属壁传递，流体本身保持隔离。",
+    "components": [
+      {"name": "传热板片或管束", "function": "提供两侧流体之间的传热面积。"},
+      {"name": "一次侧接口", "function": "连接热源或冷源侧循环。"},
+      {"name": "二次侧接口", "function": "连接建筑负荷侧循环。"},
+      {"name": "壳体与密封", "function": "承受系统压力并防止两侧流体泄漏混合。"}
+    ],
+    "key_parameters": [
+      {"key": "heat_transfer_capacity_kw", "name": "换热量", "unit": "kW", "description": "规定进出口温度和流量下可传递的热量。", "catalog_field": null},
+      {"key": "primary_flow_m3_h", "name": "一次侧流量", "unit": "m3/h", "description": "一次侧达到设计换热量所需的流量。", "catalog_field": null},
+      {"key": "secondary_flow_m3_h", "name": "二次侧流量", "unit": "m3/h", "description": "二次侧达到设计换热量所需的流量。", "catalog_field": null},
+      {"key": "approach_c", "name": "端温差", "unit": "C", "description": "换热器两端冷热流体之间的最小温差。", "catalog_field": null},
+      {"key": "pressure_drop_kpa", "name": "侧向压降", "unit": "kPa", "description": "流体通过换热器某一侧产生的压力损失。", "catalog_field": null}
+    ]
+  },
+  {
+    "knowledge_id": "compressor",
+    "device_type": "压缩机",
+    "name": "制冷压缩机",
+    "overview": "提升制冷剂蒸气压力，是蒸气压缩制冷循环的动力核心。",
+    "catalog_linked": false,
+    "catalog_device_type": null,
+    "applicable_systems": ["refrigerant"],
+    "principle": "压缩机构吸入低压制冷剂蒸气并对其做功，排出高压高温蒸气，使制冷剂能够在冷凝器中向外放热。",
+    "components": [
+      {"name": "电动机", "function": "为压缩机构提供机械动力。"},
+      {"name": "压缩机构", "function": "减小气体容积或提高动量以提升压力。"},
+      {"name": "润滑系统", "function": "减少运动部件摩擦并带走部分热量。"},
+      {"name": "吸排气口", "function": "组织低压吸气和高压排气流动。"}
+    ],
+    "key_parameters": [
+      {"key": "displacement_m3_h", "name": "理论排量", "unit": "m3/h", "description": "压缩机构单位时间内扫过的理论气体体积。", "catalog_field": null},
+      {"key": "input_power_kw", "name": "输入功率", "unit": "kW", "description": "压缩机在指定工况下消耗的电功率。", "catalog_field": null},
+      {"key": "pressure_ratio", "name": "压比", "unit": null, "description": "绝对排气压力与绝对吸气压力之比。", "catalog_field": null},
+      {"key": "isentropic_efficiency", "name": "等熵效率", "unit": null, "description": "理想等熵压缩功与实际压缩功之比。", "catalog_field": null},
+      {"key": "speed_rpm", "name": "转速", "unit": "rpm", "description": "压缩机主轴或驱动机构每分钟的转数。", "catalog_field": null}
+    ]
+  }
+]

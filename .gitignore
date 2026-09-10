@@ -1,0 +1,45 @@
+__pycache__/
+*.py[cod]
+dist/
+build/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.mypy_cache
+
+# pytest 临时工作目录
+.pytest-tmp-*/
+.pytest_tmp_*/
+
+# Vue 临时构建目录
+web/.tmp-*/
+
+# 运行期生成的遥测数据
+app/data/realtime_history/
+
+# 运行期生成的项目存档：每条评估历史约 126KB、上限 50 条，体积会持续膨胀
+app/data/projects/
+
+# 本地运行服务进程文件与日志
+.runtime-server.*
+.pytest_tmp/
+
+# 本地临时工作目录：uvicorn 日志与厂家样本 PDF（设备目录参数出处，不入库）
+tmp/
+
+# 设备卡片 HTML 原型与设计参考截图
+document/
+
+# 本地工具状态与分析输出
+.zcode/
+.claude/
+graphify-out/
+
+# 前端依赖
+node_modules/
+
+# 设备目录废弃备份与打包产物
+app/data/equipment_catalog.json.backup
+app/data/equipment_catalog_new_part1.json
+*.zip

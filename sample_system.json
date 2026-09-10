@@ -1,0 +1,99 @@
+{
+  "rooms": [
+    {
+      "id": "office_1",
+      "name": "office_1",
+      "device_ids": ["fcu_1"],
+      "area_m2": 120,
+      "height_m": 3.2,
+      "people": 18,
+      "purpose": "office"
+    },
+    {
+      "id": "meeting_1",
+      "name": "meeting_1",
+      "device_ids": ["fcu_1"],
+      "area_m2": 60,
+      "height_m": 3.2,
+      "people": 20,
+      "purpose": "meeting"
+    }
+  ],
+  "devices": [
+    {
+      "id": "chiller_1",
+      "type": "冷源机组",
+      "name": "LG340MCF",
+      "capacity_kw": 340
+    },
+    {
+      "id": "pump_1",
+      "type": "循环泵",
+      "name": "EC80"
+    },
+    {
+      "id": "tower_1",
+      "type": "冷却塔",
+      "name": "CT-100",
+      "capacity_kw": 100
+    },
+    {
+      "id": "fcu_1",
+      "type": "风机盘管",
+      "name": "MCW1000V",
+      "capacity_kw": 10,
+      "quantity": 6
+    }
+  ],
+  "pipes": [
+    {
+      "id": "pipe_1",
+      "system": "chilled_water",
+      "length_m": 30,
+      "diameter_mm": 80
+    },
+    {
+      "id": "pipe_2",
+      "system": "cooling_water",
+      "length_m": 25,
+      "diameter_mm": 80
+    }
+  ],
+  "connections": [
+    {
+      "from_id": "chiller_1",
+      "to_id": "pump_1",
+      "system": "chilled_water"
+    },
+    {
+      "from_id": "pump_1",
+      "to_id": "pipe_1",
+      "system": "chilled_water"
+    },
+    {
+      "from_id": "pipe_1",
+      "to_id": "fcu_1",
+      "system": "chilled_water"
+    },
+    {
+      "from_id": "fcu_1",
+      "to_id": "chiller_1",
+      "system": "chilled_water"
+    },
+    {
+      "from_id": "chiller_1",
+      "to_id": "pipe_2",
+      "system": "cooling_water"
+    },
+    {
+      "from_id": "pipe_2",
+      "to_id": "tower_1",
+      "system": "cooling_water"
+    },
+    {
+      "from_id": "tower_1",
+      "to_id": "chiller_1",
+      "system": "cooling_water"
+    }
+  ]
+}

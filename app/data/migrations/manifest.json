@@ -1,0 +1,9 @@
+{
+  "format": "hvac-project-migrations/1",
+  "current_schema_version": "1.0",
+  "migrations": [],
+  "policy": {
+    "backup_before_migration": true,
+    "older_version_read_only_diagnostics": true
+  }
+}

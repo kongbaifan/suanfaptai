@@ -1,0 +1,27 @@
+{
+  "water_velocity_m_s": {
+    "chilled_water": {"min": 0.6, "max": 2.5},
+    "cooling_water": {"min": 0.8, "max": 3.0},
+    "hot_water": {"min": 0.5, "max": 2.0}
+  },
+  "air_velocity_m_s": {
+    "main_duct": {"min": 2.0, "max": 8.0}
+  },
+  "capacity_margin": {
+    "min": 1.0,
+    "max": 1.35
+  },
+  "pump_margin": {
+    "head_min": 1.05,
+    "head_max": 1.3,
+    "flow_min": 1.0,
+    "flow_max": 1.25
+  },
+  "pressure_defaults": {
+    "water_friction_factor": 0.025,
+    "air_friction_factor": 0.02,
+    "water_local_k": 2.0,
+    "air_local_k": 1.5
+  }
+}
+

@@ -163,15 +163,11 @@ def test_catalog_quality_excludes_configurable_series_from_coverage():
     ]
     assert terminal["count"] == len(engineering_terminals) - len(configurable)
     assert terminal["field_coverage"]["airflow_m3_h"] == 1.0
-    # 组合式空调机组尚无水流量/风机功率样本，缺字段告警只落在工程条目上，
-    # 系列条目（62X-05/62X-12）不产生告警。
-    missing_issues = [
+    # 工程末端必备字段已全部补齐（组合式机组水侧/风机功率按风量与水侧
+    # 定额派生），缺字段告警整体清零，系列条目自然不产生告警。
+    assert [
         issue for issue in body["issues"] if issue["code"] == "CATALOG_KEY_FIELD_MISSING"
-    ]
-    assert missing_issues, "工程末端确有缺字段（组合式机组水侧/风机功率）"
-    assert not any(
-        issue["target"].split("/")[-1] in {"62X-05", "62X-12"} for issue in missing_issues
-    )
+    ] == []
 
 
 def test_catalog_response_uses_chinese_field_names():

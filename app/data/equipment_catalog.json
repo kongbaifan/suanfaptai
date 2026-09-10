@@ -2163,7 +2163,13 @@
     "series": "回风工况",
     "capacity_kw": 9.7,
     "airflow_m3_h": 2016.0,
-    "flow_m3_h": 1.67
+    "flow_m3_h": 1.67,
+    "water_flow_m3_h": 1.67,
+    "fan_power_kw": 0.467,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2178,7 +2184,13 @@
     "series": "回风工况",
     "capacity_kw": 12.6,
     "airflow_m3_h": 2016.0,
-    "flow_m3_h": 2.17
+    "flow_m3_h": 2.17,
+    "water_flow_m3_h": 2.17,
+    "fan_power_kw": 0.467,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2193,7 +2205,13 @@
     "series": "回风工况",
     "capacity_kw": 15.8,
     "airflow_m3_h": 2016.0,
-    "flow_m3_h": 2.72
+    "flow_m3_h": 2.72,
+    "water_flow_m3_h": 2.72,
+    "fan_power_kw": 0.467,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2208,7 +2226,13 @@
     "series": "回风工况",
     "capacity_kw": 19.1,
     "airflow_m3_h": 3973.0,
-    "flow_m3_h": 3.28
+    "flow_m3_h": 3.28,
+    "water_flow_m3_h": 3.28,
+    "fan_power_kw": 0.92,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2223,7 +2247,13 @@
     "series": "回风工况",
     "capacity_kw": 24.8,
     "airflow_m3_h": 3973.0,
-    "flow_m3_h": 4.26
+    "flow_m3_h": 4.26,
+    "water_flow_m3_h": 4.26,
+    "fan_power_kw": 0.92,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2238,7 +2268,13 @@
     "series": "回风工况",
     "capacity_kw": 31.0,
     "airflow_m3_h": 3973.0,
-    "flow_m3_h": 5.33
+    "flow_m3_h": 5.33,
+    "water_flow_m3_h": 5.33,
+    "fan_power_kw": 0.92,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2253,7 +2289,13 @@
     "series": "回风工况",
     "capacity_kw": 25.5,
     "airflow_m3_h": 5290.0,
-    "flow_m3_h": 4.39
+    "flow_m3_h": 4.39,
+    "water_flow_m3_h": 4.39,
+    "fan_power_kw": 1.225,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2268,7 +2310,13 @@
     "series": "回风工况",
     "capacity_kw": 33.0,
     "airflow_m3_h": 5290.0,
-    "flow_m3_h": 5.67
+    "flow_m3_h": 5.67,
+    "water_flow_m3_h": 5.67,
+    "fan_power_kw": 1.225,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2283,7 +2331,13 @@
     "series": "回风工况",
     "capacity_kw": 41.3,
     "airflow_m3_h": 5290.0,
-    "flow_m3_h": 7.1
+    "flow_m3_h": 7.1,
+    "water_flow_m3_h": 7.1,
+    "fan_power_kw": 1.225,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2298,7 +2352,13 @@
     "series": "回风工况",
     "capacity_kw": 38.4,
     "airflow_m3_h": 7974.0,
-    "flow_m3_h": 6.6
+    "flow_m3_h": 6.6,
+    "water_flow_m3_h": 6.6,
+    "fan_power_kw": 1.846,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2313,7 +2373,13 @@
     "series": "回风工况",
     "capacity_kw": 49.8,
     "airflow_m3_h": 7974.0,
-    "flow_m3_h": 8.56
+    "flow_m3_h": 8.56,
+    "water_flow_m3_h": 8.56,
+    "fan_power_kw": 1.846,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2328,7 +2394,13 @@
     "series": "回风工况",
     "capacity_kw": 62.3,
     "airflow_m3_h": 7974.0,
-    "flow_m3_h": 10.71
+    "flow_m3_h": 10.71,
+    "water_flow_m3_h": 10.71,
+    "fan_power_kw": 1.846,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2343,7 +2415,13 @@
     "series": "回风工况",
     "capacity_kw": 51.1,
     "airflow_m3_h": 10616.0,
-    "flow_m3_h": 8.79
+    "flow_m3_h": 8.79,
+    "water_flow_m3_h": 8.79,
+    "fan_power_kw": 2.457,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2358,7 +2436,13 @@
     "series": "回风工况",
     "capacity_kw": 66.3,
     "airflow_m3_h": 10616.0,
-    "flow_m3_h": 11.4
+    "flow_m3_h": 11.4,
+    "water_flow_m3_h": 11.4,
+    "fan_power_kw": 2.457,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2373,7 +2457,13 @@
     "series": "回风工况",
     "capacity_kw": 82.9,
     "airflow_m3_h": 10616.0,
-    "flow_m3_h": 14.26
+    "flow_m3_h": 14.26,
+    "water_flow_m3_h": 14.26,
+    "fan_power_kw": 2.457,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2388,7 +2478,13 @@
     "series": "回风工况",
     "capacity_kw": 77.0,
     "airflow_m3_h": 15993.0,
-    "flow_m3_h": 13.24
+    "flow_m3_h": 13.24,
+    "water_flow_m3_h": 13.24,
+    "fan_power_kw": 3.702,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2403,7 +2499,13 @@
     "series": "回风工况",
     "capacity_kw": 99.8,
     "airflow_m3_h": 15993.0,
-    "flow_m3_h": 17.16
+    "flow_m3_h": 17.16,
+    "water_flow_m3_h": 17.16,
+    "fan_power_kw": 3.702,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2418,7 +2520,13 @@
     "series": "回风工况",
     "capacity_kw": 125.0,
     "airflow_m3_h": 15993.0,
-    "flow_m3_h": 21.5
+    "flow_m3_h": 21.5,
+    "water_flow_m3_h": 21.5,
+    "fan_power_kw": 3.702,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2433,7 +2541,13 @@
     "series": "回风工况",
     "capacity_kw": 101.6,
     "airflow_m3_h": 20283.0,
-    "flow_m3_h": 17.47
+    "flow_m3_h": 17.47,
+    "water_flow_m3_h": 17.47,
+    "fan_power_kw": 4.695,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2448,7 +2562,13 @@
     "series": "回风工况",
     "capacity_kw": 128.3,
     "airflow_m3_h": 20283.0,
-    "flow_m3_h": 22.06
+    "flow_m3_h": 22.06,
+    "water_flow_m3_h": 22.06,
+    "fan_power_kw": 4.695,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2463,7 +2583,13 @@
     "series": "回风工况",
     "capacity_kw": 162.6,
     "airflow_m3_h": 20283.0,
-    "flow_m3_h": 27.96
+    "flow_m3_h": 27.96,
+    "water_flow_m3_h": 27.96,
+    "fan_power_kw": 4.695,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2478,7 +2604,13 @@
     "series": "回风工况",
     "capacity_kw": 131.1,
     "airflow_m3_h": 26158.0,
-    "flow_m3_h": 22.55
+    "flow_m3_h": 22.55,
+    "water_flow_m3_h": 22.55,
+    "fan_power_kw": 6.055,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2493,7 +2625,13 @@
     "series": "回风工况",
     "capacity_kw": 165.5,
     "airflow_m3_h": 26158.0,
-    "flow_m3_h": 28.46
+    "flow_m3_h": 28.46,
+    "water_flow_m3_h": 28.46,
+    "fan_power_kw": 6.055,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2508,7 +2646,13 @@
     "series": "回风工况",
     "capacity_kw": 209.7,
     "airflow_m3_h": 26158.0,
-    "flow_m3_h": 36.06
+    "flow_m3_h": 36.06,
+    "water_flow_m3_h": 36.06,
+    "fan_power_kw": 6.055,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2523,7 +2667,13 @@
     "series": "回风工况",
     "capacity_kw": 170.5,
     "airflow_m3_h": 34027.0,
-    "flow_m3_h": 29.32
+    "flow_m3_h": 29.32,
+    "water_flow_m3_h": 29.32,
+    "fan_power_kw": 7.877,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2538,7 +2688,13 @@
     "series": "回风工况",
     "capacity_kw": 215.3,
     "airflow_m3_h": 34027.0,
-    "flow_m3_h": 37.02
+    "flow_m3_h": 37.02,
+    "water_flow_m3_h": 37.02,
+    "fan_power_kw": 7.877,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2553,7 +2709,13 @@
     "series": "回风工况",
     "capacity_kw": 272.8,
     "airflow_m3_h": 34027.0,
-    "flow_m3_h": 46.91
+    "flow_m3_h": 46.91,
+    "water_flow_m3_h": 46.91,
+    "fan_power_kw": 7.877,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2568,7 +2730,13 @@
     "series": "回风工况",
     "capacity_kw": 247.7,
     "airflow_m3_h": 49429.0,
-    "flow_m3_h": 42.6
+    "flow_m3_h": 42.6,
+    "water_flow_m3_h": 42.6,
+    "fan_power_kw": 11.442,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2583,7 +2751,13 @@
     "series": "回风工况",
     "capacity_kw": 312.7,
     "airflow_m3_h": 49429.0,
-    "flow_m3_h": 53.77
+    "flow_m3_h": 53.77,
+    "water_flow_m3_h": 53.77,
+    "fan_power_kw": 11.442,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2598,7 +2772,13 @@
     "series": "回风工况",
     "capacity_kw": 396.2,
     "airflow_m3_h": 49429.0,
-    "flow_m3_h": 68.13
+    "flow_m3_h": 68.13,
+    "water_flow_m3_h": 68.13,
+    "fan_power_kw": 11.442,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2613,7 +2793,13 @@
     "series": "回风工况",
     "capacity_kw": 328.9,
     "airflow_m3_h": 65531.0,
-    "flow_m3_h": 56.56
+    "flow_m3_h": 56.56,
+    "water_flow_m3_h": 56.56,
+    "fan_power_kw": 15.169,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2628,7 +2814,13 @@
     "series": "回风工况",
     "capacity_kw": 415.2,
     "airflow_m3_h": 65531.0,
-    "flow_m3_h": 71.4
+    "flow_m3_h": 71.4,
+    "water_flow_m3_h": 71.4,
+    "fan_power_kw": 15.169,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2643,7 +2835,13 @@
     "series": "回风工况",
     "capacity_kw": 526.1,
     "airflow_m3_h": 65531.0,
-    "flow_m3_h": 90.47
+    "flow_m3_h": 90.47,
+    "water_flow_m3_h": 90.47,
+    "fan_power_kw": 15.169,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2658,7 +2856,13 @@
     "series": "回风工况",
     "capacity_kw": 445.8,
     "airflow_m3_h": 90971.0,
-    "flow_m3_h": 76.66
+    "flow_m3_h": 76.66,
+    "water_flow_m3_h": 76.66,
+    "fan_power_kw": 21.058,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2673,7 +2877,13 @@
     "series": "回风工况",
     "capacity_kw": 563.8,
     "airflow_m3_h": 90971.0,
-    "flow_m3_h": 96.96
+    "flow_m3_h": 96.96,
+    "water_flow_m3_h": 96.96,
+    "fan_power_kw": 21.058,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2688,7 +2898,13 @@
     "series": "回风工况",
     "capacity_kw": 711.9,
     "airflow_m3_h": 90971.0,
-    "flow_m3_h": 122.42
+    "flow_m3_h": 122.42,
+    "water_flow_m3_h": 122.42,
+    "fan_power_kw": 21.058,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2703,7 +2919,13 @@
     "series": "回风工况",
     "capacity_kw": 634.5,
     "airflow_m3_h": 129458.0,
-    "flow_m3_h": 109.11
+    "flow_m3_h": 109.11,
+    "water_flow_m3_h": 109.11,
+    "fan_power_kw": 29.967,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2718,7 +2940,13 @@
     "series": "回风工况",
     "capacity_kw": 802.3,
     "airflow_m3_h": 129458.0,
-    "flow_m3_h": 137.97
+    "flow_m3_h": 137.97,
+    "water_flow_m3_h": 137.97,
+    "fan_power_kw": 29.967,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2733,7 +2961,13 @@
     "series": "回风工况",
     "capacity_kw": 1013.1,
     "airflow_m3_h": 129458.0,
-    "flow_m3_h": 174.22
+    "flow_m3_h": 174.22,
+    "water_flow_m3_h": 174.22,
+    "fan_power_kw": 29.967,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2748,7 +2982,13 @@
     "series": "回风工况",
     "capacity_kw": 995.8,
     "airflow_m3_h": 203182.0,
-    "flow_m3_h": 171.25
+    "flow_m3_h": 171.25,
+    "water_flow_m3_h": 171.25,
+    "fan_power_kw": 47.033,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2763,7 +3003,13 @@
     "series": "回风工况",
     "capacity_kw": 1259.2,
     "airflow_m3_h": 203182.0,
-    "flow_m3_h": 216.54
+    "flow_m3_h": 216.54,
+    "water_flow_m3_h": 216.54,
+    "fan_power_kw": 47.033,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2778,7 +3024,13 @@
     "series": "回风工况",
     "capacity_kw": 1590.0,
     "airflow_m3_h": 203182.0,
-    "flow_m3_h": 273.43
+    "flow_m3_h": 273.43,
+    "water_flow_m3_h": 273.43,
+    "fan_power_kw": 47.033,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2793,7 +3045,13 @@
     "series": "回风工况",
     "capacity_kw": 1162.8,
     "airflow_m3_h": 237253.0,
-    "flow_m3_h": 199.97
+    "flow_m3_h": 199.97,
+    "water_flow_m3_h": 199.97,
+    "fan_power_kw": 54.92,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2808,7 +3066,13 @@
     "series": "回风工况",
     "capacity_kw": 1470.3,
     "airflow_m3_h": 237253.0,
-    "flow_m3_h": 252.85
+    "flow_m3_h": 252.85,
+    "water_flow_m3_h": 252.85,
+    "fan_power_kw": 54.92,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "组合式空调机组",
@@ -2823,7 +3087,13 @@
     "series": "回风工况",
     "capacity_kw": 1856.6,
     "airflow_m3_h": 237253.0,
-    "flow_m3_h": 319.28
+    "flow_m3_h": 319.28,
+    "water_flow_m3_h": 319.28,
+    "fan_power_kw": 54.92,
+    "derived_fields": [
+      "water_flow_m3_h",
+      "fan_power_kw"
+    ]
   },
   {
     "type": "冷源机组",

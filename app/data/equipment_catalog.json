@@ -13699,5 +13699,159 @@
       "head_m",
       "power_kw"
     ]
+  },
+  {
+    "type": "一体式新风机组",
+    "name": "62X-03",
+    "aliases": [],
+    "role": "terminal",
+    "systems": [
+      "air"
+    ],
+    "brand": "Carrier",
+    "series": "62X",
+    "nominal_capacity_ton": 3.0,
+    "capacity_kw": 10.551,
+    "airflow_m3_h": 2039.0,
+    "airflow_range_cfm": "350–15000（系列范围）",
+    "refrigerant": "R454B",
+    "configurable_series": true,
+    "derived_fields": [
+      "capacity_kw",
+      "airflow_m3_h"
+    ],
+    "source_url": "https://www.carrier.com/us/en/commercial/packaged-outdoor/62x/"
+  },
+  {
+    "type": "一体式新风机组",
+    "name": "62X-08",
+    "aliases": [],
+    "role": "terminal",
+    "systems": [
+      "air"
+    ],
+    "brand": "Carrier",
+    "series": "62X",
+    "nominal_capacity_ton": 8.0,
+    "capacity_kw": 28.136,
+    "airflow_m3_h": 5437.0,
+    "airflow_range_cfm": "350–15000（系列范围）",
+    "refrigerant": "R454B",
+    "configurable_series": true,
+    "derived_fields": [
+      "capacity_kw",
+      "airflow_m3_h"
+    ],
+    "source_url": "https://www.carrier.com/us/en/commercial/packaged-outdoor/62x/"
+  },
+  {
+    "type": "一体式新风机组",
+    "name": "62X-10",
+    "aliases": [],
+    "role": "terminal",
+    "systems": [
+      "air"
+    ],
+    "brand": "Carrier",
+    "series": "62X",
+    "nominal_capacity_ton": 10.0,
+    "capacity_kw": 35.17,
+    "airflow_m3_h": 6796.0,
+    "airflow_range_cfm": "350–15000（系列范围）",
+    "refrigerant": "R454B",
+    "configurable_series": true,
+    "derived_fields": [
+      "capacity_kw",
+      "airflow_m3_h"
+    ],
+    "source_url": "https://www.carrier.com/us/en/commercial/packaged-outdoor/62x/"
+  },
+  {
+    "type": "一体式新风机组",
+    "name": "62X-15",
+    "aliases": [],
+    "role": "terminal",
+    "systems": [
+      "air"
+    ],
+    "brand": "Carrier",
+    "series": "62X",
+    "nominal_capacity_ton": 15.0,
+    "capacity_kw": 52.755,
+    "airflow_m3_h": 10194.0,
+    "airflow_range_cfm": "350–15000（系列范围）",
+    "refrigerant": "R454B",
+    "configurable_series": true,
+    "derived_fields": [
+      "capacity_kw",
+      "airflow_m3_h"
+    ],
+    "source_url": "https://www.carrier.com/us/en/commercial/packaged-outdoor/62x/"
+  },
+  {
+    "type": "一体式新风机组",
+    "name": "62X-20",
+    "aliases": [],
+    "role": "terminal",
+    "systems": [
+      "air"
+    ],
+    "brand": "Carrier",
+    "series": "62X",
+    "nominal_capacity_ton": 20.0,
+    "capacity_kw": 70.34,
+    "airflow_m3_h": 13592.0,
+    "airflow_range_cfm": "350–15000（系列范围）",
+    "refrigerant": "R454B",
+    "configurable_series": true,
+    "derived_fields": [
+      "capacity_kw",
+      "airflow_m3_h"
+    ],
+    "source_url": "https://www.carrier.com/us/en/commercial/packaged-outdoor/62x/"
+  },
+  {
+    "type": "一体式新风机组",
+    "name": "62X-25",
+    "aliases": [],
+    "role": "terminal",
+    "systems": [
+      "air"
+    ],
+    "brand": "Carrier",
+    "series": "62X",
+    "nominal_capacity_ton": 25.0,
+    "capacity_kw": 87.925,
+    "airflow_m3_h": 16990.0,
+    "airflow_range_cfm": "350–15000（系列范围）",
+    "refrigerant": "R454B",
+    "configurable_series": true,
+    "derived_fields": [
+      "capacity_kw",
+      "airflow_m3_h"
+    ],
+    "source_url": "https://www.carrier.com/us/en/commercial/packaged-outdoor/62x/"
+  },
+  {
+    "type": "一体式新风机组",
+    "name": "62X-30",
+    "aliases": [],
+    "role": "terminal",
+    "systems": [
+      "air"
+    ],
+    "brand": "Carrier",
+    "series": "62X",
+    "nominal_capacity_ton": 30.0,
+    "capacity_kw": 105.51,
+    "airflow_m3_h": 20388.0,
+    "airflow_range_cfm": "350–15000（系列范围）",
+    "refrigerant": "R454B",
+    "configurable_series": true,
+    "derived_fields": [
+      "capacity_kw",
+      "airflow_m3_h"
+    ],
+    "source_url": "https://www.carrier.com/us/en/commercial/packaged-outdoor/62x/"
   }
 ]

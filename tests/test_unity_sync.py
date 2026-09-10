@@ -49,15 +49,18 @@ def _read_catalog(catalog_path: Path) -> list[dict]:
 
 
 def test_import_attaches_alias_matches_and_creates_placement_items(isolated_catalog, library_copy):
+    engineering_before = sum(
+        1 for item in _read_catalog(isolated_catalog) if not item.get("placement_only")
+    )
     summary = unity_sync.import_device_library(library_copy)
     catalog = _read_catalog(isolated_catalog)
 
-    # 未同步工程条目（当前 124 条）：23 条 Unity 名命中别名挂原条目，其余新建摆放条目。
+    # 未同步工程条目（131 条）：23 条 Unity 名命中别名挂原条目，404 条新建摆放条目。
     expected_created = 427 - 23
     assert summary["total"] == 427
     assert summary["attached"] == 23
     assert summary["created"] == expected_created
-    assert len(catalog) == expected_created + 124
+    assert len(catalog) == expected_created + engineering_before
 
     fcu = next(item for item in catalog if item["type"] == "风机盘管" and item["name"] == "FP-34WA")
     entry_names = [entry["device_name"] for entry in fcu["unity_entries"]]
@@ -158,7 +161,10 @@ def test_quality_report_skips_placement_items(isolated_catalog, library_copy):
     report = build_catalog_quality_report()
     # 摆放条目不参与体检：告警数与同步前一致（207）；总条目 = 工程条目 + 摆放条目。
     assert len(report["issues"]) == 207
-    assert report["total"] == 124 + 404
+    engineering = sum(
+        1 for item in _read_catalog(isolated_catalog) if not item.get("placement_only")
+    )
+    assert report["total"] == engineering + 404
 
 
 def test_selection_scan_excludes_placement_rows(isolated_catalog, library_copy):

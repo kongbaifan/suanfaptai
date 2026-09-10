@@ -14435,5 +14435,203 @@
       "airflow_m3_h"
     ],
     "source_url": "https://www.carrier.com/us/en/commercial/packaged-outdoor/62x/"
+  },
+  {
+    "type": "冷却塔",
+    "name": "S15E-60",
+    "aliases": [],
+    "role": "cooling_tower",
+    "systems": [
+      "cooling_water"
+    ],
+    "brand": "BAC",
+    "series": "Series 1500",
+    "nominal_capacity_ton": 60.0,
+    "capacity_kw": 211.02,
+    "flow_m3_h": 40.88,
+    "fan_power_kw": 0.31,
+    "approach_c": 3.89,
+    "derived_fields": [
+      "capacity_kw",
+      "flow_m3_h",
+      "fan_power_kw",
+      "approach_c"
+    ]
+  },
+  {
+    "type": "冷却塔",
+    "name": "S15E-75",
+    "aliases": [],
+    "role": "cooling_tower",
+    "systems": [
+      "cooling_water"
+    ],
+    "brand": "BAC",
+    "series": "Series 1500",
+    "nominal_capacity_ton": 75.0,
+    "capacity_kw": 263.77,
+    "flow_m3_h": 51.11,
+    "fan_power_kw": 0.61,
+    "approach_c": 3.89,
+    "derived_fields": [
+      "capacity_kw",
+      "flow_m3_h",
+      "fan_power_kw",
+      "approach_c"
+    ]
+  },
+  {
+    "type": "冷却塔",
+    "name": "S15E-110",
+    "aliases": [],
+    "role": "cooling_tower",
+    "systems": [
+      "cooling_water"
+    ],
+    "brand": "BAC",
+    "series": "Series 1500",
+    "nominal_capacity_ton": 110.0,
+    "capacity_kw": 386.87,
+    "flow_m3_h": 74.95,
+    "fan_power_kw": 1.9,
+    "approach_c": 3.89,
+    "derived_fields": [
+      "capacity_kw",
+      "flow_m3_h",
+      "fan_power_kw",
+      "approach_c"
+    ]
+  },
+  {
+    "type": "冷却塔",
+    "name": "S15E-135",
+    "aliases": [],
+    "role": "cooling_tower",
+    "systems": [
+      "cooling_water"
+    ],
+    "brand": "BAC",
+    "series": "Series 1500",
+    "nominal_capacity_ton": 135.0,
+    "capacity_kw": 474.79,
+    "flow_m3_h": 91.99,
+    "fan_power_kw": 3.5,
+    "approach_c": 3.89,
+    "derived_fields": [
+      "capacity_kw",
+      "flow_m3_h",
+      "fan_power_kw",
+      "approach_c"
+    ]
+  },
+  {
+    "type": "冷却塔",
+    "name": "S15E-175",
+    "aliases": [],
+    "role": "cooling_tower",
+    "systems": [
+      "cooling_water"
+    ],
+    "brand": "BAC",
+    "series": "Series 1500",
+    "nominal_capacity_ton": 175.0,
+    "capacity_kw": 615.48,
+    "flow_m3_h": 119.25,
+    "fan_power_kw": 6.72,
+    "approach_c": 3.89,
+    "derived_fields": [
+      "capacity_kw",
+      "flow_m3_h",
+      "fan_power_kw",
+      "approach_c"
+    ]
+  },
+  {
+    "type": "冷却塔",
+    "name": "S15E-200",
+    "aliases": [],
+    "role": "cooling_tower",
+    "systems": [
+      "cooling_water"
+    ],
+    "brand": "BAC",
+    "series": "Series 1500",
+    "nominal_capacity_ton": 200.0,
+    "capacity_kw": 703.4,
+    "flow_m3_h": 136.28,
+    "fan_power_kw": 8.52,
+    "approach_c": 3.89,
+    "derived_fields": [
+      "capacity_kw",
+      "flow_m3_h",
+      "fan_power_kw",
+      "approach_c"
+    ]
+  },
+  {
+    "type": "冷却塔",
+    "name": "S15E-230",
+    "aliases": [],
+    "role": "cooling_tower",
+    "systems": [
+      "cooling_water"
+    ],
+    "brand": "BAC",
+    "series": "Series 1500",
+    "nominal_capacity_ton": 230.0,
+    "capacity_kw": 808.91,
+    "flow_m3_h": 156.72,
+    "fan_power_kw": 10.94,
+    "approach_c": 3.89,
+    "derived_fields": [
+      "capacity_kw",
+      "flow_m3_h",
+      "fan_power_kw",
+      "approach_c"
+    ]
+  },
+  {
+    "type": "冷却塔",
+    "name": "S15E-285",
+    "aliases": [],
+    "role": "cooling_tower",
+    "systems": [
+      "cooling_water"
+    ],
+    "brand": "BAC",
+    "series": "Series 1500",
+    "nominal_capacity_ton": 285.0,
+    "capacity_kw": 1002.35,
+    "flow_m3_h": 194.2,
+    "fan_power_kw": 16.05,
+    "approach_c": 3.89,
+    "derived_fields": [
+      "capacity_kw",
+      "flow_m3_h",
+      "fan_power_kw",
+      "approach_c"
+    ]
+  },
+  {
+    "type": "冷却塔",
+    "name": "S15E-400",
+    "aliases": [],
+    "role": "cooling_tower",
+    "systems": [
+      "cooling_water"
+    ],
+    "brand": "BAC",
+    "series": "Series 1500",
+    "nominal_capacity_ton": 400.0,
+    "capacity_kw": 1406.8,
+    "flow_m3_h": 272.56,
+    "fan_power_kw": 29.41,
+    "approach_c": 3.89,
+    "derived_fields": [
+      "capacity_kw",
+      "flow_m3_h",
+      "fan_power_kw",
+      "approach_c"
+    ]
   }
 ]

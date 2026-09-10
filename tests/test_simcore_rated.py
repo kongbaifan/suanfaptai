@@ -106,7 +106,8 @@ class TestDegradation:
 
         assert spec.origin == "type_default"
         assert spec.role is DeviceRole.COOLING_TOWER
-        assert spec.model_name == "S15E-1285-06JN"
+        # 中位型号随目录密度变化：12 款冷却塔按容量取中位为 S15E-175
+        assert spec.model_name == "S15E-175"
         assert spec.approach_c is not None
 
     def test_unknown_type_falls_back_to_builtin(self):

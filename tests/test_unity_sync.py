@@ -52,9 +52,12 @@ def test_import_attaches_alias_matches_and_creates_placement_items(isolated_cata
     summary = unity_sync.import_device_library(library_copy)
     catalog = _read_catalog(isolated_catalog)
 
-    # 未同步目录 121 条工程条目：23 条 Unity 名命中别名挂原条目，404 条新建摆放条目。
-    assert summary == {"total": 427, "attached": 23, "created": 404, "updated": 23}
-    assert len(catalog) == 525
+    # 未同步工程条目（当前 124 条）：23 条 Unity 名命中别名挂原条目，其余新建摆放条目。
+    expected_created = 427 - 23
+    assert summary["total"] == 427
+    assert summary["attached"] == 23
+    assert summary["created"] == expected_created
+    assert len(catalog) == expected_created + 124
 
     fcu = next(item for item in catalog if item["type"] == "风机盘管" and item["name"] == "FP-34WA")
     entry_names = [entry["device_name"] for entry in fcu["unity_entries"]]
@@ -84,7 +87,7 @@ def test_import_is_idempotent(isolated_catalog, library_copy):
     snapshot = isolated_catalog.read_text(encoding="utf-8")
     second = unity_sync.import_device_library(library_copy)
 
-    assert first["created"] == 404 and first["attached"] == 23
+    assert first["created"] == 404 and first["attached"] == 23  # 派生自 427 条 Unity 记录与 23 条别名命中
     assert second == {"total": 427, "attached": 427, "created": 0, "updated": 0}
     assert isolated_catalog.read_text(encoding="utf-8") == snapshot
 
@@ -153,9 +156,9 @@ def test_quality_report_skips_placement_items(isolated_catalog, library_copy):
     unity_sync.import_device_library(library_copy)
 
     report = build_catalog_quality_report()
-    # 摆放条目不参与体检：告警数与同步前一致，仍为 207；总条目含摆放件。
+    # 摆放条目不参与体检：告警数与同步前一致（207）；总条目 = 工程条目 + 摆放条目。
     assert len(report["issues"]) == 207
-    assert report["total"] == 525
+    assert report["total"] == 124 + 404
 
 
 def test_selection_scan_excludes_placement_rows(isolated_catalog, library_copy):

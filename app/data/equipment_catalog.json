@@ -381,7 +381,8 @@
     "refrigerant": "R454B",
     "configurable_series": true,
     "derived_fields": [
-      "capacity_kw"
+      "capacity_kw",
+      "airflow_m3_h"
     ],
     "source_url": "https://www.carrier.com/us/en/commercial/packaged-outdoor/62x/",
     "unity_entries": [
@@ -397,7 +398,8 @@
         "type": "一体式新风机组",
         "library": "暖通设备"
       }
-    ]
+    ],
+    "airflow_m3_h": 3398.0
   },
   {
     "type": "一体式新风机组",
@@ -417,7 +419,8 @@
     "refrigerant": "R454B",
     "configurable_series": true,
     "derived_fields": [
-      "capacity_kw"
+      "capacity_kw",
+      "airflow_m3_h"
     ],
     "source_url": "https://www.carrier.com/us/en/commercial/packaged-outdoor/62x/",
     "unity_entries": [
@@ -433,7 +436,8 @@
         "type": "一体式新风机组",
         "library": "暖通设备"
       }
-    ]
+    ],
+    "airflow_m3_h": 8155.0
   },
   {
     "type": "冷却塔",
@@ -13619,6 +13623,81 @@
         "type": "测量件",
         "library": "测量件"
       }
+    ]
+  },
+  {
+    "type": "循环泵",
+    "name": "TPE3 80-200",
+    "aliases": [],
+    "role": "pump",
+    "systems": [
+      "chilled_water",
+      "cooling_water",
+      "hot_water"
+    ],
+    "brand": "Grundfos",
+    "series": "TPE3",
+    "flow_m3_h": 82.0,
+    "head_m": 14.9,
+    "power_kw": 4.7,
+    "efficiency": 0.7,
+    "motor_efficiency": 0.91,
+    "rpm": 2900.0,
+    "variable_speed": true,
+    "derived_fields": [
+      "flow_m3_h",
+      "head_m",
+      "power_kw"
+    ]
+  },
+  {
+    "type": "循环泵",
+    "name": "TPE3 100-200",
+    "aliases": [],
+    "role": "pump",
+    "systems": [
+      "chilled_water",
+      "cooling_water",
+      "hot_water"
+    ],
+    "brand": "Grundfos",
+    "series": "TPE3",
+    "flow_m3_h": 128.0,
+    "head_m": 15.5,
+    "power_kw": 7.5,
+    "efficiency": 0.72,
+    "motor_efficiency": 0.91,
+    "rpm": 2900.0,
+    "variable_speed": true,
+    "derived_fields": [
+      "flow_m3_h",
+      "head_m",
+      "power_kw"
+    ]
+  },
+  {
+    "type": "循环泵",
+    "name": "TPE3 100-250",
+    "aliases": [],
+    "role": "pump",
+    "systems": [
+      "chilled_water",
+      "cooling_water",
+      "hot_water"
+    ],
+    "brand": "Grundfos",
+    "series": "TPE3",
+    "flow_m3_h": 128.0,
+    "head_m": 23.3,
+    "power_kw": 11.0,
+    "efficiency": 0.74,
+    "motor_efficiency": 0.91,
+    "rpm": 2900.0,
+    "variable_speed": true,
+    "derived_fields": [
+      "flow_m3_h",
+      "head_m",
+      "power_kw"
     ]
   }
 ]

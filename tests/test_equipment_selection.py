@@ -197,10 +197,18 @@ def test_catalog_pump_models_cover_initial_selection_flow_range():
         ("TPE3 40-80", 12.31, 5.4, 0.246),
         ("TPE3 65-150", 32.71, 9.8, 1.119),
         ("TPE3 80-150", 44.52, 9.9, 1.491),
+        ("TPE3 80-200", 82.0, 14.9, 4.7),
+        ("TPE3 100-200", 128.0, 15.5, 7.5),
+        ("TPE3 100-250", 128.0, 23.3, 11.0),
     ]
     assert all(row["brand"] == "Grundfos" for row in rows)
     assert all(row["variable_speed"] is True for row in rows)
-    assert all(row["source_url"].startswith("https://www.gogrundfos.com/") for row in rows)
+    # 有厂家样本出处的四款；大流量三款为同系列相似律派生，标 derived_fields 且无订货码
+    with_source = [row for row in rows if row.get("source_url")]
+    assert {row["name"] for row in with_source} == {"TPE3 40-200", "TPE3 40-80", "TPE3 65-150", "TPE3 80-150"}
+    # 全部泵的流量都来自厂家曲线或同系列相似律，统一标 derived_fields
+    derived = [row for row in rows if "flow_m3_h" in row.get("derived_fields", [])]
+    assert {row["name"] for row in derived} == {row["name"] for row in rows}
 
 
 def test_pump_exact_flow_and_head_rule_boundaries_are_inclusive(

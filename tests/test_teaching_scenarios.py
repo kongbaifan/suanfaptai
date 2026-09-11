@@ -63,8 +63,10 @@ def _teaching_project() -> dict:
                 "floor_id": "floor-1",
                 "name": "教学房间",
                 "device_ids": ["fcu-1"],
-                "area_m2": 5000,
-                "people": 1000,
+                # 房间规模与 300 kW 风盘匹配：原先 5000 m²/1000 人对应冷负荷
+                # 远超末端能力，室温会一直顶在上限，故障注入的"温度上升"无从体现。
+                "area_m2": 1200,
+                "people": 80,
                 "lighting_w_m2": 12,
                 "equipment_w_m2": 18,
             }

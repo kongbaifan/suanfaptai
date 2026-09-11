@@ -1164,12 +1164,20 @@ class SimulationSession:
     ) -> dict[str, RoomDelivery]:
         """把各末端的冷热风分配到房间
 
-        制冷时先按**设备**算出唯一的盘管出风状态（混合风过盘管），再把该
-        送风状态带给其服务的每个房间；房间侧的除湿/降温由"送风与室内的状态
-        差 × 该房间风量"决定。这样一台机组只有一个送风状态，且室外新风的
-        湿负荷必然经过盘管。
+        制冷时先按**设备**算出唯一的盘管出风状态，再把该送风状态带给其服务的
+        每个房间；房间侧的除湿/降温由"送风与室内的状态差 × 该房间风量"决定。
+
+        进风按设备类型区分（一台机组只有一种进风构成）：
+        - **一体式新风机组**：100% 室外新风（专用新风处理机）；
+        - **组合式空调机组**：室外新风 + 房间回风混合（混风箱）；
+        - **风机盘管**：100% 房间回风，不引入新风。
+
+        房间所需的新风由**唯一一台**具备新风引入能力的设备承担（优先新风机组，
+        其次组合式机组）。若让每台服务该房间的设备都各算一份房间新风，新风负荷
+        会被按设备台数成倍放大——风机盘管 + 新风机组共服一室时实测翻了一倍。
         """
         room_by_id = {room.room_id: room for room in self.layout.rooms}
+        fresh_handler_by_room = self._fresh_air_handlers()
         deliveries: dict[str, RoomDelivery] = {}
         for node in self.layout.devices:
             state = solved.terminals.get(node.instance_id)
@@ -1188,22 +1196,21 @@ class SimulationSession:
                 and state.airflow_m3_h > 0.0
                 and state.cooling_kw > 0.0
             ):
-                # 混合风质量平衡：送风量 = 回风量 + 新风量。
-                # 先把服务房间的回风求**平均状态**，再与室外新风按风量混合；
-                # 若直接把 Σ(室温×风量) 与新风量相加，回风会被按满送风量
-                # 重复计入（Σ 已经等于送风量），混合状态会虚高。
-                served_airflow_m3_h = math.fsum(
-                    airflow[room_id] for room_id, _ in weights
-                )
+                # 本机组承担的室外新风：只有它是这些房间的新风承担者时才有
                 fresh_air_m3_h = min(
                     math.fsum(
                         room_by_id[room_id].fresh_air_m3_h
                         for room_id, _ in weights
                         if room_id in room_by_id
+                        and fresh_handler_by_room.get(room_id) == node.instance_id
                     ),
                     state.airflow_m3_h,
                 )
                 return_air_m3_h = max(state.airflow_m3_h - fresh_air_m3_h, 0.0)
+                # 回风求**平均状态**（按各房间分摊风量加权），再与新风按风量混合。
+                served_airflow_m3_h = math.fsum(
+                    airflow[room_id] for room_id, _ in weights
+                )
                 if served_airflow_m3_h > 0.0:
                     return_temp_c = (
                         math.fsum(
@@ -1297,6 +1304,33 @@ class SimulationSession:
                 )
         return deliveries
 
+    def _fresh_air_handlers(self) -> dict[str, str]:
+        """每个房间的室外新风由哪台设备承担（房间 id → 设备实例 id）
+
+        只有具备新风引入能力的设备参与分配：**一体式新风机组**（专用新风处理机）
+        优先，其次是**组合式空调机组**（带混风箱）。风机盘管不引入新风，因此
+        不承担；同一房间若有多台同类机组，按实例 id 排序取第一台，保证结果确定。
+
+        分配是"独占"的：一个房间的新风只算给一台机组，避免多台设备重复计入。
+        """
+        role_priority = {
+            DeviceRole.FRESH_AIR_UNIT: 0,
+            DeviceRole.AHU: 1,
+        }
+        candidates = sorted(
+            (
+                node
+                for node in self.layout.devices
+                if node.rated.role in role_priority
+            ),
+            key=lambda node: (role_priority[node.rated.role], node.instance_id),
+        )
+        handlers: dict[str, str] = {}
+        for node in candidates:
+            for room_id in node.effective_room_ids:
+                handlers.setdefault(room_id, node.instance_id)
+        return handlers
+
     def _terminal_room_reference_temp(self, node: DeviceNode) -> float:
         weights = self._terminal_room_weights(node)
         if not weights:
@@ -1338,6 +1372,9 @@ class SimulationSession:
     def _advance_rooms(
         self, ambient: Ambient, deliveries: Mapping[str, RoomDelivery]
     ) -> tuple[dict[str, RoomBalance], dict[str, RoomHumidityBalance]]:
+        # 新风承担者：与 `_allocate_room_deliveries` 用同一份映射，保证"谁处理新风"
+        # 与"谁不用再往房间注入新风"判断一致。
+        fresh_handler_by_room = self._fresh_air_handlers()
         design_gain_adjustments: dict[str, float] = {}
         if (
             self.config.mode is SimulationMode.COOLING
@@ -1418,10 +1455,17 @@ class SimulationSession:
                 room_latent_cooling_kw = 0.0
 
             # 新风已进盘管参与处理，不能再作为独立湿源注入房间（重复计账）。
-            # 通风工况没有盘管，新风才按室外状态直接进入房间。
+            # 制冷时新风只有在**被某台设备承担**（进盘管处理）时才不注入房间。
+            # 若房间没有任何具备新风引入能力的设备（既无新风机组也无组合式机组，
+            # 例如只配风机盘管的系统），这份按人数算出的新风无处处理，仍按室外
+            # 状态直接进入房间——负荷不能凭空消失，而且"没有新风处理设备"
+            # 恰恰是应当暴露给学习者的结论。
             fresh_air_injection_m3_h = (
                 0.0
-                if self.config.mode is SimulationMode.COOLING
+                if (
+                    self.config.mode is SimulationMode.COOLING
+                    and fresh_handler_by_room.get(room.room_id) is not None
+                )
                 else fresh_air_m3_h
             )
 

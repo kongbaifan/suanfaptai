@@ -25,15 +25,24 @@ LATENT_HEAT_KJ_KG = 2450.0
 MIN_HUMIDITY_RATIO = 1e-5
 
 
+# Magnus-Tetens 式的有效温区。超出此范围指数项会溢出，且远离空调工况，
+# 取值只需保证不抛异常、结果单调即可。
+MIN_SATURATION_TEMP_C = -100.0
+MAX_SATURATION_TEMP_C = 200.0
+
+
 def saturation_pressure_pa(temperature_c: float) -> float:
     """饱和水蒸气压
 
     采用 Magnus-Tetens 式，0~50℃ 内相对误差在 0.1% 量级。
+    温度先钳到有效温区：盘管在极小风量/极大冷量下会算出远离工况的假想
+    温度，若不设边界，指数项会溢出（`math range error`）。
     """
     if not math.isfinite(temperature_c):
         return 0.0
+    clamped = min(max(temperature_c, MIN_SATURATION_TEMP_C), MAX_SATURATION_TEMP_C)
     return 610.94 * math.exp(
-        17.625 * temperature_c / (temperature_c + 243.04)
+        17.625 * clamped / (clamped + 243.04)
     )
 
 

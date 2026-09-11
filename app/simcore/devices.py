@@ -29,6 +29,9 @@ from app.unity_catalog import DeviceRole
 AIR_KW_PER_M3H_K = 1.2 * 1.005 / 3600.0
 # 空气密度，与 calculators/room 各处口径一致
 AIR_DENSITY_KG_M3 = 1.2
+# 盘管出风温度的物理下界：低于此值属假想工况（风量过小/冷量过大），
+# 钳制后仍满足"等湿/饱和"判据的逻辑一致性，不让数值无意义区进入计算。
+MIN_COIL_LEAVING_TEMP_C = -20.0
 
 # 冷机额定工况的冷凝温度基准，冷凝侧偏离此值时修正 COP
 CONDENSER_REFERENCE_C = 30.0
@@ -497,14 +500,21 @@ def coil_leaving_state(
     enthalpy_in = enthalpy_kj_kg(entering_temp_c, entering_ratio)
     enthalpy_out = enthalpy_in - total_cooling_kw / air_mass_kg_s
 
-    # 干盘管假设：含湿量不变，按焓反解出口温度
-    dry_temperature = (
-        enthalpy_out - VAPORIZATION_HEAT_KJ_KG * entering_ratio
-    ) / (DRY_AIR_CP_KJ_KG_K + VAPOR_CP_KJ_KG_K * entering_ratio)
+    # 干盘管假设：含湿量不变，按焓反解出口温度。
+    # 极小风量配极大冷量会解出远离工况的假想温度，先钳到合理下界，
+    # 避免后续按饱和线判据时落入数值无意义区。
+    dry_temperature = max(
+        (enthalpy_out - VAPORIZATION_HEAT_KJ_KG * entering_ratio)
+        / (DRY_AIR_CP_KJ_KG_K + VAPOR_CP_KJ_KG_K * entering_ratio),
+        MIN_COIL_LEAVING_TEMP_C,
+    )
 
     # 出口处于过饱和（饱和含湿量低于进风含湿量）则实际会结露
     if entering_ratio > saturation_humidity_ratio(dry_temperature):
-        saturated_temperature = temperature_from_saturated_enthalpy(enthalpy_out)
+        saturated_temperature = max(
+            temperature_from_saturated_enthalpy(enthalpy_out),
+            MIN_COIL_LEAVING_TEMP_C,
+        )
         return saturated_temperature, saturation_humidity_ratio(saturated_temperature)
 
     return dry_temperature, entering_ratio

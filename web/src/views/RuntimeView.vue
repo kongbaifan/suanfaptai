@@ -199,7 +199,7 @@ function cardRole(device: DeviceInput): string | null {
   if (["cold_source", "chiller"].includes(role) || device.type === "冷源机组") return "cold_source";
   if (role === "cooling_tower" || device.type === "冷却塔") return "cooling_tower";
   if (["pump", "pump_chilled_water", "pump_cooling_water"].includes(role) || device.type === "循环泵") return "pump";
-  if (["terminal", "fcu", "ahu", "fresh_air_unit"].includes(role) || ["风机盘管", "组合式空调机组", "一体式新风机组"].includes(device.type)) return "terminal";
+  if (["terminal", "fcu", "ahu", "fresh_air_unit"].includes(role) || ["风机盘管", "组合式空调机组", "新风机组"].includes(device.type)) return "terminal";
   if (role === "heat_source" || ["空气源热泵", "水源热泵", "地源热泵机组"].includes(device.type)) {
     // 热泵冷热两用：制冷工况换向供冷，卡字段集随运行模式切换。
     return summaryMode.value === "cooling" ? "heat_source_cooling" : "heat_source";

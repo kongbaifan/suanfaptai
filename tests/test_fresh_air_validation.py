@@ -38,29 +38,23 @@ def test_repaired_samples_raise_no_fresh_air_or_oversize_warnings():
 
 
 def test_fresh_air_handler_without_cooling_is_flagged():
-    """新风机组既无冷冻水、仿真又无直膨模型时必须告警"""
+    """新风机组没接水系统时不产出冷热量，必须告警
+
+    仿真没有直膨模型，靠盘管处理新风的机组必须接入冷冻水；只接风口就是纯风机。
+    """
     payload = deepcopy(FOUR_FLOOR_FCU_FRESH_AIR_SAMPLE)
-    payload["devices"] = [
-        device for device in payload["devices"] if not device["id"].startswith("ahu_")
-    ]
-    payload["devices"] += [
-        {
-            "id": f"fau_f{floor}",
-            "type": "一体式新风机组",
-            "name": "62X-12",
-            "floor_id": f"F{floor}",
-        }
-        for floor in (1, 2, 3)
-    ]
+    # 摘掉新风机组的所有水侧连接，只留风管
     payload["connections"] = [
         connection
         for connection in payload["connections"]
-        if "ahu_" not in connection["from_id"] and "ahu_" not in connection["to_id"]
+        if not (
+            connection["system"] in ("chilled_water", "hot_water")
+            and any(
+                side.startswith("fau_")
+                for side in (connection["from_id"], connection["to_id"])
+            )
+        )
     ]
-    for room in payload["rooms"]:
-        room["device_ids"] = [
-            device_id.replace("ahu_", "fau_") for device_id in room["device_ids"]
-        ]
 
     assert "fresh_air_handler_without_cooling" in _codes(payload)
 
@@ -69,17 +63,17 @@ def test_room_without_any_fresh_air_handler_is_flagged():
     """只剩风机盘管的房间没有任何新风承担者"""
     payload = deepcopy(FOUR_FLOOR_FCU_FRESH_AIR_SAMPLE)
     payload["devices"] = [
-        device for device in payload["devices"] if not device["id"].startswith("ahu_")
+        device for device in payload["devices"] if not device["id"].startswith("fau_")
     ]
     payload["connections"] = [
         connection
         for connection in payload["connections"]
-        if "ahu_" not in connection["from_id"] and "ahu_" not in connection["to_id"]
+        if "fau_" not in connection["from_id"] and "fau_" not in connection["to_id"]
     ]
     for room in payload["rooms"]:
         room["device_ids"] = [
             device_id for device_id in room["device_ids"]
-            if not device_id.startswith("ahu_")
+            if not device_id.startswith("fau_")
         ]
 
     assert "fresh_air_no_handler" in _codes(payload)

@@ -63,7 +63,7 @@ export const DEVICE_TYPE_OPTIONS = [
   "冷却塔",
   "风机盘管",
   "组合式空调机组",
-  "一体式新风机组",
+  "新风机组",
   "风阀",
   "水阀",
 ] as const;
@@ -76,7 +76,7 @@ export const DEVICE_TYPE_OPTIONS = [
 export const ROOM_TERMINAL_DEVICE_TYPES = [
   "风机盘管",
   "组合式空调机组",
-  "一体式新风机组",
+  "新风机组",
 ] as const;
 
 const NORMALIZED_ROOM_TERMINAL_TYPES = new Set(

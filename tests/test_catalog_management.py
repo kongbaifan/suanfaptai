@@ -144,27 +144,67 @@ def test_catalog_quality_endpoint_reports_coverage():
 
 
 def test_catalog_quality_excludes_configurable_series_from_coverage():
-    """按项目选型的系列条目没有具体规格参数，不应计入覆盖率或产生缺字段问题。"""
+    """按项目选型的系列条目没有具体规格参数，不应计入覆盖率或产生缺字段问题。
+
+    新风机组此前是 Carrier 62X 通配系列（`configurable_series`），改用美的 MKS
+    逐型号真实参数后目录中已无此类条目；规则本身仍需守住，故这里显式注入一条
+    系列条目、用它比对质量报告，而非依赖目录里恰好存在。
+    """
     catalog = load_equipment_catalog()
-    configurable = [item for item in catalog if item.get("configurable_series")]
-    assert configurable, "目录应至少包含一个按项目选型的系列条目"
-    assert {str(item.get("role")) for item in configurable} == {"terminal"}
+    configurable_in_catalog = [
+        item for item in catalog if item.get("configurable_series")
+    ]
+    assert configurable_in_catalog == [], "目录已改为逐型号参数，不应再有通配系列条目"
+
+    # 系列条目应被质量报告排除：注入一条后终端的统计口径必须不变。
+    # 注意 load_equipment_catalog 带 lru_cache，返回的是同一个列表对象，
+    # 基线必须在追加探针之前算好。
+    baseline_terminals = len(
+        [
+            item
+            for item in catalog
+            if item.get("role") == "terminal" and not item.get("placement_only")
+        ]
+    )
+    series_item = {
+        "type": "组合式空调机组",
+        "name": "SERIES-PROBE",
+        "role": "terminal",
+        "systems": ["chilled_water", "air"],
+        "configurable_series": True,
+        "airflow_range_m3_h": "2000-125000",
+    }
+    server_catalog = load_equipment_catalog()
+    server_catalog.append(series_item)
+    try:
+        from app.data.catalog_quality import build_catalog_quality_report
+
+        report = build_catalog_quality_report()
+        assert report["role_quality"]["terminal"]["count"] == baseline_terminals
+        assert report["role_quality"]["terminal"]["field_coverage"]["airflow_m3_h"] == 1.0
+        # 系列条目缺字段也不产生告警
+        assert [
+            issue
+            for issue in report["issues"]
+            if issue["code"] == "CATALOG_KEY_FIELD_MISSING"
+        ] == []
+    finally:
+        server_catalog.remove(series_item)
 
     response = client.get("/api/v1/catalog/equipment/quality")
 
     assert response.status_code == 200
     body = response.json()
     terminal = body["role_quality"]["terminal"]
-    # 系列条目与摆放条目都不计入覆盖率：只统计有具体规格的工程末端（当前 54 条）。
     engineering_terminals = [
         item
         for item in catalog
         if item.get("role") == "terminal" and not item.get("placement_only")
     ]
-    assert terminal["count"] == len(engineering_terminals) - len(configurable)
+    assert terminal["count"] == len(engineering_terminals)
     assert terminal["field_coverage"]["airflow_m3_h"] == 1.0
     # 工程末端必备字段已全部补齐（组合式机组水侧/风机功率按风量与水侧
-    # 定额派生），缺字段告警整体清零，系列条目自然不产生告警。
+    # 定额派生），缺字段告警整体清零。
     assert [
         issue for issue in body["issues"] if issue["code"] == "CATALOG_KEY_FIELD_MISSING"
     ] == []

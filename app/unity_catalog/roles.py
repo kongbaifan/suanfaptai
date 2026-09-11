@@ -17,7 +17,7 @@ class DeviceRole(str, Enum):
     COOLING_TOWER = "cooling_tower"  # 冷却塔
     FCU = "fcu"  # 风机盘管
     AHU = "ahu"  # 组合式空调机组
-    FRESH_AIR_UNIT = "fresh_air_unit"  # 一体式新风机组
+    FRESH_AIR_UNIT = "fresh_air_unit"  # 新风机组（冷冻水盘管，100% 室外新风）
 
     # 控制与阻力
     WATER_VALVE = "water_valve"  # 水阀（球阀、截止阀、蝶阀、闸阀、止回阀）
@@ -69,7 +69,7 @@ DEVICE_TYPE_TO_ROLE: dict[str, DeviceRole] = {
     "冷却塔": DeviceRole.COOLING_TOWER,
     "风机盘管": DeviceRole.FCU,
     "组合式空调机组": DeviceRole.AHU,
-    "一体式新风机组": DeviceRole.FRESH_AIR_UNIT,
+    "新风机组": DeviceRole.FRESH_AIR_UNIT,
 
     # 控制与阻力
     "球阀": DeviceRole.WATER_VALVE,
@@ -159,7 +159,10 @@ def get_device_role(device_type: str) -> Optional[DeviceRole]:
     Returns:
         设备角色，未知类型返回 None
     """
-    return DEVICE_TYPE_TO_ROLE.get(device_type)
+    # 历史类型名归一，避免改名前的项目/端口布局解析不到角色。
+    from app.data.equipment import resolve_device_type
+
+    return DEVICE_TYPE_TO_ROLE.get(resolve_device_type(device_type))
 
 
 def get_system_type(role: DeviceRole) -> SystemType:

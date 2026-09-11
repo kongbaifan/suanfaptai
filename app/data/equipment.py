@@ -141,7 +141,21 @@ def merge_equipment_catalog(items: list[dict[str, Any]], replace: bool = False) 
     return save_equipment_catalog(list(merged.values()))
 
 
+# 历史类型名 -> 现名。类型改名后，此前保存的项目仍带旧类型名，解析前统一归一，
+# 避免老项目静默退化成内置兜底参数。
+LEGACY_DEVICE_TYPE_ALIASES = {
+    "一体式新风机组": "新风机组",
+}
+
+
+def resolve_device_type(device_type: str | None) -> str:
+    """把历史类型名归一为目录中的现名；未知类型原样返回。"""
+    text = str(device_type or "")
+    return LEGACY_DEVICE_TYPE_ALIASES.get(text, text)
+
+
 def find_equipment_spec(device_type: str, name: str | None = None) -> dict[str, Any] | None:
+    device_type = resolve_device_type(device_type)
     catalog = load_equipment_catalog()
     # 工程参数解析只看真实设备条目；placement_only 条目只承载 Unity 摆放信息，
     # 命中它们会拿不到任何额定参数，必须继续走 "*" 类型默认兜底。

@@ -4,7 +4,7 @@
 
 1. **新风处理设备不具备制冷能力**：房间的新风量会被判给"新风承担者"
    （``_fresh_air_handlers``），房间侧随即不再单独注入新风。若该承担者本身
-   没有可用冷源（例如目录里的"一体式新风机组"是直膨机，而仿真暂无直膨模型，
+   没有可用冷源（例如目录里的直膨式新风处理机、仿真暂无直膨模型，
    且样例也没接冷冻水），新风负荷就会两头落空、凭空消失。此规则把这种配置
    显式暴露出来。
 2. **末端选型严重超配**：末端总名义冷量远超房间设计负荷时，阀门开到极小
@@ -25,7 +25,6 @@ from app.unity_catalog import DeviceRole
 # 具备引入并处理室外新风能力的角色
 _FRESH_AIR_ROLES = {DeviceRole.AHU, DeviceRole.FRESH_AIR_UNIT}
 # 仿真中没有任何制冷通路的末端类型（无水路、且无直膨模型）
-_DX_FAU_TYPES = {"一体式新风机组"}
 _WATER_SYSTEMS = {"chilled_water", "hot_water"}
 # 末端总名义冷量 / 房间设计冷负荷 超过该倍率即提示超配
 _OVERSIZE_RATIO = 2.5
@@ -39,7 +38,6 @@ def validate_fresh_air_and_terminals(
 
     issues: list[Issue] = []
     room_by_id = {room.id: room for room in request.rooms}
-    device_by_id = {device.id: device for device in request.devices}
 
     # 设备接入了哪些水系统
     water_systems_by_device: dict[str, set[str]] = defaultdict(set)
@@ -94,12 +92,12 @@ def validate_fresh_air_and_terminals(
                 )
             )
             continue
-        # 有承担者，但承担者是否真的能处理新风？
+        # 有承担者，但承担者是否真的能处理新风？仿真没有直膨模型，任何靠盘管
+        # 处理新风的机组都必须接入水系统；只接风口的机组是纯风机，冷量为 0。
         functional = [
             device_id
             for device_id in capable
             if water_systems_by_device.get(device_id)
-            or device_by_id[device_id].type not in _DX_FAU_TYPES
         ]
         if not functional:
             issues.append(
@@ -108,9 +106,9 @@ def validate_fresh_air_and_terminals(
                     code="fresh_air_handler_without_cooling",
                     message=(
                         f"房间 {room.name or room.id} 的新风由"
-                        f" {', '.join(capable)} 承担，但该设备没有可用冷源"
-                        "（未接冷冻水且仿真无直膨模型），新风湿负荷将被丢弃。"
-                        "请改用接冷冻水的组合式空调机组。"
+                        f" {', '.join(capable)} 承担，但该设备未接入水系统"
+                        "（无冷冻水/热水盘管），仿真中不产出冷热量，新风湿负荷"
+                        "将被丢弃。请给机组接上冷冻水。"
                     ),
                     target=room.id,
                 )

@@ -24,7 +24,7 @@ from app.schemas import SystemEvaluateRequest
 
 
 SAMPLE_NAMES = ("four_floor_fcu_fresh_air", "multi_zone_all_air")
-TERMINAL_TYPES = frozenset({"风机盘管", "组合式空调机组", "一体式新风机组"})
+TERMINAL_TYPES = frozenset({"风机盘管", "组合式空调机组", "新风机组"})
 SYSTEM_EQUIPMENT_TYPES = frozenset(
     {
         "冷源机组",
@@ -121,7 +121,7 @@ def test_clean_sample_round_trip_validate_and_runtime(
         if sample_name == "four_floor_fcu_fresh_air":
             assert len(loaded["rooms"]) == 6
             assert all(
-                set(room["device_ids"]) == {f"fcu_f{floor}", f"ahu_f{floor}"}
+                set(room["device_ids"]) == {f"fcu_f{floor}", f"fau_f{floor}"}
                 for floor, room_group in ((1, loaded["rooms"][0:2]),
                                           (2, loaded["rooms"][2:4]),
                                           (3, loaded["rooms"][4:6]))

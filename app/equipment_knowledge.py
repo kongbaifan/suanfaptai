@@ -29,7 +29,7 @@ KNOWLEDGE_DEVICE_TYPES = {
     "cooling_tower": "冷却塔",
     "fan_coil_unit": "风机盘管",
     "air_handling_unit": "组合式空调机组",
-    "fresh_air_unit": "一体式新风机组",
+    "fresh_air_unit": "新风机组",
     "air_source_heat_pump": "空气源热泵",
     "water_source_heat_pump": "水源热泵",
     "ground_source_heat_pump": "地源热泵",
@@ -42,7 +42,7 @@ CATALOG_LINKS = {
     "cooling_tower": "冷却塔",
     "fan_coil_unit": "风机盘管",
     "air_handling_unit": "组合式空调机组",
-    "fresh_air_unit": "一体式新风机组",
+    "fresh_air_unit": "新风机组",
     "air_source_heat_pump": "空气源热泵",
     "water_source_heat_pump": "水源热泵",
     # 目录中该类型名为「地源热泵」（见 equipment_catalog.json），必须与之一致

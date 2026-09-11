@@ -26,34 +26,34 @@ def _sample_request() -> SystemEvaluateRequest:
     return SystemEvaluateRequest(**deepcopy(FOUR_FLOOR_FCU_FRESH_AIR_SAMPLE))
 
 
-def test_ahu_without_alias_exposes_water_and_air_ports():
-    """组合式空调机组必须把冷冻水与风侧分开成独立端口
+def test_fresh_air_unit_without_alias_exposes_water_and_air_ports():
+    """新风机组必须把冷冻水与风侧分开成独立端口
 
-    四层样例里新风机组只承担新风冷却（未接热水），故展开为
-    冷冻水2 + 风侧2；关键是它们不能再挤进同一个通用端口。
+    新风机组是冷冻水盘管处理 100% 室外新风，端口为冷冻水2 + 风侧2。
+    此前该角色只定义了 2 个风口，机组无法接水、冷量恒为 0。
     """
     graph = build_port_graph(_sample_request())
     for floor in ("f1", "f2", "f3"):
-        media = [port.medium for port in graph.device_ports[f"ahu_{floor}"]]
+        media = [port.medium for port in graph.device_ports[f"fau_{floor}"]]
         assert media.count("chilled_water") == 2
         assert media.count("air") == 2
         # 未连热水时条件性热水口不展开
         assert media.count("hot_water") == 0
 
 
-def test_ahu_ports_are_not_all_collapsed_onto_one_port():
+def test_fresh_air_unit_ports_are_not_all_collapsed_onto_one_port():
     """每条连接必须落在自己的端口上，不能全部挤到同一个端口"""
     graph = build_port_graph(_sample_request())
-    ports = graph.device_ports["ahu_f1"]
+    ports = graph.device_ports["fau_f1"]
     for index in range(len(ports)):
-        key = ("ahu_f1", index)
+        key = ("fau_f1", index)
         # 任一端口都不应同时挂满水侧与风侧的所有连接
         assert len(graph.adjacency.get(key, [])) <= 2
 
 
 def test_project_port_graph_matches_catalog_port_query():
     """项目端口枚举与目录端口查询必须给出同构布局"""
-    catalog = query_device_port_layout("组合式空调机组", "AHU-07-10-8排")
+    catalog = query_device_port_layout("新风机组", "MKS02D4Y/C")
     assert catalog is not None
     catalog_shape = [
         (entry.direction, entry.medium, entry.conditional)
@@ -61,13 +61,13 @@ def test_project_port_graph_matches_catalog_port_query():
     ]
     role_shape = [
         (entry.direction, entry.medium, entry.conditional)
-        for entry in _role_port_entries("ahu")
+        for entry in _role_port_entries("fresh_air_unit")
     ]
     assert catalog_shape == role_shape
 
     graph = build_port_graph(_sample_request())
     project_shape = [
-        (port.direction, port.medium) for port in graph.device_ports["ahu_f1"]
+        (port.direction, port.medium) for port in graph.device_ports["fau_f1"]
     ]
     # 样例未给新风机组接热水，条件性热水口不展开：冷冻水2 + 风侧2
     non_conditional = [

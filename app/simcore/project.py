@@ -27,7 +27,7 @@ from app.unity_catalog import DeviceRole
 
 
 THERMAL_MASS_KJ_PER_M2_K = 80.0
-_DEVICE_TYPE_ALIASES = {"冷水机组": "冷源机组"}
+_DEVICE_TYPE_ALIASES = {"冷水机组": "冷源机组", "一体式新风机组": "新风机组"}
 
 
 @dataclass(frozen=True, slots=True)

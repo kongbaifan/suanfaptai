@@ -206,10 +206,15 @@ def _role_port_entries(role: str) -> list[PortLayoutEntry]:
             PortLayoutEntry("return", "air"),
         ]
     if role == "fresh_air_unit":
-        # 新风进口 / 送风出口
+        # 新风机组：冷冻水盘管处理 100% 室外新风，故水侧供热回、风侧为
+        # 新风进口 + 送风出口。热水口条件性，只有接了热水系统才参与编号。
         return [
-            PortLayoutEntry("return", "air"),
+            PortLayoutEntry("return", "chilled_water"),
+            PortLayoutEntry("supply", "chilled_water"),
+            PortLayoutEntry("return", "hot_water", conditional=True),
+            PortLayoutEntry("supply", "hot_water", conditional=True),
             PortLayoutEntry("supply", "air"),
+            PortLayoutEntry("return", "air"),
         ]
     if role == "water_valve" or role == "air_valve":
         return [

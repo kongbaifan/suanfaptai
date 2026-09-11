@@ -141,7 +141,7 @@ describe("project editor helpers", () => {
       devices: [
         { id: "fcu", type: "风机盘管", quantity: 1 },
         { id: "ahu", type: "组合式空调机组", quantity: 1 },
-        { id: "fau", type: "一体式新风机组", quantity: 1 },
+        { id: "fau", type: "新风机组", quantity: 1 },
         { id: "chiller", type: "冷源机组", quantity: 1 },
         { id: "pump", type: "循环泵", quantity: 1 },
         { id: "tower", type: "冷却塔", quantity: 1 },

@@ -62,11 +62,8 @@ def test_fresh_air_handler_prefers_fresh_air_unit_over_ahu():
     assert role_by_id[handlers["r1"]] is DeviceRole.FRESH_AIR_UNIT
 
 
-def test_ahu_carries_fresh_air_when_no_fresh_air_unit_present():
-    """没有新风机组时，组合式机组是次选承担者
-
-    四层样例改造后即属此列：新风由接冷冻水的组合式机组处理。
-    """
+def test_fresh_air_unit_carries_fresh_air_in_four_floor_sample():
+    """四层样例的新风由接冷冻水的新风机组承担。"""
     layout, session = _session(FOUR_FLOOR_FCU_FRESH_AIR_SAMPLE)
     handlers = session._fresh_air_handlers()
 
@@ -75,7 +72,7 @@ def test_ahu_carries_fresh_air_when_no_fresh_air_unit_present():
     }
     assert handlers, "房间应有新风承担者"
     assert all(
-        role_by_id[handler] is DeviceRole.AHU
+        role_by_id[handler] is DeviceRole.FRESH_AIR_UNIT
         for handler in handlers.values()
     )
     # 每个房间都有且只有一个承担者
@@ -168,3 +165,51 @@ def test_room_without_fresh_air_device_still_gets_outdoor_air_load():
     reading = snapshot.rooms["r1"]
     # 室外新风（33℃/70%，比室内湿）进入房间 → 湿负荷为正
     assert reading.fresh_air_latent_kw > 0.0
+
+
+def test_fresh_air_unit_delivers_design_ventilation_airflow():
+    """专用新风机组必须按卫生新风量送风，不随房间冷热需求波动
+
+    风量若跟随房间温度需求，温度达标后风机就降速、新风量不足——这正是新风
+    机组与普通末端最本质的区别。这里用四层样例跑自动控制，核对新风机组总
+    风量与各房间新风需求之和一致。
+    """
+    import pytest as _pytest
+
+    layout, session = _session(FOUR_FLOOR_FCU_FRESH_AIR_SAMPLE)
+    for _ in range(1800):
+        session.step()
+
+    solved = session._solve(session._ambient())
+    delivered = sum(
+        solved.terminals[node.instance_id].airflow_m3_h
+        for node in layout.devices
+        if node.rated.role is DeviceRole.FRESH_AIR_UNIT
+    )
+    required = sum(room.fresh_air_m3_h for room in layout.rooms)
+
+    assert delivered == _pytest.approx(required, rel=0.05)
+
+
+def test_fresh_air_unit_coil_stays_open_so_supply_is_treated():
+    """新风机组盘管不能因房间温度达标就关闭
+
+    机组风机常开送新风，水阀若跟着房间温度需求归零，就会把**未处理**的室外
+    新风直接灌进房间。这里核对机组始终产出冷量、送风低于进风（室外）温度。
+    """
+    layout, session = _session(FOUR_FLOOR_FCU_FRESH_AIR_SAMPLE)
+    for _ in range(1800):
+        session.step()
+
+    ambient = session._ambient()
+    solved = session._solve(ambient)
+    fresh_units = [
+        node
+        for node in layout.devices
+        if node.rated.role is DeviceRole.FRESH_AIR_UNIT
+    ]
+    assert fresh_units
+    for node in fresh_units:
+        state = solved.terminals[node.instance_id]
+        assert state.cooling_kw > 0.0
+        assert state.supply_air_temp_c < ambient.dry_bulb_c

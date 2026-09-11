@@ -22,7 +22,7 @@ def validate_system(request: SystemEvaluateRequest, required_cooling_kw: float) 
 
     roles = [role_for_device(device) for device in request.devices]
     has_cold_source = "cold_source" in roles or any(t in type_counts for t in ("冷源机组", "冷水机组"))
-    has_terminal = "terminal" in roles or any(t in type_counts for t in ("风机盘管", "组合式空调机组", "一体式新风机组"))
+    has_terminal = "terminal" in roles or any(t in type_counts for t in ("风机盘管", "组合式空调机组", "新风机组"))
     has_pump = "pump" in roles or type_counts["循环泵"] > 0
     has_cooling_tower = "cooling_tower" in roles or type_counts["冷却塔"] > 0
 
@@ -36,7 +36,7 @@ def validate_system(request: SystemEvaluateRequest, required_cooling_kw: float) 
         issues.append(Issue(level="warning", code="MISSING_COOLING_TOWER", message="Cooling tower is missing for water-cooled system assumption."))
 
     cold_capacity_kw = sum(device_capacity(device) for device in request.devices if role_for_device(device) == "cold_source" or device.type in ("冷源机组", "冷水机组"))
-    terminal_capacity_kw = sum(device_capacity(device) for device in request.devices if role_for_device(device) == "terminal" or device.type in ("风机盘管", "组合式空调机组", "一体式新风机组"))
+    terminal_capacity_kw = sum(device_capacity(device) for device in request.devices if role_for_device(device) == "terminal" or device.type in ("风机盘管", "组合式空调机组", "新风机组"))
 
     if required_cooling_kw > 0 and cold_capacity_kw and cold_capacity_kw < required_cooling_kw:
         issues.append(

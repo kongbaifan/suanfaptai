@@ -332,17 +332,17 @@
   },
   {
     "knowledge_id": "fresh_air_unit",
-    "device_type": "一体式新风机组",
-    "name": "一体式新风机组",
+    "device_type": "新风机组",
+    "name": "新风机组",
     "overview": "对室外新风进行过滤和温湿度处理后送入使用区域。",
     "catalog_linked": true,
-    "catalog_device_type": "一体式新风机组",
+    "catalog_device_type": "新风机组",
     "applicable_systems": [
       "chilled_water",
       "hot_water",
       "air"
     ],
-    "principle": "室外空气经过过滤和水盘管处理，由送风机输送到室内，用于满足卫生新风和部分冷热负荷。",
+    "principle": "室外空气经过过滤和水盘管处理，由送风机输送到室内，用于满足卫生新风和冷热负荷。",
     "components": [
       {
         "name": "新风过滤器",
@@ -363,32 +363,32 @@
     ],
     "key_parameters": [
       {
-        "key": "nominal_capacity_ton",
-        "name": "名义冷吨",
-        "unit": "ton",
-        "description": "62X型号名称对应的名义容量。",
-        "catalog_field": "nominal_capacity_ton"
-      },
-      {
         "key": "capacity_kw",
-        "name": "名义容量换算值",
+        "name": "额定制冷量",
         "unit": "kW",
-        "description": "由名义冷吨进行单位换算，仅用于系列容量识别。",
+        "description": "全新风工况下的机组总冷量。",
         "catalog_field": "capacity_kw"
       },
       {
-        "key": "refrigerant",
-        "name": "制冷剂",
-        "unit": null,
-        "description": "厂家公布的系列制冷剂。",
-        "catalog_field": "refrigerant"
+        "key": "airflow_m3_h",
+        "name": "额定风量",
+        "unit": "m3/h",
+        "description": "全新风工况下的送风量。",
+        "catalog_field": "airflow_m3_h"
       },
       {
-        "key": "configurable_series",
-        "name": "按项目选型",
-        "unit": null,
-        "description": "具体风量、风机功率和工况性能由DOAS Builder确定。",
-        "catalog_field": "configurable_series"
+        "key": "water_flow_m3_h",
+        "name": "额定水量",
+        "unit": "m3/h",
+        "description": "冷冻水盘管的设计流量。",
+        "catalog_field": "water_flow_m3_h"
+      },
+      {
+        "key": "fan_power_kw",
+        "name": "风机功率",
+        "unit": "kW",
+        "description": "送风机额定输入功率。",
+        "catalog_field": "fan_power_kw"
       }
     ]
   },

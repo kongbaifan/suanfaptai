@@ -326,7 +326,7 @@ def _steady_solver_role(device: DeviceInput) -> str | None:
         "fresh_air_unit",
         "风机盘管",
         "组合式空调机组",
-        "一体式新风机组",
+        "新风机组",
     }:
         return "terminal"
     if device_type in {"pump", "循环泵"}:

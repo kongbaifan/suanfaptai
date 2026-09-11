@@ -145,7 +145,7 @@ _BUILTIN_FALLBACK: dict[DeviceRole, dict[str, Any]] = {
 _BUILTIN_FALLBACK[DeviceRole.PUMP_CHILLED_WATER] = _BUILTIN_FALLBACK[DeviceRole.PUMP]
 _BUILTIN_FALLBACK[DeviceRole.PUMP_COOLING_WATER] = _BUILTIN_FALLBACK[DeviceRole.PUMP]
 
-# 组合式空调机组与一体式新风机组的量级与风机盘管差一个数量级，必须各自兜底。
+# 组合式空调机组与新风机组的量级与风机盘管差一个数量级，必须各自兜底。
 # 三项之间按下面的盘管换算关系自洽，不是各自取整。
 _BUILTIN_FALLBACK[DeviceRole.AHU] = {
     "capacity_kw": 90.0,

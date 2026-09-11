@@ -1168,7 +1168,7 @@ class SimulationSession:
         每个房间；房间侧的除湿/降温由"送风与室内的状态差 × 该房间风量"决定。
 
         进风按设备类型区分（一台机组只有一种进风构成）：
-        - **一体式新风机组**：100% 室外新风（专用新风处理机）；
+        - **新风机组**：100% 室外新风（专用新风处理机）；
         - **组合式空调机组**：室外新风 + 房间回风混合（混风箱）；
         - **风机盘管**：100% 房间回风，不引入新风。
 
@@ -1196,16 +1196,22 @@ class SimulationSession:
                 and state.airflow_m3_h > 0.0
                 and state.cooling_kw > 0.0
             ):
-                # 本机组承担的室外新风：只有它是这些房间的新风承担者时才有
-                fresh_air_m3_h = min(
-                    math.fsum(
-                        room_by_id[room_id].fresh_air_m3_h
-                        for room_id, _ in weights
-                        if room_id in room_by_id
-                        and fresh_handler_by_room.get(room_id) == node.instance_id
-                    ),
-                    state.airflow_m3_h,
-                )
+                if is_fresh_air:
+                    # 新风机组整机处理室外新风：进风即室外状态，不含回风。
+                    # 不能用"房间所需新风量"反推，否则机组额定风量与需求不等时
+                    # 差额会被误当回风，稀释进风、虚增可除湿量。
+                    fresh_air_m3_h = state.airflow_m3_h
+                else:
+                    # 组合式机组：本机组承担的室外新风
+                    fresh_air_m3_h = min(
+                        math.fsum(
+                            room_by_id[room_id].fresh_air_m3_h
+                            for room_id, _ in weights
+                            if room_id in room_by_id
+                            and fresh_handler_by_room.get(room_id) == node.instance_id
+                        ),
+                        state.airflow_m3_h,
+                    )
                 return_air_m3_h = max(state.airflow_m3_h - fresh_air_m3_h, 0.0)
                 # 回风求**平均状态**（按各房间分摊风量加权），再与新风按风量混合。
                 served_airflow_m3_h = math.fsum(
@@ -1307,7 +1313,7 @@ class SimulationSession:
     def _fresh_air_handlers(self) -> dict[str, str]:
         """每个房间的室外新风由哪台设备承担（房间 id → 设备实例 id）
 
-        只有具备新风引入能力的设备参与分配：**一体式新风机组**（专用新风处理机）
+        只有具备新风引入能力的设备参与分配：**新风机组**（专用新风处理机）
         优先，其次是**组合式空调机组**（带混风箱）。风机盘管不引入新风，因此
         不承担；同一房间若有多台同类机组，按实例 id 排序取第一台，保证结果确定。
 
@@ -1699,14 +1705,27 @@ class SimulationSession:
                     else 0.0
                 )
             if "fan_speed_pct" in self._controls[node.instance_id]:
-                targets["fan_speed_pct"] = (
-                    AUTO_MIN_AIR_OUTPUT_PCT
-                    + (100.0 - AUTO_MIN_AIR_OUTPUT_PCT) * demand
-                    if demand > 0.0
-                    else 0.0
-                )
+                if role is DeviceRole.FRESH_AIR_UNIT:
+                    # 专用新风机组的风量由**卫生新风需求**决定，不随房间冷热
+                    # 需求波动：房间温度到位后若把风机降速，新风量就不够了。
+                    # 目标开度直接取"应送新风量 / 额定风量"。
+                    targets["fan_speed_pct"] = self._fresh_air_fan_target(node)
+                else:
+                    targets["fan_speed_pct"] = (
+                        AUTO_MIN_AIR_OUTPUT_PCT
+                        + (100.0 - AUTO_MIN_AIR_OUTPUT_PCT) * demand
+                        if demand > 0.0
+                        else 0.0
+                    )
             if "valve_opening_pct" in self._controls[node.instance_id]:
-                targets["valve_opening_pct"] = 100.0 * demand
+                if role is DeviceRole.FRESH_AIR_UNIT:
+                    # 新风机组的风机常开送新风，盘管必须同步处理这份新风，
+                    # 不能因为房间温度达标就把水阀关掉、改送未经处理的新风。
+                    targets["valve_opening_pct"] = 100.0 * max(
+                        demand, self._fresh_air_coil_demand(node)
+                    )
+                else:
+                    targets["valve_opening_pct"] = 100.0 * demand
             if "opening_pct" in self._controls[node.instance_id]:
                 targets["opening_pct"] = 100.0 * demand
             if "supply_temp_c" in self._controls[node.instance_id]:
@@ -1720,6 +1739,41 @@ class SimulationSession:
                 for name, target in targets.items()
             }
             self._controls[node.instance_id].update(bounded)
+
+    def _fresh_air_fan_target(self, node: DeviceNode) -> float:
+        """新风机组风机目标开度：按应送新风量占额定风量的比例。
+
+        专用新风机组承担卫生新风，风量不随房间冷热需求变化；房间温度达标就
+        降速会导致新风不足。
+        """
+        required = math.fsum(
+            self._fresh_air_room_requirement(room_id)
+            for room_id in node.effective_room_ids
+        )
+        rated = node.rated.airflow_m3_h or 0.0
+        if required <= 0.0 or rated <= 0.0:
+            return 0.0
+        return max(AUTO_MIN_AIR_OUTPUT_PCT, min(100.0, required / rated * 100.0))
+
+    def _fresh_air_coil_demand(self, node: DeviceNode) -> float:
+        """新风机组盘管的最小出力：保证送入房间的新风已被处理。
+
+        进风是室外新风，与房间目标温差越大，需要的盘管出力越高；否则房间
+        温度达标时水阀会关闭，机组改送未经处理的新风。
+        """
+        if self.config.mode is not SimulationMode.COOLING:
+            return 0.0
+        ambient = self._ambient()
+        delta = ambient.dry_bulb_c - self.config.target_temp_c
+        if delta <= 0.0:
+            return 0.0
+        return min(1.0, delta / AUTO_FULL_DEMAND_C)
+
+    def _fresh_air_room_requirement(self, room_id: str | None) -> float:
+        for room in self.layout.rooms:
+            if room.room_id == room_id:
+                return room.fresh_air_m3_h
+        return 0.0
 
     def _slew_value(self, node: DeviceNode, name: str, target: float) -> float:
         current = self._controls[node.instance_id][name]

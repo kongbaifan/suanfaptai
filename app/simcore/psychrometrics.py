@@ -75,3 +75,86 @@ def _clamp(value: float, low: float, high: float) -> float:
     if math.isnan(value):
         return low
     return max(low, min(high, value))
+
+
+# 干空气定压比热与饱和水蒸气比热，kJ/(kg·K)
+DRY_AIR_CP_KJ_KG_K = 1.006
+VAPOR_CP_KJ_KG_K = 1.86
+# 0℃ 水蒸气汽化潜热，kJ/kg
+VAPORIZATION_HEAT_KJ_KG = 2501.0
+
+
+def saturation_humidity_ratio(
+    temperature_c: float, pressure_pa: float = STANDARD_PRESSURE_PA
+) -> float:
+    """饱和含湿量（相对湿度 100% 时的含湿量）"""
+    return humidity_ratio_from_rh(temperature_c, 100.0, pressure_pa)
+
+
+def enthalpy_kj_kg(
+    temperature_c: float,
+    humidity_ratio: float,
+    pressure_pa: float = STANDARD_PRESSURE_PA,
+) -> float:
+    """湿空气比焓（以 0℃ 干空气为基准）
+
+    `h = c_pa·T + w·(r0 + c_pv·T)`，与 `LATENT_HEAT_KJ_KG` 的简化式不同，
+    这里保留水蒸气显热项，湿盘管出口温度反解才自洽。
+    """
+    ratio = max(humidity_ratio, MIN_HUMIDITY_RATIO)
+    return (
+        DRY_AIR_CP_KJ_KG_K * temperature_c
+        + ratio * (VAPORIZATION_HEAT_KJ_KG + VAPOR_CP_KJ_KG_K * temperature_c)
+    )
+
+
+def saturated_enthalpy_kj_kg(
+    temperature_c: float, pressure_pa: float = STANDARD_PRESSURE_PA
+) -> float:
+    """饱和线上某温度的比焓"""
+    return enthalpy_kj_kg(
+        temperature_c, saturation_humidity_ratio(temperature_c, pressure_pa), pressure_pa
+    )
+
+
+def vapor_enthalpy_kj_kg(
+    temperature_c: float,
+    humidity_ratio: float,
+) -> float:
+    """含湿量对应的水蒸气焓 `w·(r0 + c_pv·T)`
+
+    与 `enthalpy_kj_kg` 用同一组常数，因此
+    `cp·ΔT + Δvapor_enthalpy` 恰好等于 `Δenthalpy`——把盘管冷量拆成
+    显热与潜热时用它可以做到严格守恒，不会因两套潜热常数不同而漏能量。
+    """
+    ratio = max(humidity_ratio, MIN_HUMIDITY_RATIO)
+    return ratio * (VAPORIZATION_HEAT_KJ_KG + VAPOR_CP_KJ_KG_K * temperature_c)
+
+
+def temperature_from_saturated_enthalpy(
+    enthalpy: float,
+    pressure_pa: float = STANDARD_PRESSURE_PA,
+    *,
+    low_c: float = -20.0,
+    high_c: float = 60.0,
+    iterations: int = 60,
+) -> float:
+    """湿盘管出口温度：饱和线上按比焓反解
+
+    饱和比焓随温度单调递增，二分即可稳定收敛；步数取 60 次远高于
+    双精度所需，代价可忽略。
+    """
+    if not math.isfinite(enthalpy):
+        return low_c
+    if enthalpy <= saturated_enthalpy_kj_kg(low_c, pressure_pa):
+        return low_c
+    if enthalpy >= saturated_enthalpy_kj_kg(high_c, pressure_pa):
+        return high_c
+    lo, hi = low_c, high_c
+    for _ in range(iterations):
+        mid = (lo + hi) / 2.0
+        if saturated_enthalpy_kj_kg(mid, pressure_pa) < enthalpy:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2.0

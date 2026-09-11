@@ -13,12 +13,22 @@ import math
 from dataclasses import dataclass
 
 from app.simcore.hydronics import MAX_HYDRONIC_DELTA_T_C, WATER_KW_PER_M3H_K
+from app.simcore.psychrometrics import (
+    DRY_AIR_CP_KJ_KG_K,
+    VAPORIZATION_HEAT_KJ_KG,
+    VAPOR_CP_KJ_KG_K,
+    enthalpy_kj_kg,
+    saturation_humidity_ratio,
+    temperature_from_saturated_enthalpy,
+)
 from app.simcore.rated import RatedSpec
 from app.unity_catalog import DeviceRole
 
 
 # 风侧：Q(kW) = V(m3/h) · ρ · c_p / 3600 · ΔT
 AIR_KW_PER_M3H_K = 1.2 * 1.005 / 3600.0
+# 空气密度，与 calculators/room 各处口径一致
+AIR_DENSITY_KG_M3 = 1.2
 
 # 冷机额定工况的冷凝温度基准，冷凝侧偏离此值时修正 COP
 CONDENSER_REFERENCE_C = 30.0
@@ -450,6 +460,54 @@ def terminal_state(
         supply_air_temp_c=supply_air_temp_c,
         power_kw=_positive(rated.fan_power_kw, 0.0) * fan_ratio**3,
     )
+
+
+def coil_leaving_state(
+    entering_temp_c: float,
+    entering_ratio: float,
+    supply_airflow_m3_h: float,
+    total_cooling_kw: float,
+) -> tuple[float, float]:
+    """盘管对进风冷却后的送风状态（干球温度, 含湿量）
+
+    这是"盘管处理混合风"的核心：进风可以是回风、新风或两者混合，出风状态
+    由能量守恒与饱和线共同决定，因此**新风的湿负荷必须穿过盘管**，无法绕过。
+
+    判定分两支：
+    - **干盘管**（等湿降温）：按定含湿量沿焓线降温，不除湿；
+    - **湿盘管**（降温除湿）：出口落在饱和线上，含湿量取该温度的饱和值。
+
+    先用干盘管假设求出口温度，若该温度下的饱和含湿量低于进风含湿量，说明
+    空气已过饱和、必然结露，改走湿盘管分支按饱和线反解。
+
+    风量为零或无冷量时原样返回进风状态，避免除零，也保证不凭空造出送风温差。
+    """
+    if (
+        supply_airflow_m3_h <= 0.0
+        or total_cooling_kw <= 0.0
+        or not math.isfinite(entering_temp_c)
+        or not math.isfinite(entering_ratio)
+    ):
+        return entering_temp_c, entering_ratio
+
+    air_mass_kg_s = supply_airflow_m3_h * AIR_DENSITY_KG_M3 / 3600.0
+    if air_mass_kg_s <= 0.0:
+        return entering_temp_c, entering_ratio
+
+    enthalpy_in = enthalpy_kj_kg(entering_temp_c, entering_ratio)
+    enthalpy_out = enthalpy_in - total_cooling_kw / air_mass_kg_s
+
+    # 干盘管假设：含湿量不变，按焓反解出口温度
+    dry_temperature = (
+        enthalpy_out - VAPORIZATION_HEAT_KJ_KG * entering_ratio
+    ) / (DRY_AIR_CP_KJ_KG_K + VAPOR_CP_KJ_KG_K * entering_ratio)
+
+    # 出口处于过饱和（饱和含湿量低于进风含湿量）则实际会结露
+    if entering_ratio > saturation_humidity_ratio(dry_temperature):
+        saturated_temperature = temperature_from_saturated_enthalpy(enthalpy_out)
+        return saturated_temperature, saturation_humidity_ratio(saturated_temperature)
+
+    return dry_temperature, entering_ratio
 
 
 def valve_state(opening_ratio: float, enabled: bool = True) -> ValveState:

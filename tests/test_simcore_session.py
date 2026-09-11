@@ -19,6 +19,7 @@ from app.simcore.room import (
 )
 from app.simcore.hydronics import advance_temperature
 from app.simcore.session import (
+    AUTO_DEHUMIDIFICATION_SUBCOOL_C,
     DeviceNode,
     PlantLayout,
     RoomInitialState,
@@ -233,10 +234,23 @@ class TestSessionDrivenByEquipment:
             advanced = stepped.rooms[room_id].relative_humidity_pct
             assert advanced != initial.rooms[room_id].relative_humidity_pct
             assert MIN_ROOM_RH_PCT <= advanced <= MAX_ROOM_RH_PCT
-        # 末端 35 kW 全热对应 8.75 kW 潜热，远超 40 人的 2.2 kW 散湿，
-        # 故制冷时盘管除湿占优，湿度下降。
-        assert stepped.rooms[ROOM_ID].relative_humidity_pct < 47.0
-        assert stepped.rooms[ROOM_ID].target_humidity_pct == config.target_humidity_pct
+        # 取湿平衡分项：除湿量由盘管实际出风状态决定（混合风过盘管），
+        # 也可能是干盘管（高风量、低冷量时送风未到露点，除湿为 0）。
+        reading = stepped.rooms[ROOM_ID]
+        assert reading.target_humidity_pct == config.target_humidity_pct
+        net = reading.net_latent_kw
+        assert net == pytest.approx(
+            reading.fresh_air_latent_kw
+            + reading.internal_latent_kw
+            - reading.dehumidification_kw,
+            abs=0.01,
+        )
+        # 湿度推进方向必须与净潜热一致：净湿为正则升高，反之降低
+        delta = reading.relative_humidity_pct - initial.rooms[ROOM_ID].relative_humidity_pct
+        if net > 0.0:
+            assert delta >= 0.0
+        elif net < 0.0:
+            assert delta <= 0.0
 
     def test_humidity_balance_terms_reach_snapshot(self):
         """湿平衡分项随快照给出，且各项自洽"""
@@ -363,24 +377,29 @@ class TestSessionDrivenByEquipment:
             ):
                 assert math.isfinite(value), overrides
 
-    def test_humidity_demand_only_acts_within_temperature_headroom(self):
-        """湿度需求受室温余量限制，室温到位后不再加大冷量
+    def test_humidity_demand_acts_within_subcool_allowance(self):
+        """湿度需求在过冷带宽内有效，压到除湿下限即停
 
-        没有再热盘管时继续除湿只会过冷，而同一含湿量在更低室温下
-        相对湿度更高，会形成正反馈。
+        制冷除湿必须让送风低于室内露点，房间因此必然低于目标温度；模型无
+        再热盘管，这份过冷无法回收，故只在 ``AUTO_DEHUMIDIFICATION_SUBCOOL_C``
+        允许的带宽内继续要冷量，到达下限就停，避免一味过冷。
         """
         session = SimulationSession(
             build_layout(),
             replace(DEMO_CONFIG, target_humidity_pct=30.0, automatic_control=True),
         )
-        session._room_temps[ROOM_ID] = session.config.target_temp_c
+        # 室温在目标与下限之间：允许继续除湿
+        session._room_temps[ROOM_ID] = (
+            session.config.target_temp_c - AUTO_DEHUMIDIFICATION_SUBCOOL_C / 2.0
+        )
         session._room_humidity_pct[ROOM_ID] = 80.0
-
-        assert session._room_humidity_demand(ROOM_ID) == 0.0
-
-        session._room_temps[ROOM_ID] = session.config.target_temp_c + 5.0
-
         assert session._room_humidity_demand(ROOM_ID) > 0.0
+
+        # 已到除湿下限：不再增加冷量
+        session._room_temps[ROOM_ID] = (
+            session.config.target_temp_c - AUTO_DEHUMIDIFICATION_SUBCOOL_C
+        )
+        assert session._room_humidity_demand(ROOM_ID) == 0.0
 
     def test_runtime_config_update_preserves_dynamic_and_manual_state(self):
         session = SimulationSession(

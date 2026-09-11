@@ -11,7 +11,6 @@ from app.main import app
 from app.room_bindings import resolve_room_bindings
 from app.samples import MULTI_ZONE_ALL_AIR_SAMPLE
 from app.schemas import SystemEvaluateRequest
-from app.simcore.devices import SENSIBLE_HEAT_RATIO
 from app.simcore.project import build_project_layout
 from app.simcore.session import SimulationConfig, SimulationMode, SimulationSession
 from app.simcore.steady import solve_steady
@@ -234,16 +233,16 @@ def test_multi_room_allocation_is_mode_weighted_and_conserved(
     assert math.fsum(room.airflow_m3_h for room in room_readings) == ahu[
         "airflow_m3_h"
     ]
-    # 房间读数的 cooling_kw 是显热：目录容量为全热，制冷时按显热比拆分后
-    # 只有显热进温度平衡，潜热走湿度平衡（session._advance_rooms）。
-    # 拿房间显热之和直接对全热会差一个 SENSIBLE_HEAT_RATIO。
-    # 制热与通风不拆分，原样传递，故因子为 1。
-    sensible_factor = (
-        SENSIBLE_HEAT_RATIO if mode is SimulationMode.COOLING else 1.0
-    )
-    assert math.fsum(room.cooling_kw for room in room_readings) == pytest.approx(
-        ahu["cooling_kw"] * sensible_factor
-    )
+    # 房间 cooling_kw 是**显热**：制冷时盘管按"混合风过盘管"算出送风状态，
+    # 显热 = 风量·c_p·(室温 − 送风温)，潜热走湿度平衡。显热不再是全热乘固定
+    # 显热比，故只能与全热比较量级。制热与通风不拆分，原样传递。
+    room_sensible_kw = math.fsum(room.cooling_kw for room in room_readings)
+    if mode is SimulationMode.COOLING:
+        # 显热不超过盘管全热（潜热非负），且应在合理量级内
+        assert 0.0 <= room_sensible_kw <= ahu["cooling_kw"] + 0.01
+        assert room_sensible_kw >= ahu["cooling_kw"] * 0.5
+    else:
+        assert room_sensible_kw == pytest.approx(ahu["cooling_kw"])
     assert math.fsum(room.heating_kw for room in room_readings) == ahu[
         "heating_kw"
     ]
@@ -262,10 +261,12 @@ def test_multi_room_allocation_is_mode_weighted_and_conserved(
             ahu["airflow_m3_h"] * weight / total_weight
         )
         if expected_load is not None:
-            factor = sensible_factor if expected_load == "cooling_kw" else 1.0
-            assert getattr(room, expected_load) == pytest.approx(
-                ahu[expected_load] * factor * weight / total_weight
-            )
+            # 风量与制热按权重精确分摊；制冷时房间读数是显热，由盘管出风状态
+            # 算出，不按固定显热比分摊，因此只校验风量这一条守恒关系。
+            if expected_load != "cooling_kw":
+                assert getattr(room, expected_load) == pytest.approx(
+                    ahu[expected_load] * weight / total_weight
+                )
     if expected_load is None:
         # 通风既不制冷也不制热，只送风。
         assert ahu["cooling_kw"] == 0.0
@@ -351,10 +352,10 @@ def test_realtime_room_projection_uses_authoritative_multi_room_snapshot(
         assert sum(room["airflow_m3_h"] for room in rooms) == pytest.approx(
             ahu["airflow_m3_h"], abs=0.003
         )
-        # 房间 cooling_kw 是显热，机组 cooling_kw 是全热，见上面同名说明。
-        assert sum(room["cooling_kw"] for room in rooms) == pytest.approx(
-            ahu["cooling_kw"] * SENSIBLE_HEAT_RATIO, abs=0.003
-        )
+        # 房间 cooling_kw 是显热、机组 cooling_kw 是全热，见上面同名说明。
+        # 显热由盘管出风状态算出，不再等于全热的固定份额，只校验不超全热。
+        room_sensible_kw = sum(room["cooling_kw"] for room in rooms)
+        assert 0.0 <= room_sensible_kw <= ahu["cooling_kw"] + 0.005
     finally:
         client.post(f"/api/v1/realtime/simulate/stop/{project_id}")
         realtime._sessions.pop(project_id, None)

@@ -18,6 +18,7 @@ from typing import Any, Callable, Iterable, Literal, Mapping
 
 from app.simcore.controls import clamp_controls, default_controls
 from app.simcore.devices import (
+    AIR_DENSITY_KG_M3,
     SENSIBLE_HEAT_RATIO,
     ChillerState,
     CoolingTowerState,
@@ -25,6 +26,7 @@ from app.simcore.devices import (
     PumpState,
     TerminalState,
     chiller_state,
+    coil_leaving_state,
     cooling_tower_state,
     heat_source_cooling_state,
     heat_source_state,
@@ -46,6 +48,11 @@ from app.simcore.hydronics import (
     normalized_resistance_index,
 )
 from app.simcore.rated import RatedSpec
+from app.simcore.psychrometrics import (
+    DRY_AIR_CP_KJ_KG_K,
+    LATENT_HEAT_KJ_KG,
+    vapor_enthalpy_kj_kg,
+)
 from app.simcore.room import (
     MAX_ROOM_RH_PCT,
     MIN_ROOM_RH_PCT,
@@ -78,16 +85,16 @@ AUTO_FULL_DEMAND_C = 4.0
 # 相对湿度本身随室温摆动，死区过窄会让设备跟着湿度读数频繁调节。
 AUTO_DEADBAND_RH_PCT = 3.0
 AUTO_FULL_DEMAND_RH_PCT = 15.0
-# 为除湿允许的最大过冷幅度（℃），默认 0：不允许低于目标室温。
+# 为除湿允许的最大过冷幅度（℃）。
 #
-# 实测结论（多区域全空气 / 四层FCU+新风两套样例）：放开这个闸门**没有收益**。
-# 盘管潜热份额固定为冷量的 25%，除湿能力本身小于人员散湿+未处理新风的湿负荷，
-# 继续制冷只会把显热压得更低，而相对湿度随温度下降反而回升（95% 封顶），
-# 即"越冷越湿"；除湿能力充足的场景（低人员密度）湿度本来就在目标以下，
-# 放闸同样无差别。真正的解法在物理侧：让盘管潜热份额随空气状态变化，
-# 或补独立新风/再热除湿（未实施）。因此这里保持 0，并把现状如实暴露为
-# `humidity_target_unreachable` 告警与 `humidity_shortfall_pct` 读数。
-AUTO_DEHUMIDIFICATION_SUBCOOL_C = 0.0
+# 制冷除湿在物理上必须把送风压到室内露点以下，因此房间温度必然被带到目标
+# 以下——模型没有再热盘管，这份过冷无法回收。给一个小带宽，让盘管在接近
+# 目标温度时仍保持"湿态"继续除湿；没有它，控制器一到目标温度就收冷量，
+# 盘管转为等湿降温，湿度只升不降。
+#
+# 该值配合"盘管处理混合风"模型生效（见 `coil_leaving_state`）：新风与回风
+# 混合后过盘管，新风湿负荷无处可绕。带宽越大湿度越低，但室温也越低。
+AUTO_DEHUMIDIFICATION_SUBCOOL_C = 2.0
 AUTO_MIN_WATER_OUTPUT_PCT = 40.0
 AUTO_MIN_AIR_OUTPUT_PCT = 35.0
 AUTO_MAX_PCT_CHANGE_PER_TICK = 8.0
@@ -311,6 +318,16 @@ class RoomDelivery:
     不能与房间内区盘管的除湿量重复计入，故单独记账。
     """
 
+    sensible_cooling_kw: float = 0.0
+    latent_cooling_kw: float = 0.0
+    """按盘管物理算出的、真正注入房间的显热与潜热冷量
+
+    与 `cooling_kw`（目录全热、用于分摊与展示）不同，这两个量是"送风状态
+    与室内状态之差 × 该房间风量"逐台机组累加的结果，可跨多台机组相加。
+    一台房间挂多台盘管（如风机盘管 + 新风机组）时必须逐台累加，
+    不能拿某一台的送风状态去乘房间总风量——那会凭空放大该机的处理能力。
+    """
+
 
 @dataclass(frozen=True, slots=True)
 class PlantSnapshot:
@@ -485,7 +502,7 @@ class SimulationSession:
         self._effective_controls = self._mode_interlocked_controls(effective)
         ambient = self._ambient()
         solved = self._solve(ambient)
-        deliveries = self._allocate_room_deliveries(solved)
+        deliveries = self._allocate_room_deliveries(solved, ambient)
         balances, humidity_balances = self._advance_rooms(ambient, deliveries)
         self._snapshot = self._build_snapshot(
             ambient, solved, balances, deliveries, humidity_balances
@@ -1143,8 +1160,16 @@ class SimulationSession:
     # ---------- 房间推进 ----------
 
     def _allocate_room_deliveries(
-        self, solved: "_SolveResult"
+        self, solved: "_SolveResult", ambient: Ambient
     ) -> dict[str, RoomDelivery]:
+        """把各末端的冷热风分配到房间
+
+        制冷时先按**设备**算出唯一的盘管出风状态（混合风过盘管），再把该
+        送风状态带给其服务的每个房间；房间侧的除湿/降温由"送风与室内的状态
+        差 × 该房间风量"决定。这样一台机组只有一个送风状态，且室外新风的
+        湿负荷必然经过盘管。
+        """
+        room_by_id = {room.room_id: room for room in self.layout.rooms}
         deliveries: dict[str, RoomDelivery] = {}
         for node in self.layout.devices:
             state = solved.terminals.get(node.instance_id)
@@ -1155,9 +1180,113 @@ class SimulationSession:
             cooling = _allocate_conserved(state.cooling_kw, weights)
             heating = _allocate_conserved(state.heating_kw, weights)
             is_fresh_air = node.rated.role is DeviceRole.FRESH_AIR_UNIT
+
+            supply_temp_c: float | None = None
+            supply_ratio: float | None = None
+            if (
+                self.config.mode is SimulationMode.COOLING
+                and state.airflow_m3_h > 0.0
+                and state.cooling_kw > 0.0
+            ):
+                # 混合风质量平衡：送风量 = 回风量 + 新风量。
+                # 先把服务房间的回风求**平均状态**，再与室外新风按风量混合；
+                # 若直接把 Σ(室温×风量) 与新风量相加，回风会被按满送风量
+                # 重复计入（Σ 已经等于送风量），混合状态会虚高。
+                served_airflow_m3_h = math.fsum(
+                    airflow[room_id] for room_id, _ in weights
+                )
+                fresh_air_m3_h = min(
+                    math.fsum(
+                        room_by_id[room_id].fresh_air_m3_h
+                        for room_id, _ in weights
+                        if room_id in room_by_id
+                    ),
+                    state.airflow_m3_h,
+                )
+                return_air_m3_h = max(state.airflow_m3_h - fresh_air_m3_h, 0.0)
+                if served_airflow_m3_h > 0.0:
+                    return_temp_c = (
+                        math.fsum(
+                            self._room_temp(room_id) * airflow[room_id]
+                            for room_id, _ in weights
+                        )
+                        / served_airflow_m3_h
+                    )
+                    return_ratio = (
+                        math.fsum(
+                            humidity_ratio_from_rh(
+                                self._room_temp(room_id),
+                                self._room_humidity_pct[room_id],
+                            )
+                            * airflow[room_id]
+                            for room_id, _ in weights
+                        )
+                        / served_airflow_m3_h
+                    )
+                else:
+                    return_temp_c = ambient.dry_bulb_c
+                    return_ratio = humidity_ratio_from_rh(
+                        ambient.dry_bulb_c, ambient.relative_humidity_pct
+                    )
+                outdoor_ratio = humidity_ratio_from_rh(
+                    ambient.dry_bulb_c, ambient.relative_humidity_pct
+                )
+                mix_temp_c = (
+                    return_air_m3_h * return_temp_c
+                    + fresh_air_m3_h * ambient.dry_bulb_c
+                ) / state.airflow_m3_h
+                mix_ratio = (
+                    return_air_m3_h * return_ratio
+                    + fresh_air_m3_h * outdoor_ratio
+                ) / state.airflow_m3_h
+                supply_temp_c, supply_ratio = coil_leaving_state(
+                    mix_temp_c, mix_ratio, state.airflow_m3_h, state.cooling_kw
+                )
+
+                # 逐房间按"本房间分摊到的风量"折算该机组的实际贡献，
+                # 这样多台机组（风机盘管 + 新风机组）的贡献可以直接相加。
+                # 送风比室内更干/更冷时才是制冷除湿，反之为加热加湿，
+                # 均取 0 由另一项负责，避免同一股风在两侧重复计入。
+                for room_id, _ in weights:
+                    if airflow[room_id] <= 0.0:
+                        continue
+                    room_temp_c = self._room_temp(room_id)
+                    room_ratio = humidity_ratio_from_rh(
+                        room_temp_c, self._room_humidity_pct[room_id]
+                    )
+                    air_mass_kg_s = airflow[room_id] * AIR_DENSITY_KG_M3 / 3600.0
+                    # 显热/潜热按同一组焓常数拆分：两者之和恰好等于
+                    # 送风与室内的比焓差，盘管冷量因此严格守恒。
+                    device_sensible_kw = max(
+                        air_mass_kg_s
+                        * DRY_AIR_CP_KJ_KG_K
+                        * (room_temp_c - supply_temp_c),
+                        0.0,
+                    )
+                    device_latent_kw = max(
+                        air_mass_kg_s
+                        * (
+                            vapor_enthalpy_kj_kg(room_temp_c, room_ratio)
+                            - vapor_enthalpy_kj_kg(supply_temp_c, supply_ratio)
+                        ),
+                        0.0,
+                    )
+                    current = deliveries.get(room_id, RoomDelivery())
+                    deliveries[room_id] = RoomDelivery(
+                        airflow_m3_h=current.airflow_m3_h,
+                        cooling_kw=current.cooling_kw,
+                        heating_kw=current.heating_kw,
+                        fresh_air_cooling_kw=current.fresh_air_cooling_kw,
+                        sensible_cooling_kw=current.sensible_cooling_kw
+                        + device_sensible_kw,
+                        latent_cooling_kw=current.latent_cooling_kw
+                        + device_latent_kw,
+                    )
+
             for room_id, _ in weights:
                 current = deliveries.get(room_id, RoomDelivery())
-                deliveries[room_id] = RoomDelivery(
+                deliveries[room_id] = replace(
+                    current,
                     airflow_m3_h=current.airflow_m3_h + airflow[room_id],
                     cooling_kw=current.cooling_kw + cooling[room_id],
                     heating_kw=current.heating_kw + heating[room_id],
@@ -1265,29 +1394,35 @@ class SimulationSession:
             current_temp_c = self._room_temp(room.room_id)
             delivery = deliveries.get(room.room_id, RoomDelivery())
 
-            # 末端目录容量为全热能力，须按显热/潜热拆分后分别进入温度与湿度平衡，
-            # 否则同一份冷量会被用掉两次。制热与通风不除湿，全部计入显热。
-            if self.config.mode is SimulationMode.COOLING:
-                sensible_cooling_kw = delivery.cooling_kw * SENSIBLE_HEAT_RATIO
-                latent_cooling_kw = delivery.cooling_kw * (1.0 - SENSIBLE_HEAT_RATIO)
-            else:
-                sensible_cooling_kw = delivery.cooling_kw
-                latent_cooling_kw = 0.0
-
-            # 新风机组的潜热能力归新风侧，房间除湿只算内区盘管那部分
-            fresh_air_latent_capacity_kw = (
-                delivery.fresh_air_cooling_kw * (1.0 - SENSIBLE_HEAT_RATIO)
-                if self.config.mode is SimulationMode.COOLING
-                else 0.0
-            )
-            room_latent_cooling_kw = max(
-                latent_cooling_kw - fresh_air_latent_capacity_kw, 0.0
-            )
-            # 待机不引入新风；通风工况的新风才是这个模式存在的意义
+            # 各盘管已在设备级按"混合风过盘管"逐台累加出注入本房间的显热与
+            # 潜热（见 `_allocate_room_deliveries`）。多台机组可直接相加。
+            # 新风已随混合风穿过盘管，因此不再作为独立湿源注入，避免重复计账。
+            supply_airflow_m3_h = delivery.airflow_m3_h
             fresh_air_m3_h = (
                 0.0
                 if self.config.mode is SimulationMode.STANDBY
-                else room.fresh_air_m3_h
+                else min(room.fresh_air_m3_h, supply_airflow_m3_h)
+            )
+            if self.config.mode is SimulationMode.COOLING:
+                sensible_cooling_kw = delivery.sensible_cooling_kw
+                room_latent_cooling_kw = delivery.latent_cooling_kw
+                if supply_airflow_m3_h <= 0.0 and delivery.cooling_kw > 0.0:
+                    # 退化情形：末端有冷量却无送风量（没有可依托的盘管气流），
+                    # 沿用按显热比拆分，避免这份冷量凭空消失。
+                    sensible_cooling_kw = delivery.cooling_kw * SENSIBLE_HEAT_RATIO
+                    room_latent_cooling_kw = delivery.cooling_kw * (
+                        1.0 - SENSIBLE_HEAT_RATIO
+                    )
+            else:
+                sensible_cooling_kw = delivery.cooling_kw
+                room_latent_cooling_kw = 0.0
+
+            # 新风已进盘管参与处理，不能再作为独立湿源注入房间（重复计账）。
+            # 通风工况没有盘管，新风才按室外状态直接进入房间。
+            fresh_air_injection_m3_h = (
+                0.0
+                if self.config.mode is SimulationMode.COOLING
+                else fresh_air_m3_h
             )
 
             balance = step_room_temperature(
@@ -1309,8 +1444,8 @@ class SimulationSession:
                 latent_cooling_kw=room_latent_cooling_kw,
                 config=thermal,
                 step_seconds=self.config.step_seconds,
-                fresh_air_m3_h=fresh_air_m3_h,
-                fresh_air_latent_capacity_kw=fresh_air_latent_capacity_kw,
+                fresh_air_m3_h=fresh_air_injection_m3_h,
+                fresh_air_latent_capacity_kw=0.0,
             )
             self._room_humidity_pct[room.room_id] = humidity.relative_humidity_pct
             humidity_balances[room.room_id] = humidity
@@ -1415,9 +1550,10 @@ class SimulationSession:
                 alarms.append("no_chilled_flow")
             if solved.cooling_flow_m3_h <= 0.0 and solved.towers:
                 alarms.append("no_cooling_flow")
-            # 湿度目标不可达：盘管潜热份额固定且无再热，散湿量（人员+未处理
-            # 新风）超过除湿能力时湿度会持续偏高。如实告知需要再热或独立
-            # 新风除湿，而不是让目标值静默失效。
+            # 湿度目标不可达：盘管处理混合风、无再热盘管，当除湿能力不足以
+            # 处理人员散湿与新风湿负荷（或多分区共用末端导致分配不均）时，
+            # 湿度会持续偏高。如实告知需要再热或独立新风除湿，而不是让目标
+            # 值静默失效。
             if any(
                 self._room_humidity_pct[room.room_id]
                 > self.config.target_humidity_pct + AUTO_DEADBAND_RH_PCT
@@ -1595,11 +1731,12 @@ class SimulationSession:
         目标温度时的相对湿度"，得到一个与温度无关的湿度偏差，单调反映
         空气中水分的多少。
 
-        需求受室温闸门限制：``AUTO_DEHUMIDIFICATION_SUBCOOL_C`` 默认为 0，即室温
-        到达目标后不再为除湿继续加大冷量。实测放开该闸门并无收益——盘管潜热
-        份额固定，除湿能力小于湿负荷时继续制冷只会抬高相对湿度（"越冷越湿"）。
-        若压到闸门仍无法达标（``humidity_shortfall_pct`` 持续为正），说明需要
-        再热或独立新风除湿，由 ``humidity_target_unreachable`` 告警如实提示。
+        需求受除湿过冷下限约束：允许把室温压到目标以下
+        ``AUTO_DEHUMIDIFICATION_SUBCOOL_C``。制冷除湿在物理上必须让送风低于室内
+        露点，房间因此必然被带到目标温度以下；没有这份过冷，盘管在接近目标
+        温度时就转入等湿降温，湿度只升不降。若压到下限仍无法达标
+        （``humidity_shortfall_pct`` 持续为正），说明除湿能力确实不足或分区
+        分配不均，由 ``humidity_target_unreachable`` 告警如实提示。
         """
         if self.config.mode is not SimulationMode.COOLING:
             return 0.0

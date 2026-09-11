@@ -162,6 +162,7 @@ async function mountView() {
       target_temp_c: 26,
       relative_humidity_pct: 62.5,
       target_humidity_pct: 55,
+      humidity_shortfall_pct: 7.5,
       airflow_m3_h: 0,
       cooling_kw: 0,
       heating_kw: 0,
@@ -529,6 +530,25 @@ describe("runtime pipe readings", () => {
     expect(wrapper.find(".pipe-content").exists()).toBe(false);
     const emptyStates = wrapper.findAll(".empty-state").map((item) => item.text());
     expect(emptyStates.some((text) => text.includes("没有水管"))).toBe(true);
+    wrapper.unmount();
+  });
+});
+
+
+describe("humidity diagnosis", () => {
+  it("warns when a room cannot reach the humidity target", async () => {
+    const { wrapper } = await mountView();
+    expect(wrapper.find(".humidity-diagnosis").exists()).toBe(true);
+    expect(wrapper.find(".humidity-diagnosis").text()).toContain("不可达");
+    expect(wrapper.find(".humidity-diagnosis").text()).toContain("再热");
+    wrapper.unmount();
+  });
+
+  it("stays quiet when every room is within the humidity deadband", async () => {
+    const { wrapper, realtime } = await mountView();
+    for (const room of realtime.rooms?.rooms ?? []) room.humidity_shortfall_pct = 1.0;
+    await flushPromises();
+    expect(wrapper.find(".humidity-diagnosis").exists()).toBe(false);
     wrapper.unmount();
   });
 });

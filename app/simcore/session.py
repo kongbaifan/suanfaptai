@@ -52,6 +52,8 @@ from app.simcore.room import (
     RoomBalance,
     RoomHumidityBalance,
     RoomThermalConfig,
+    humidity_ratio_from_rh,
+    rh_from_humidity_ratio,
     step_room_humidity,
     step_room_temperature,
 )
@@ -76,6 +78,16 @@ AUTO_FULL_DEMAND_C = 4.0
 # 相对湿度本身随室温摆动，死区过窄会让设备跟着湿度读数频繁调节。
 AUTO_DEADBAND_RH_PCT = 3.0
 AUTO_FULL_DEMAND_RH_PCT = 15.0
+# 为除湿允许的最大过冷幅度（℃），默认 0：不允许低于目标室温。
+#
+# 实测结论（多区域全空气 / 四层FCU+新风两套样例）：放开这个闸门**没有收益**。
+# 盘管潜热份额固定为冷量的 25%，除湿能力本身小于人员散湿+未处理新风的湿负荷，
+# 继续制冷只会把显热压得更低，而相对湿度随温度下降反而回升（95% 封顶），
+# 即"越冷越湿"；除湿能力充足的场景（低人员密度）湿度本来就在目标以下，
+# 放闸同样无差别。真正的解法在物理侧：让盘管潜热份额随空气状态变化，
+# 或补独立新风/再热除湿（未实施）。因此这里保持 0，并把现状如实暴露为
+# `humidity_target_unreachable` 告警与 `humidity_shortfall_pct` 读数。
+AUTO_DEHUMIDIFICATION_SUBCOOL_C = 0.0
 AUTO_MIN_WATER_OUTPUT_PCT = 40.0
 AUTO_MIN_AIR_OUTPUT_PCT = 35.0
 AUTO_MAX_PCT_CHANGE_PER_TICK = 8.0
@@ -261,6 +273,14 @@ class RoomReading:
     target_temp_c: float
     relative_humidity_pct: float
     target_humidity_pct: float
+    humidity_shortfall_pct: float
+    """当前相对湿度超出目标的百分点（不低于 0）。
+
+    大于自动控制死区且持续存在时，说明除湿能力不足以把湿度压到目标——
+    模型无再热盘管、盘管潜热份额固定，需要再热或独立新风除湿才能解决。
+    供前端与告警如实提示，而不是让目标湿度变成一个沉默的摆设。
+    """
+
     airflow_m3_h: float
     cooling_kw: float
     """房间获得的显热冷量
@@ -1337,6 +1357,11 @@ class SimulationSession:
                 target_temp_c=self.config.target_temp_c,
                 relative_humidity_pct=self._room_humidity_pct[room.room_id],
                 target_humidity_pct=self.config.target_humidity_pct,
+                humidity_shortfall_pct=max(
+                    0.0,
+                    self._room_humidity_pct[room.room_id]
+                    - self.config.target_humidity_pct,
+                ),
                 airflow_m3_h=delivery.airflow_m3_h,
                 cooling_kw=balance.cooling_kw if balance else 0.0,
                 heating_kw=balance.heating_kw if balance else 0.0,
@@ -1390,6 +1415,15 @@ class SimulationSession:
                 alarms.append("no_chilled_flow")
             if solved.cooling_flow_m3_h <= 0.0 and solved.towers:
                 alarms.append("no_cooling_flow")
+            # 湿度目标不可达：盘管潜热份额固定且无再热，散湿量（人员+未处理
+            # 新风）超过除湿能力时湿度会持续偏高。如实告知需要再热或独立
+            # 新风除湿，而不是让目标值静默失效。
+            if any(
+                self._room_humidity_pct[room.room_id]
+                > self.config.target_humidity_pct + AUTO_DEADBAND_RH_PCT
+                for room in self.layout.rooms
+            ):
+                alarms.append("humidity_target_unreachable")
         elif self.config.mode is SimulationMode.HEATING:
             if solved.installed_heating_capacity_kw <= 0.0 and self.layout.devices:
                 alarms.append("no_heat_source")
@@ -1555,17 +1589,33 @@ class SimulationSession:
 
         只有制冷工况能除湿；制热与通风没有冷盘管，湿度需求无处可去。
 
-        需求受室温闸门限制：本模型没有再热盘管，室温已到目标后继续加大冷量
-        只会过冷，而同一含湿量在更低室温下相对湿度反而更高，形成正反馈跑飞。
-        真实系统靠再热或独立新风除湿解决，教学模型如实体现这个限制——
-        湿度降不下来时应当去看设备配置，而不是让控制逻辑发散。
+        控制量取**含湿量**而非相对湿度：相对湿度随室温变化，制冷本身会
+        抬高它（同一含湿量下温度越低湿度越高），直接拿它做反馈会形成
+        "越冷越湿、越湿越冷"的正反馈。这里把当前含湿量折算成"室温已回到
+        目标温度时的相对湿度"，得到一个与温度无关的湿度偏差，单调反映
+        空气中水分的多少。
+
+        需求受室温闸门限制：``AUTO_DEHUMIDIFICATION_SUBCOOL_C`` 默认为 0，即室温
+        到达目标后不再为除湿继续加大冷量。实测放开该闸门并无收益——盘管潜热
+        份额固定，除湿能力小于湿负荷时继续制冷只会抬高相对湿度（"越冷越湿"）。
+        若压到闸门仍无法达标（``humidity_shortfall_pct`` 持续为正），说明需要
+        再热或独立新风除湿，由 ``humidity_target_unreachable`` 告警如实提示。
         """
         if self.config.mode is not SimulationMode.COOLING:
             return 0.0
-        error = self._room_humidity(room_id) - self.config.target_humidity_pct
+        room_temp_c = self._room_temp(room_id)
+        current_ratio = humidity_ratio_from_rh(
+            room_temp_c, self._room_humidity(room_id)
+        )
+        # 折算到目标室温下的等效相对湿度：与温度无关的"潮湿度"
+        equivalent_rh = rh_from_humidity_ratio(
+            self.config.target_temp_c, current_ratio
+        )
+        error = equivalent_rh - self.config.target_humidity_pct
         if error <= AUTO_DEADBAND_RH_PCT:
             return 0.0
-        headroom = self._room_temp(room_id) - self.config.target_temp_c
+        floor_c = self.config.target_temp_c - AUTO_DEHUMIDIFICATION_SUBCOOL_C
+        headroom = room_temp_c - floor_c
         if headroom <= 0.0:
             return 0.0
         demand = min(
@@ -1573,7 +1623,7 @@ class SimulationSession:
             (error - AUTO_DEADBAND_RH_PCT)
             / (AUTO_FULL_DEMAND_RH_PCT - AUTO_DEADBAND_RH_PCT),
         )
-        # 越接近目标室温，可用于除湿的冷量越少
+        # 越接近除湿过冷下限，可用于除湿的冷量越少
         return demand * min(1.0, headroom / AUTO_FULL_DEMAND_C)
 
     def _mode_interlocked_controls(

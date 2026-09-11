@@ -502,6 +502,9 @@ class RealtimeRoomState(BaseModel):
     target_temp_c: float
     relative_humidity_pct: float
     target_humidity_pct: float
+    humidity_shortfall_pct: float = 0.0
+    """湿度超出目标的百分点（不低于 0）。持续为正表示除湿能力不足，
+    该房间的湿度目标在当前配置下不可达，需要再热或独立新风除湿。"""
     airflow_m3_h: float
     cooling_kw: float
     heating_kw: float

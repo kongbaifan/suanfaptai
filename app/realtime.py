@@ -494,6 +494,7 @@ def get_room_states(project_id: str) -> RealtimeRoomStatesResult:
                 target_temp_c=round(reading.target_temp_c, 2),
                 relative_humidity_pct=round(reading.relative_humidity_pct, 2),
                 target_humidity_pct=round(reading.target_humidity_pct, 2),
+                humidity_shortfall_pct=round(reading.humidity_shortfall_pct, 2),
                 airflow_m3_h=round(reading.airflow_m3_h, 3),
                 cooling_kw=round(reading.cooling_kw, 3),
                 heating_kw=round(reading.heating_kw, 3),

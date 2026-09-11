@@ -290,6 +290,13 @@ const summary = computed(() => realtime.current?.summary ?? {});
 const summaryMode = computed(() => String(summary.value.mode ?? "cooling"));
 const temperature = computed(() => firstNumeric(summary.value, ["average_room_temp_c", "room_temp_c", "supply_temp_c"]));
 const humidity = computed(() => firstNumeric(summary.value, ["average_room_humidity_pct"]));
+/** 湿度超出目标且持续存在的房间：除湿能力不足，目标在当前配置下不可达。 */
+const humidityUnreachableRooms = computed(() =>
+  (realtime.rooms?.rooms ?? []).filter(
+    (room) => (room.humidity_shortfall_pct ?? 0) > 3.0,
+  ),
+);
+const humidityTarget = computed(() => configDraft.value.target_humidity_pct);
 const pressure = computed(() => firstNumeric(summary.value, ["pressure_pa", "total_pressure_pa", "pump_pressure_pa"]));
 const flow = computed(() => firstNumeric(summary.value, ["total_flow_m3_h", "flow_m3_h", "chilled_water_flow_m3_h"]));
 const load = computed(() => firstNumeric(
@@ -476,6 +483,13 @@ watch([selectedId, () => realtime.controls], () => {
       <article class="metric-cell"><Waves /><span>循环流量</span><strong>{{ valueWithUnit(flow, "m³/h") }}</strong></article>
       <article class="metric-cell"><Activity /><span>系统负荷</span><strong>{{ valueWithUnit(load, "kW") }}</strong></article>
     </section>
+
+    <div v-if="humidityUnreachableRooms.length" class="warning-banner humidity-diagnosis">
+      湿度目标 {{ humidityTarget }}% 当前不可达（{{ humidityUnreachableRooms.length }} 个房间超标）：
+      盘管除湿能力不足以处理人员散湿与新风湿负荷，继续降温只会让相对湿度更高。
+      需配置再热盘管或独立新风除湿机组。
+      <span class="humidity-diagnosis-rooms">{{ humidityUnreachableRooms.map((room) => `${room.name} ${room.relative_humidity_pct}%`).join("、") }}</span>
+    </div>
 
     <section class="band-section equipment-overview">
       <div class="section-title">

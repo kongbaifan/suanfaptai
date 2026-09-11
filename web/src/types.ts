@@ -255,6 +255,8 @@ export interface RealtimeRoomState {
   target_temp_c: number;
   relative_humidity_pct: number;
   target_humidity_pct: number;
+  /** 湿度超出目标的百分点（≥0）；持续为正说明除湿能力不足、目标不可达 */
+  humidity_shortfall_pct?: number;
   airflow_m3_h: number;
   cooling_kw: number;
   heating_kw: number;

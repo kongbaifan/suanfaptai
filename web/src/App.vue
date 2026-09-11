@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { Activity, BarChart3, BookOpen, Building2, ChevronDown, History, Menu, Network, Plus, Save, Settings2, X } from "lucide-vue-next";
+import { Activity, BarChart3, BookOpen, Building2, ChevronDown, History, Menu, Network, Save, Settings2, X } from "lucide-vue-next";
 import StatusBadge from "@/components/StatusBadge.vue";
+import ProjectManager from "@/components/ProjectManager.vue";
 import { useDiagnosticsStore } from "@/stores/diagnostics";
 import { useEvaluationStore } from "@/stores/evaluation";
-import { SAMPLE_OPTIONS, sampleNameForSelection, useProjectStore } from "@/stores/project";
+import { useProjectStore } from "@/stores/project";
 import { useRealtimeStore } from "@/stores/realtime";
 import { useUiStore, type ViewName } from "@/stores/ui";
 import BuildingView from "@/views/BuildingView.vue";
@@ -19,8 +20,7 @@ const evaluation = useEvaluationStore();
 const realtime = useRealtimeStore();
 const diagnostics = useDiagnosticsStore();
 const ui = useUiStore();
-const sampleProjectName = ref("");
-const blankProjectName = ref("");
+const managerOpen = ref(false);
 
 const views: Record<ViewName, typeof BuildingView> = { building: BuildingView, evaluation: EvaluationView, runtime: RuntimeView, history: HistoryView, catalog: CatalogView, diagnostics: DiagnosticsView };
 const activeView = computed(() => views[ui.view]);
@@ -33,32 +33,16 @@ const nav = [
   { id: "diagnostics" as const, label: "服务诊断", icon: Settings2 },
 ];
 
-async function selectProject(event: Event) {
-  const id = (event.target as HTMLSelectElement).value;
-  const sampleName = sampleNameForSelection(id);
-  if (sampleName) await project.loadSample(sampleName); else await project.select(id);
+/** 把当前未保存的样例落库成正式项目。 */
+async function saveCurrentSample() {
+  await project.saveSample();
 }
 
-async function saveSampleAsProject() {
-  const saved = await project.saveSample(sampleProjectName.value);
-  if (saved) sampleProjectName.value = "";
+/** 面板里新建/复制后切到建筑结构页，符合"开始编辑"的直觉。 */
+function onProjectCreated() {
+  ui.navigate("building");
+  managerOpen.value = false;
 }
-
-async function createBlankProject() {
-  const saved = await project.createBlankProject(blankProjectName.value);
-  if (saved) {
-    blankProjectName.value = "";
-    ui.navigate("building");
-  }
-}
-
-watch(
-  () => [project.usingSample, project.activeSampleName] as const,
-  () => {
-    sampleProjectName.value = project.usingSample ? project.sampleDefaultName : "";
-  },
-  { immediate: true },
-);
 
 watch(() => project.selectionKey, async (selectionKey, previous) => {
   if (!selectionKey || selectionKey === previous) return;
@@ -84,15 +68,11 @@ onBeforeUnmount(() => realtime.disconnect());
       <div class="brand"><div class="brand-mark"><Building2 /></div><div><strong>中央空调运行工作台</strong><span>HVAC Runtime Console</span></div></div>
       <div class="project-picker">
         <label>当前项目</label>
-        <div class="select-shell"><select :value="project.selectionKey ?? ''" @change="selectProject"><option v-for="sample in SAMPLE_OPTIONS" :key="sample.selectionKey" :value="sample.selectionKey">{{ sample.label }}</option><option v-for="item in project.projects" :key="item.project_id" :value="item.project_id">{{ item.name }}</option></select><ChevronDown /></div>
-        <form v-if="project.usingSample" class="sample-save-form" @submit.prevent="saveSampleAsProject">
-          <input v-model="sampleProjectName" class="sample-name-input" aria-label="新项目名称" :placeholder="project.sampleDefaultName" />
-          <button class="button secondary save-sample" type="submit" :disabled="project.saving"><Save />{{ project.saving ? "保存中" : "保存为项目" }}</button>
-        </form>
-        <form class="blank-create-form" @submit.prevent="createBlankProject">
-          <input v-model="blankProjectName" class="sample-name-input" aria-label="空白项目名称" placeholder="新建教学项目" />
-          <button class="button secondary save-sample" type="submit" :disabled="project.saving" title="从零新建一个不含楼层房间的空白项目"><Plus />{{ project.saving ? "创建中" : "新建空白项目" }}</button>
-        </form>
+        <button class="project-trigger" type="button" @click="managerOpen = true">
+          <span class="project-trigger-name">{{ project.usingSample ? "未保存样例" : (project.active?.name ?? "未选择项目") }}</span>
+          <ChevronDown />
+        </button>
+        <button v-if="project.usingSample" class="button secondary save-sample" type="button" :disabled="project.saving" @click="saveCurrentSample"><Save />{{ project.saving ? "保存中" : "保存为项目" }}</button>
       </div>
       <div class="global-status"><StatusBadge :tone="realtime.socketState === 'connected' ? 'ok' : 'warn'" label="API / WS" /><StatusBadge :tone="diagnostics.report ? (diagnostics.healthy ? 'ok' : 'error') : 'warn'" label="服务诊断" /></div>
     </header>
@@ -104,25 +84,19 @@ onBeforeUnmount(() => realtime.disconnect());
         <nav><button v-for="item in nav" :key="item.id" :class="{ active: ui.view === item.id }" @click="ui.navigate(item.id)"><component :is="item.icon" /><span>{{ item.label }}</span></button></nav>
         <div class="sidebar-footer"><span>数据更新</span><strong>{{ realtime.current?.updated_at ? new Date(realtime.current.updated_at).toLocaleTimeString('zh-CN', { hour12: false }) : '--' }}</strong><small v-if="realtime.stale">实时数据可能已过期</small></div>
       </aside>
+      <ProjectManager v-if="managerOpen" @close="managerOpen = false" @created="onProjectCreated" />
       <main class="main-content"><div v-if="project.error" class="error-banner global-error">项目加载失败：{{ project.error }}</div><div v-if="project.saveError" class="error-banner global-error">项目保存失败：{{ project.saveError }}</div><component :is="activeView" /></main>
     </div>
   </div>
 </template>
 
 <style scoped>
-.sample-save-form, .blank-create-form { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.blank-create-form .sample-name-input { width: min(180px, 15vw); }
-.sample-name-input { width: min(230px, 22vw); height: 36px; padding: 0 10px; color: #fff; background: #285157; border: 1px solid #769196; border-radius: 4px; }
-.sample-name-input::placeholder { color: #b9ccce; }
-.sample-name-input:focus { border-color: #8ee2e4; box-shadow: 0 0 0 2px rgba(142,226,228,.15); }
+.project-picker .save-sample { white-space: nowrap; }
+.project-trigger { display: inline-flex; align-items: center; gap: 8px; max-width: min(320px, 30vw); height: 36px; padding: 0 10px; font-size: 13px; color: #fff; background: #285157; border: 1px solid #769196; border-radius: 4px; cursor: pointer; }
+.project-trigger:hover { border-color: #8ee2e4; }
+.project-trigger-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-trigger svg { width: 15px; height: 15px; flex: none; }
 @media (max-width: 1100px) {
-  .sample-name-input { width: min(190px, 20vw); }
-  .blank-create-form .sample-name-input { width: min(140px, 14vw); }
-}
-@media (max-width: 820px) {
-  .sample-save-form { position: absolute; top: 64px; left: 12px; right: 12px; z-index: 32; display: flex; min-width: 0; padding: 8px; background: var(--teal-dark); border: 1px solid #52757a; border-radius: 0 0 4px 4px; box-shadow: 0 8px 18px rgba(0,0,0,.18); }
-  .sample-save-form .save-sample { display: inline-flex !important; }
-  .sample-name-input { flex: 1 1 auto; width: auto; min-width: 0; }
-  .blank-create-form .sample-name-input { display: none; }
+  .project-trigger { max-width: min(200px, 24vw); }
 }
 </style>

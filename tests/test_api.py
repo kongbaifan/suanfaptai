@@ -163,3 +163,45 @@ def test_device_ports_unknown_model_falls_back_to_type():
     body = response.json()
     assert body["source"] == "type_default"
     assert len(body["ports"]) == 4
+
+
+def _blank_project_payload(name: str = "api-project-test") -> dict:
+    return {
+        "name": name,
+        "project": {"rooms": [], "devices": [], "pipes": [], "connections": []},
+    }
+
+
+def test_project_delete_unknown_returns_404_not_500():
+    """删除不存在的项目应返回 404；曾因清理函数先校验项目而报 500。"""
+    response = client.delete("/api/v1/projects/not_a_real_project")
+
+    assert response.status_code == 404
+
+
+def test_project_duplicate_copies_content_and_names_uniquely():
+    created = client.post("/api/v1/projects", json=_blank_project_payload("复制源")).json()
+    project_id = created["project_id"]
+    try:
+        first = client.post(f"/api/v1/projects/{project_id}/duplicate")
+        assert first.status_code == 200
+        assert first.json()["name"] == "复制源 副本"
+        assert first.json()["project"] == created["project"]
+
+        second = client.post(f"/api/v1/projects/{project_id}/duplicate")
+        assert second.json()["name"] == "复制源 副本 2"
+
+        assert client.post(
+            "/api/v1/projects/not_a_real_project/duplicate"
+        ).status_code == 404
+    finally:
+        client.delete(f"/api/v1/projects/{project_id}")
+
+
+def test_project_delete_removes_it_from_listing():
+    created = client.post("/api/v1/projects", json=_blank_project_payload("待删除")).json()
+    project_id = created["project_id"]
+
+    assert client.delete(f"/api/v1/projects/{project_id}").json() == {"deleted": True}
+    listing = client.get("/api/v1/projects").json()
+    assert all(item["project_id"] != project_id for item in listing)

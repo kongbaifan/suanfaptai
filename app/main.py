@@ -221,10 +221,46 @@ def projects_update(project_id: str, request: ProjectSaveRequest) -> ProjectReco
     return record
 
 
-@app.delete("/api/v1/projects/{project_id}")
+@app.delete(
+    "/api/v1/projects/{project_id}",
+    responses={404: {"description": "Project not found."}},
+)
 async def projects_delete(project_id: str) -> dict[str, bool]:
+    # 先确认存在再清理：否则删一个不存在的项目会把 404 变成 500。
+    try:
+        get_project(project_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found.") from exc
     await cleanup_project_runtime(project_id)
     return {"deleted": delete_project(project_id)}
+
+
+@app.post(
+    "/api/v1/projects/{project_id}/duplicate",
+    response_model=ProjectRecord,
+    responses={404: {"description": "Project not found."}},
+)
+def projects_duplicate(project_id: str) -> ProjectRecord:
+    """复制项目为副本（含楼层/房间/设备/管路与评估历史）。"""
+    try:
+        source = get_project(project_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found.") from exc
+    copy_name = f"{source.name} 副本"
+    existing = {item.name for item in list_projects()}
+    if copy_name in existing:
+        index = 2
+        while f"{copy_name} {index}" in existing:
+            index += 1
+        copy_name = f"{copy_name} {index}"
+    return save_project(
+        ProjectSaveRequest(
+            name=copy_name,
+            description=source.description,
+            tags=source.tags,
+            project=source.project,
+        )
+    )
 
 
 @app.post("/api/v1/projects/{project_id}/evaluate", response_model=SystemEvaluateResult)

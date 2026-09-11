@@ -7,9 +7,8 @@
 from fastapi.testclient import TestClient
 
 from app import realtime
-from app.data.project_store import PROJECT_DIR
+from app.data import project_store
 from app.main import app
-from app.realtime import HISTORY_DIR
 from app.schemas import RealtimePipeStatesResult
 
 
@@ -280,7 +279,7 @@ def test_pipe_states_are_read_only():
     project_id, _ = _create_four_floor_project("pytest_pipes_readonly")
     try:
         project_before = client.get(f"/api/v1/projects/{project_id}").json()
-        project_path = PROJECT_DIR / f"{project_id}.json"
+        project_path = project_store.PROJECT_DIR / f"{project_id}.json"
         bytes_before = project_path.read_bytes()
         mtime_before = project_path.stat().st_mtime_ns
 
@@ -292,7 +291,7 @@ def test_pipe_states_are_read_only():
         assert (
             client.get(f"/api/v1/realtime/history/{project_id}").json()["points"] == []
         )
-        assert not (HISTORY_DIR / f"{project_id}.json").exists()
+        assert not (realtime.HISTORY_DIR / f"{project_id}.json").exists()
         for store in (
             realtime._sessions,
             realtime._layouts,

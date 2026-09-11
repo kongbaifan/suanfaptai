@@ -190,7 +190,7 @@ export const useProjectStore = defineStore("project", {
     },
     /** POST /api/v1/projects 成功后的共同收尾：以服务端返回为准刷新选择器并激活。 */
     async activateCreatedProject(saved: ProjectRecord) {
-      await this.loadProjects();
+      await this.loadProjects()
       // A successful POST is authoritative even if a concurrent list refresh
       // briefly returns stale data. Keep the returned record in the picker.
       if (!this.projects.some((item) => item.project_id === saved.project_id)) {
@@ -215,6 +215,79 @@ export const useProjectStore = defineStore("project", {
       // over the newly activated project.
       this.error = "";
       this.state = "ready";
+    },
+    /** 重命名项目：走 PUT（保留 project 内容），成功后刷新列表。 */
+    async rename(projectId: string, name: string): Promise<boolean> {
+      const trimmed = name.trim();
+      if (!trimmed) return false;
+      this.saving = true;
+      this.saveError = "";
+      try {
+        const current = this.active?.project_id === projectId
+          ? this.active
+          : await api<ProjectRecord>(`/api/v1/projects/${encodeURIComponent(projectId)}`);
+        const saved = await api<ProjectRecord>(
+          `/api/v1/projects/${encodeURIComponent(projectId)}`,
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              name: trimmed,
+              description: current.description ?? null,
+              tags: current.tags,
+              project: current.project,
+            }),
+          },
+        );
+        if (this.active?.project_id === projectId) this.active = saved;
+        await this.loadProjects();
+        return true;
+      } catch (error) {
+        this.saveError = errorMessage(error);
+        return false;
+      } finally {
+        this.saving = false;
+      }
+    },
+    /** 复制项目为副本，并把新副本设为当前项目。 */
+    async duplicate(projectId: string): Promise<ProjectRecord | null> {
+      this.saving = true;
+      this.saveError = "";
+      try {
+        const copy = await api<ProjectRecord>(
+          `/api/v1/projects/${encodeURIComponent(projectId)}/duplicate`,
+          { method: "POST" },
+        );
+        await this.activateCreatedProject(copy);
+        return copy;
+      } catch (error) {
+        this.saveError = errorMessage(error);
+        return null;
+      } finally {
+        this.saving = false;
+      }
+    },
+    /** 删除项目。若删的是当前项目，则回退到列表首个项目或样例。 */
+    async remove(projectId: string): Promise<boolean> {
+      this.saving = true;
+      this.saveError = "";
+      try {
+        await api<{ deleted: boolean }>(
+          `/api/v1/projects/${encodeURIComponent(projectId)}`,
+          { method: "DELETE" },
+        );
+        const wasActive = this.active?.project_id === projectId;
+        await this.loadProjects();
+        if (wasActive) {
+          if (this.projects.length) await this.select(this.projects[0].project_id);
+          else await this.loadSample();
+        }
+        return true;
+      } catch (error) {
+        this.saveError = errorMessage(error);
+        return false;
+      } finally {
+        this.saving = false;
+      }
     },
   },
 });

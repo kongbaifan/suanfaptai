@@ -166,3 +166,62 @@ describe("project update", () => {
     expect(store.saving).toBe(false);
   });
 });
+
+
+describe("project management actions", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it("rename sends PUT and refreshes the listing", async () => {
+    const renamed = { ...savedRecord([]), name: "新名字" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(renamed))      // GET 当前项目（非激活时）
+      .mockResolvedValueOnce(json(renamed))      // PUT
+      .mockResolvedValueOnce(json([renamed]));   // 列表刷新
+    vi.stubGlobal("fetch", fetchMock);
+
+    const store = useProjectStore();
+    await expect(store.rename("p1", "  新名字  ")).resolves.toBe(true);
+    expect(store.saveError).toBe("");
+    const putCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT");
+    expect(putCall).toBeTruthy();
+    expect(JSON.parse(putCall![1].body).name).toBe("新名字");
+  });
+
+  it("rename rejects a blank name without calling the API", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const store = useProjectStore();
+
+    await expect(store.rename("p1", "   ")).resolves.toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("duplicate activates the copy", async () => {
+    const copy = { ...savedRecord([]), project_id: "p2", name: "源 副本" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json(copy))     // POST duplicate
+      .mockResolvedValueOnce(json([copy]));  // 列表刷新
+    vi.stubGlobal("fetch", fetchMock);
+
+    const store = useProjectStore();
+    await expect(store.duplicate("p1")).resolves.toEqual(copy);
+    expect(store.projectId).toBe("p2");
+    expect(store.usingSample).toBe(false);
+  });
+
+  it("remove falls back to the first remaining project", async () => {
+    const remaining = { ...savedRecord([]), project_id: "p9", name: "剩下" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ deleted: true }))               // DELETE
+      .mockResolvedValueOnce(json([remaining]))                     // 列表刷新
+      .mockResolvedValueOnce(json(remaining));                      // select 首个
+    vi.stubGlobal("fetch", fetchMock);
+
+    const store = useProjectStore();
+    store.active = savedRecord([]);
+    await expect(store.remove("p1")).resolves.toBe(true);
+    expect(store.projectId).toBe("p9");
+  });
+});

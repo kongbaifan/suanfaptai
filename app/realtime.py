@@ -406,8 +406,21 @@ def invalidate_project_runtime_caches(project_id: str) -> None:
 
 
 async def cleanup_project_runtime(project_id: str) -> None:
-    """Stop project activity and remove only that project's runtime artifacts."""
-    await stop_simulation(project_id)
+    """Stop project activity and remove only that project's runtime artifacts.
+
+    这是清理操作而非业务操作：不要求项目文件仍然存在，否则删除一个已经
+    不存在的项目会因校验失败而报 500。停机的状态广播也跳过——订阅者此时
+    面对的是一个正在消失的项目。
+    """
+    task = _sim_tasks.pop(project_id, None)
+    if task and not task.done():
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
     for store in (
         _states,
         _updated_at,

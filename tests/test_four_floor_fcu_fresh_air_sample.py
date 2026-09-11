@@ -55,7 +55,9 @@ def test_sample_endpoint_returns_complete_four_floor_annual_system():
     assert devices["chiller_b1"]["floor_id"] == "B1F"
     assert devices["ashp_roof"]["location_type"] == "roof"
     assert devices["tower_roof"]["location_type"] == "roof"
-    assert {devices[f"fau_{floor}"]["type"] for floor in ("f1", "f2", "f3")} == {"一体式新风机组"}
+    # 新风由接冷冻水的组合式空调机组承担；一体化直膨新风机组在仿真里无冷源，
+    # 已从样例移除（见 samples.py 注释）。
+    assert {devices[f"ahu_{floor}"]["type"] for floor in ("f1", "f2", "f3")} == {"组合式空调机组"}
 
     request = SystemEvaluateRequest(**payload)
     assert len(request.floors) == 4
@@ -129,17 +131,20 @@ def test_simcore_builds_stable_fcu_hydronic_branches_from_direct_pipes():
         for branch in layout.hydronic_branches
     }
     assert layout.modeled_water_loops == frozenset({"chilled", "hot"})
+    # 冷冻侧：风机盘管 + 组合式新风机组；热水侧：仅风机盘管（新风机组不接热水）
     assert set(branches) == {
-        (loop, f"fcu_{floor}")
-        for loop in ("chilled", "hot")
+        ("chilled", f"{terminal}_{floor}")
+        for terminal in ("fcu", "ahu")
         for floor in ("f1", "f2", "f3")
-    }
+    } | {("hot", f"fcu_{floor}") for floor in ("f1", "f2", "f3")}
     assert branches[("chilled", "fcu_f2")] > branches[("chilled", "fcu_f3")]
     assert branches[("chilled", "fcu_f3")] > branches[("chilled", "fcu_f1")]
     assert layout.hydronic_branches == reversed_layout.hydronic_branches
-    assert not any(
-        branch.terminal_instance_id.startswith("fau_")
+    # 新风机组必须真的接入冷冻水，否则又会退化成纯风机
+    assert any(
+        branch.terminal_instance_id.startswith("ahu_")
         for branch in layout.hydronic_branches
+        if branch.loop == "chilled"
     )
 
 
@@ -156,14 +161,20 @@ def test_four_floor_cooling_uses_one_conserved_topology_aware_flow():
     )
 
     snapshot = session.step()
-    fcu_flow = sum(
-        snapshot.devices[f"fcu_{floor}"].values["water_flow_m3_h"]
+    # 冷冻水环路末端 = 风机盘管 + 组合式新风机组
+    terminal_ids = [
+        f"{terminal}_{floor}"
+        for terminal in ("fcu", "ahu")
         for floor in ("f1", "f2", "f3")
+    ]
+    terminal_flow = sum(
+        snapshot.devices[terminal_id].values["water_flow_m3_h"]
+        for terminal_id in terminal_ids
     )
 
-    assert snapshot.chilled_flow_m3_h == pytest.approx(fcu_flow, abs=0.001)
+    assert snapshot.chilled_flow_m3_h == pytest.approx(terminal_flow, abs=0.001)
     assert snapshot.devices["chw_pump_b1"].values["flow_m3_h"] == pytest.approx(
-        fcu_flow, abs=0.001
+        terminal_flow, abs=0.001
     )
     # 制冷工况下热泵四通阀换向参与冷源池（教学口径），冷量与水量按容量份额
     # 在冷机与热泵之间分摊。守恒发生在"冷源池"层面：所有冷源水量之和 = 环路水量。
@@ -171,11 +182,11 @@ def test_four_floor_cooling_uses_one_conserved_topology_aware_flow():
         snapshot.devices["chiller_b1"].values["flow_m3_h"]
         + snapshot.devices["ashp_roof"].values["flow_m3_h"]
     )
-    assert source_flow == pytest.approx(fcu_flow, abs=0.001)
-    assert snapshot.devices["chiller_b1"].values["flow_m3_h"] < fcu_flow
+    assert source_flow == pytest.approx(terminal_flow, abs=0.001)
+    assert snapshot.devices["chiller_b1"].values["flow_m3_h"] < terminal_flow
     terminal_cooling = sum(
-        snapshot.devices[f"fcu_{floor}"].values["cooling_kw"]
-        for floor in ("f1", "f2", "f3")
+        snapshot.devices[terminal_id].values["cooling_kw"]
+        for terminal_id in terminal_ids
     )
     loop_cooling = (
         WATER_KW_PER_M3H_K
@@ -194,12 +205,10 @@ def test_four_floor_cooling_uses_one_conserved_topology_aware_flow():
         "return_temp_c"
     ] == pytest.approx(snapshot.return_water_temp_c)
     for floor in ("f1", "f2", "f3"):
-        fresh_air = snapshot.devices[f"fau_{floor}"].values
-        # 新风机组不接冷冻水，水量与冷热量仍为 0，冷量守恒只由风机盘管构成。
-        assert fresh_air["water_flow_m3_h"] == 0.0
-        assert fresh_air["cooling_kw"] == 0.0
-        assert fresh_air["heating_kw"] == 0.0
-        # 风量不再为 0：机组有额定风量兜底，风机照转，只是不带冷量。
+        fresh_air = snapshot.devices[f"ahu_{floor}"].values
+        # 新风机组接入冷冻水后必须真的产出冷量，否则新风湿负荷无处可去。
+        assert fresh_air["water_flow_m3_h"] > 0.0
+        assert fresh_air["cooling_kw"] > 0.0
         assert fresh_air["airflow_m3_h"] > 0.0
 
 
@@ -251,6 +260,11 @@ def test_four_floor_pump_speed_and_valves_change_the_same_closed_loop():
 
     for floor in ("f2", "f3"):
         session.set_controls(f"fcu_{floor}", {"valve_opening_pct": 0.0})
+    # 组合式新风机组同样是冷冻水末端，环路仍有流量，不能因 FCU 全关而归零。
+    assert session.step().chilled_flow_m3_h > 0.0
+
+    for floor in ("f1", "f2", "f3"):
+        session.set_controls(f"ahu_{floor}", {"valve_opening_pct": 0.0})
     all_closed = session.step()
     assert all_closed.chilled_flow_m3_h == 0.0
     assert all_closed.cooling_load_kw == 0.0
@@ -343,7 +357,7 @@ def test_missing_heat_source_and_fresh_air_connection_remain_observable():
     isolated_fresh_air["connections"] = [
         connection
         for connection in isolated_fresh_air["connections"]
-        if "fau_f2" not in {connection["from_id"], connection["to_id"]}
+        if "ahu_f2" not in {connection["from_id"], connection["to_id"]}
     ]
     codes = _validation_codes(isolated_fresh_air)
     assert {"ISOLATED_DEVICE", "TERMINAL_NOT_CONNECTED"} <= codes

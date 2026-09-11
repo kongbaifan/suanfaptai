@@ -34,7 +34,39 @@ def _session(sample: dict, mode: SimulationMode = SimulationMode.COOLING):
 
 
 def test_fresh_air_handler_prefers_fresh_air_unit_over_ahu():
-    """有新风机组时，新风由它承担；组合式机组作为次选"""
+    """同时有新风机组与组合式机组时，新风优先由新风机组承担"""
+    project = {
+        "rooms": [
+            {
+                "id": "r1",
+                "name": "共服房间",
+                "device_ids": ["fau-1", "ahu-1"],
+                "area_m2": 120,
+                "people": 20,
+            }
+        ],
+        "devices": [
+            {"id": "fau-1", "type": "一体式新风机组", "name": "62X-05"},
+            {"id": "ahu-1", "type": "组合式空调机组", "name": "AHU-06-07-4排"},
+        ],
+        "pipes": [],
+        "connections": [],
+    }
+    layout, session = _session(project)
+    handlers = session._fresh_air_handlers()
+
+    role_by_id = {
+        node.instance_id: node.rated.role for node in layout.devices
+    }
+    assert handlers == {"r1": "fau-1"}
+    assert role_by_id[handlers["r1"]] is DeviceRole.FRESH_AIR_UNIT
+
+
+def test_ahu_carries_fresh_air_when_no_fresh_air_unit_present():
+    """没有新风机组时，组合式机组是次选承担者
+
+    四层样例改造后即属此列：新风由接冷冻水的组合式机组处理。
+    """
     layout, session = _session(FOUR_FLOOR_FCU_FRESH_AIR_SAMPLE)
     handlers = session._fresh_air_handlers()
 
@@ -43,7 +75,7 @@ def test_fresh_air_handler_prefers_fresh_air_unit_over_ahu():
     }
     assert handlers, "房间应有新风承担者"
     assert all(
-        role_by_id[handler] is DeviceRole.FRESH_AIR_UNIT
+        role_by_id[handler] is DeviceRole.AHU
         for handler in handlers.values()
     )
     # 每个房间都有且只有一个承担者

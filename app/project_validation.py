@@ -1,5 +1,6 @@
 from app.schemas import Issue, ProjectValidationResult, SystemEvaluateRequest
 from app.room_bindings import resolve_room_bindings
+from app.validators.fresh_air import validate_fresh_air_and_terminals
 from app.validators.system import validate_system
 
 
@@ -23,6 +24,7 @@ def validate_project_data(request: SystemEvaluateRequest) -> ProjectValidationRe
 
     issues.extend(resolve_room_bindings(request).issues)
     issues.extend(validate_system(request, required_cooling_kw=0.0))
+    issues.extend(validate_fresh_air_and_terminals(request))
     valid = not any(issue.level == "error" for issue in issues)
     return ProjectValidationResult(valid=valid, normalized=request, issues=_dedupe(issues))
 

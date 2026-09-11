@@ -142,7 +142,14 @@ def test_branch_serves_only_its_own_terminal():
                     assert pipes[f"chw_branch_return_{floor}"][
                         "served_terminal_ids"
                     ] == [f"fcu_{floor}"]
+                    assert pipes[f"chw_ahu_supply_{floor}"][
+                        "served_terminal_ids"
+                    ] == [f"ahu_{floor}"]
+                # 主管沿水流方向汇聚所有冷冻水末端：风机盘管 + 组合式新风机组
                 assert pipes["chw_main_supply_b1"]["served_terminal_ids"] == [
+                    "ahu_f1",
+                    "ahu_f2",
+                    "ahu_f3",
                     "fcu_f1",
                     "fcu_f2",
                     "fcu_f3",

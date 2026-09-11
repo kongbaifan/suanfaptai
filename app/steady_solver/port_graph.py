@@ -374,20 +374,28 @@ def _enumerate_device_ports(
             for port_index in range(branch_count + 1)
         ]
 
-    # 布局表见 _role_port_entries / _heuristic_port_entries（与目录查询共用）
+    # 布局表见 _role_port_entries / _heuristic_port_entries（与目录查询共用）。
+    # 型号没有 Unity 侧别名时按类型名推断；两者都识别不了时，最后按**设备类型**
+    # 解析角色（与 `query_device_port_layout` 共用同一份 get_device_role 映射）。
+    # 缺少最后这层时，组合式空调机组这类"类型可识别、型号无别名"的设备会退化成
+    # 2 个通用双向口，水/风侧连接全部挤在同一端口上，触发流量守恒违反。
     if spec is not None and spec.role:
         entries = _role_port_entries(spec.role)
     else:
         heuristic = _heuristic_port_entries(device.type, catalog_role)
-        entries = (
-            heuristic[1]
-            if heuristic is not None
-            else [
-                # 未知设备，假设2个双向端口
-                PortLayoutEntry("bidirectional", None),
-                PortLayoutEntry("bidirectional", None),
-            ]
-        )
+        if heuristic is not None:
+            entries = heuristic[1]
+        else:
+            unity_role = get_device_role(device.type)
+            entries = (
+                _role_port_entries(_role_value(unity_role))
+                if unity_role is not None
+                else [
+                    # 未知设备，假设2个双向端口
+                    PortLayoutEntry("bidirectional", None),
+                    PortLayoutEntry("bidirectional", None),
+                ]
+            )
     # 条件性端口（FCU/AHU 热水口）只在本设备接了热水系统时参与编号
     uses_hot_water = _device_uses_system(request, device.id, "hot_water")
     active_entries = [

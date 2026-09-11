@@ -16,7 +16,7 @@ def _system_payload():
     return {
         "rooms": [{"name": "r1", "area_m2": 100, "people": 10}],
         "devices": [
-            {"id": "chiller", "type": "冷源机组", "name": "LG340MCF"},
+            {"id": "chiller", "type": "冷源机组", "name": "SCWE-90H+B"},
             {"id": "pump", "type": "循环泵", "name": "EC80"},
             {"id": "tower", "type": "冷却塔", "name": "CT-100"},
             {"id": "terminal", "type": "风机盘管", "name": "MCW1000V", "quantity": 4},
@@ -202,7 +202,7 @@ def test_report_endpoint():
 
 def test_simulation_detects_capacity_deficit():
     payload = _system_payload()
-    payload["devices"][0] = {"id": "chiller", "type": "冷源机组", "name": "LG340MCF", "capacity_kw": 5}
+    payload["devices"][0] = {"id": "chiller", "type": "冷源机组", "name": "SCWE-90H+B", "capacity_kw": 5}
 
     response = client.post("/api/v1/simulation/steady-state", json=payload)
 

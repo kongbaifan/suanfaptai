@@ -13,32 +13,33 @@ class TestCatalogHit:
 
     def test_chiller_reads_rated_values_from_catalog(self):
         """冷机额定参数应来自目录条目而非硬编码"""
-        spec = resolve_rated_spec_by_type("冷源机组", "30XW-P0312P")
+        spec = resolve_rated_spec_by_type("冷源机组", "SCWE-90H+B")
 
         assert spec.origin == "catalog"
-        assert spec.model_name == "30XW-P0312P"
+        assert spec.model_name == "SCWE-90H+B"
         assert spec.role is DeviceRole.CHILLER
-        assert spec.capacity_kw == 303.5
-        assert spec.cop == 5.65
-        assert spec.iplv is None
-        # chilled_flow_m3_h 经别名映射到通用的 flow_m3_h
-        assert spec.flow_m3_h == 47.16
-        assert spec.cooling_flow_m3_h == 58.68
+        assert spec.capacity_kw == 308.3
+        assert spec.cop == 5.87
+        assert spec.iplv == 6.82
+        # 目录用冷冻/冷却两路专用流量字段，均由条目直接给出
+        assert spec.flow_m3_h == 53.02
+        assert spec.cooling_flow_m3_h == 66.28
         assert spec.degraded_fields == ()
         assert spec.is_degraded is False
 
     def test_legacy_model_alias_resolves_to_formal_catalog_model(self):
-        spec = resolve_rated_spec_by_type("冷源机组", "LG340MCF")
+        """旧型号别名应回落到字典中的正式型号（风机盘管 MCW -> FP-WA）"""
+        spec = resolve_rated_spec_by_type("风机盘管", "MCW200V")
 
         assert spec.origin == "catalog"
-        assert spec.model_name == "30XW-P0312P"
-        assert spec.capacity_kw == 303.5
+        assert spec.model_name == "FP-34WA"
+        assert spec.capacity_kw == 2.2
         assert spec.degraded_fields == ()
 
     def test_different_models_give_different_parameters(self):
         """换型号必须换出不同的额定参数——这是教学联动的前提"""
-        small = resolve_rated_spec_by_type("冷源机组", "30XW-P0312P")
-        large = resolve_rated_spec_by_type("冷源机组", "30XW-P0452P")
+        small = resolve_rated_spec_by_type("冷源机组", "SCWE-90H+B")
+        large = resolve_rated_spec_by_type("冷源机组", "SCWE-200H+B")
 
         assert large.capacity_kw > small.capacity_kw
         assert large.flow_m3_h > small.flow_m3_h
@@ -69,14 +70,14 @@ class TestCatalogHit:
         assert spec.fan_power_kw == 0.026
 
     def test_heat_source_reads_heating_rated_values(self):
-        spec = resolve_rated_spec_by_type("空气源热泵", "ASHP-240")
+        spec = resolve_rated_spec_by_type("空气源热泵", "SHAF-80H")
 
         assert spec.role is DeviceRole.HEAT_SOURCE
-        assert spec.model_name == "CGK-100V3L-B"
-        assert spec.capacity_kw == 34.5
-        assert spec.flow_m3_h == 5.94
-        assert spec.power_kw == 7.841
-        assert spec.cop == 4.4
+        assert spec.model_name == "SHAF-80H"
+        assert spec.capacity_kw == 264.2
+        assert spec.flow_m3_h == 45.4
+        assert spec.power_kw == 77.0
+        assert spec.cop == 3.43
         assert spec.degraded_fields == ()
 
 

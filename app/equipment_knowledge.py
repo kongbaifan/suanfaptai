@@ -32,7 +32,7 @@ KNOWLEDGE_DEVICE_TYPES = {
     "fresh_air_unit": "一体式新风机组",
     "air_source_heat_pump": "空气源热泵",
     "water_source_heat_pump": "水源热泵",
-    "ground_source_heat_pump": "地源热泵机组",
+    "ground_source_heat_pump": "地源热泵",
     "heat_exchanger": "换热器",
     "compressor": "压缩机",
 }
@@ -45,7 +45,8 @@ CATALOG_LINKS = {
     "fresh_air_unit": "一体式新风机组",
     "air_source_heat_pump": "空气源热泵",
     "water_source_heat_pump": "水源热泵",
-    "ground_source_heat_pump": "地源热泵机组",
+    # 目录中该类型名为「地源热泵」（见 equipment_catalog.json），必须与之一致
+    "ground_source_heat_pump": "地源热泵",
 }
 
 _DETAIL_LIST_ADAPTER = TypeAdapter(list[EquipmentKnowledgeDetail])

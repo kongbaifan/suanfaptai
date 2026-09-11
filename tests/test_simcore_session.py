@@ -72,7 +72,7 @@ def synthetic_ahu_rated() -> RatedSpec:
 
 
 def build_layout(
-    chiller_model: str = "LG340MCF", pump_model: str = "EC100"
+    chiller_model: str = "SCWE-90H+B", pump_model: str = "EC100"
 ) -> PlantLayout:
     """一套最小可运行系统：冷机 + 冷冻泵 + 冷却泵 + 冷却塔 + 末端"""
     return PlantLayout(
@@ -467,8 +467,8 @@ class TestSessionDrivenByEquipment:
 
     def test_changing_chiller_model_changes_readings(self):
         """换冷机型号必须改变系统读数——legacy 实现里这条是断的"""
-        small = run(session_for(build_layout(chiller_model="LG340MCF")))
-        large = run(session_for(build_layout(chiller_model="LG540MCF")))
+        small = run(session_for(build_layout(chiller_model="SCWE-90H+B")))
+        large = run(session_for(build_layout(chiller_model="SCWE-200H+B")))
 
         assert small.installed_capacity_kw != large.installed_capacity_kw
         assert (
@@ -479,8 +479,8 @@ class TestSessionDrivenByEquipment:
     def test_source_capacity_above_terminal_delivery_does_not_invent_load(self):
         """冷源均能满足末端时，不得因外部负荷虚构额外末端冷量。"""
         config = replace(DEMO_CONFIG, design_cooling_load_kw=500.0)
-        small = run(SimulationSession(build_layout("LG340MCF"), config), 60)
-        large = run(SimulationSession(build_layout("LG540MCF"), config), 60)
+        small = run(SimulationSession(build_layout("SCWE-90H+B"), config), 60)
+        large = run(SimulationSession(build_layout("SCWE-200H+B"), config), 60)
 
         assert large.rooms[ROOM_ID].temperature_c == pytest.approx(
             small.rooms[ROOM_ID].temperature_c
@@ -797,7 +797,7 @@ class TestSessionGuards:
         layout = PlantLayout(
             devices=(
                 DeviceNode(
-                    "chiller-1", resolve_rated_spec_by_type("冷源机组", "LG340MCF")
+                    "chiller-1", resolve_rated_spec_by_type("冷源机组", "SCWE-90H+B")
                 ),
                 DeviceNode(
                     "pump-chilled",

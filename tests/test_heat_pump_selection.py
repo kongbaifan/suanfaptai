@@ -25,7 +25,18 @@ from app.schemas import DeviceInput, SelectionRequirements, SystemEvaluateReques
 from app.steady_solver.solver import solve_steady_state
 
 
-HEAT_PUMP_TYPES = ("空气源热泵", "水源热泵", "地源热泵机组")
+HEAT_PUMP_TYPES = ("空气源热泵", "水源热泵", "地源热泵")
+# 目录对每个热泵型号都必须给出制冷与制热两侧的额定参数，
+# 否则选型与仿真会退回按类型估算。
+HEAT_PUMP_RATED_FIELDS = (
+    "capacity_kw",
+    "flow_m3_h",
+    "power_kw",
+    "cop",
+    "cooling_capacity_kw",
+    "cooling_power_kw",
+    "eer",
+)
 
 
 @pytest.fixture
@@ -78,147 +89,88 @@ def _saved_load_only_project(client: TestClient) -> str:
     return response.json()["project_id"]
 
 
-def test_catalog_has_three_formal_models_for_each_heat_pump_type():
+def test_catalog_exposes_complete_heat_pump_models():
+    """每类热泵都有正式型号，且冷热两侧额定参数齐全。"""
     catalog = load_equipment_catalog()
 
     for device_type in HEAT_PUMP_TYPES:
         rows = [row for row in catalog if row.get("type") == device_type]
-        assert len(rows) == 3
+        assert rows, f"{device_type} 应至少有正式型号"
         assert all(row["name"] != "*" for row in rows)
         assert all(row["role"] == "heat_source" for row in rows)
         assert all(row["systems"] == ["chilled_water", "hot_water"] for row in rows)
         assert all(
             isinstance(row[field], (int, float)) and row[field] > 0
             for row in rows
-            for field in (
-                "capacity_kw",
-                "flow_m3_h",
-                "power_kw",
-                "cop",
-                "cooling_capacity_kw",
-                "cooling_power_kw",
-                "eer",
-            )
+            for field in HEAT_PUMP_RATED_FIELDS
         )
 
+        # 精确型号命中，未知型号不回退到通配条目（热泵无 "*" 条目）
         exact = find_equipment_spec(device_type, rows[1]["name"])
         fallback = find_equipment_spec(device_type, "unknown-model")
         assert exact == rows[1]
         assert fallback is None
 
-    assert find_equipment_spec("空气源热泵", "ASHP-060")["name"] == "CGK-080V4-B"
-    assert find_equipment_spec("水源热泵", "WSHP-080")["name"] == "CGS-42(HC)"
-    assert find_equipment_spec("地源热泵机组", "GSHP-100")["name"] == "W-300-HAC"
+
+def test_ground_source_heat_pumps_model_load_side_flow_only():
+    """地源热泵按目录建模负荷侧流量；地埋管源侧流量不在目录中。"""
+    rows = [row for row in load_equipment_catalog() if row.get("type") == "地源热泵"]
+
+    assert rows
+    # 目录不建模源侧流量（历史设计已移除），只保留负荷侧 flow_m3_h
+    assert all("source_flow_m3_h" not in row for row in rows)
+    assert all(row["flow_m3_h"] > 0 for row in rows)
+    # 负荷侧流量随容量单调递增
+    ordered = sorted(rows, key=lambda row: row["capacity_kw"])
+    flows = [row["flow_m3_h"] for row in ordered]
+    assert flows == sorted(flows)
 
 
-def test_ground_source_heat_pumps_use_manual_indoor_and_outdoor_loop_flows():
-    rows = [
-        row
-        for row in load_equipment_catalog()
-        if row.get("type") == "地源热泵机组"
-    ]
-
-    assert [
-        (row["name"], row["flow_m3_h"], row["source_flow_m3_h"])
-        for row in rows
-    ] == [
-        ("W-300-HAC", 16.2, 16.2),
-        ("W-500-HAC", 27.36, 27.36),
-        ("W-800-HAC", 43.2, 43.2),
-    ]
-    assert all("002746MAN-01" in row["source_url"] for row in rows)
-
-
-def test_catalog_heat_pumps_include_operating_water_temperatures():
-    expected = {
-        "空气源热泵": {
-            "cooling_evaporator_inlet_temp_c": 12.0,
-            "cooling_evaporator_outlet_temp_c": 7.0,
-            "heating_condenser_inlet_temp_c": 30.0,
-            "heating_condenser_outlet_temp_c": 35.0,
-        },
-        "水源热泵": {
-            "heating_evaporator_inlet_temp_c": 15.0,
-            "heating_evaporator_outlet_temp_c": 10.0,
-            "heating_condenser_inlet_temp_c": 15.0,
-            "heating_condenser_outlet_temp_c": 55.0,
-        },
-        "地源热泵机组": {
-            "cooling_evaporator_inlet_temp_c": 12.0,
-            "cooling_condenser_inlet_temp_c": 25.0,
-            "heating_evaporator_inlet_temp_c": 0.0,
-            "heating_condenser_inlet_temp_c": 40.0,
-        },
+def test_catalog_heat_pumps_omit_operating_water_temperatures():
+    """目录不再携带运行工况水温字段，参数只保留额定冷热量与能效。"""
+    catalog = load_equipment_catalog()
+    temperature_fields = {
+        field
+        for row in catalog
+        if row.get("role") == "heat_source"
+        for field in row
+        if "temp" in field
     }
-
-    for device_type, temperatures in expected.items():
-        rows = [
-            row for row in load_equipment_catalog() if row.get("type") == device_type
-        ]
-        assert all(
-            row.get(field) == value
-            for row in rows
-            for field, value in temperatures.items()
-        )
-
-    water_rows = [
-        row for row in load_equipment_catalog() if row.get("type") == "水源热泵"
-    ]
-    ground_rows = [
-        row for row in load_equipment_catalog() if row.get("type") == "地源热泵机组"
-    ]
-    assert all("cooling_evaporator_inlet_temp_c" not in row for row in water_rows)
-    assert all("cooling_condenser_outlet_temp_c" not in row for row in water_rows)
-    assert all("cooling_evaporator_outlet_temp_c" not in row for row in ground_rows)
-    assert all("heating_condenser_outlet_temp_c" not in row for row in ground_rows)
+    assert temperature_fields == set()
 
 
-def test_catalog_heat_pumps_include_cooling_performance_and_air_conditions():
-    expected = {
-        "空气源热泵": [
-            ("CGK-080V4-B", 17.0, 6.641, 2.56),
-            ("CGK-100V4-B", 19.2, 7.273, 2.64),
-            ("CGK-100V3L-B", 20.8, 8.0, 2.6),
-        ],
-        "水源热泵": [
-            ("CGS-42(HC)", 39.1, 8.58, 4.56),
-            ("CGS-72(HC)", 64.6, 14.2, 4.55),
-            ("CGS-95(HC)", 85.0, 18.72, 4.54),
-        ],
-        "地源热泵机组": [
-            ("W-300-HAC", 77.0, 16.18, 4.75),
-            ("W-500-HAC", 133.0, 28.287, 4.69),
-            ("W-800-HAC", 210.0, 45.562, 4.6),
-        ],
-    }
+def test_catalog_heat_pumps_include_cooling_performance():
+    """热泵制冷工况由能量平衡派生：制冷量 = 制热量 − 输入功率，制冷功率 = 制热功率。"""
     catalog = load_equipment_catalog()
 
-    for device_type, rows in expected.items():
-        actual = [row for row in catalog if row.get("type") == device_type]
-        assert [
-            (
-                row["name"],
-                row["cooling_capacity_kw"],
-                row["cooling_power_kw"],
-                row["eer"],
-            )
-            for row in actual
-        ] == rows
+    for row in catalog:
+        if row.get("role") != "heat_source":
+            continue
+        assert row["cooling_capacity_kw"] == pytest.approx(
+            row["heating_capacity_kw"] - row["heating_power_kw"], abs=0.2
+        )
+        assert row["cooling_power_kw"] == pytest.approx(row["heating_power_kw"], abs=0.2)
+        assert row["eer"] == pytest.approx(
+            row["cooling_capacity_kw"] / row["cooling_power_kw"], abs=0.02
+        )
 
-    air_source = [row for row in catalog if row.get("type") == "空气源热泵"]
-    assert all(row["cooling_outdoor_dry_bulb_temp_c"] == 35.0 for row in air_source)
-    assert all(row["heating_outdoor_dry_bulb_temp_c"] == 7.0 for row in air_source)
+    # 空气源热泵在 35℃ 室外工况下 EER 明显低于水源/地源（后者源温稳定）
+    air_eer = [
+        row["eer"] for row in catalog if row.get("type") == "空气源热泵"
+    ]
+    water_eer = [
+        row["eer"] for row in catalog if row.get("type") in ("水源热泵", "地源热泵")
+    ]
+    assert max(air_eer) < min(water_eer)
 
 
 def test_catalog_heat_pump_helpers_expose_role_system_capacity_and_flow():
-    device = DeviceInput(
-        id="heat-pump", type="空气源热泵", name="CGK-080V4-B", quantity=2
-    )
+    device = DeviceInput(id="heat-pump", type="空气源热泵", name="SHAF-80H", quantity=2)
 
     assert role_for_device(device) == "heat_source"
     assert systems_for_device(device) == {"chilled_water", "hot_water"}
-    assert capacity_for_device(device) == 50.0
-    assert flow_for_device(device) == 8.6
+    assert capacity_for_device(device) == pytest.approx(528.4)  # 264.2 × 2
+    assert flow_for_device(device) == pytest.approx(90.8)  # 45.4 × 2
 
 
 def test_heat_source_quantity_covers_capacity_and_hot_water_flow(
@@ -343,7 +295,16 @@ def test_heat_source_api_derives_heating_and_hot_water_requirements_read_only(
     assert body["status"] == "recommended"
     assert body["requirements"]["heating_load_kw"] > 0
     assert body["requirements"]["hot_water_flow_m3_h"] > 0
-    assert len(body["candidates"]) == 9
+    # 全部热泵正式型号（空气源 20 + 水源 5 + 地源 14）都应进入候选
+    expected = [
+        row
+        for row in load_equipment_catalog()
+        if row.get("role") == "heat_source"
+        and row.get("name") != "*"
+        and not row.get("configurable_series")
+        and not row.get("placement_only")
+    ]
+    assert len(body["candidates"]) == len(expected) == 39
     assert all(item["role"] == "heat_source" for item in body["candidates"])
     assert all(item["eligible"] for item in body["candidates"])
     assert project_path.read_bytes() == project_before
@@ -398,9 +359,7 @@ def test_openapi_exposes_heat_source_role_and_additive_requirements():
 def test_catalog_heat_pump_runs_through_existing_hot_water_solver():
     request = SystemEvaluateRequest(
         devices=[
-            DeviceInput(
-                id="heat-source", type="地源热泵机组", name="W-500-HAC"
-            ),
+            DeviceInput(id="heat-source", type="地源热泵", name="SHWE-100H-地埋管"),
             DeviceInput(id="pump", type="循环泵", flow_m3_h=20.0, head_m=20.0),
             DeviceInput(id="terminal", type="terminal", capacity_kw=80.0),
         ],
@@ -421,5 +380,6 @@ def test_catalog_heat_pump_runs_through_existing_hot_water_solver():
 
     assert "hot_water" in result.flow_allocations
     assert result.equipment_balance is not None
-    assert result.equipment_balance.heat_source_capacity_kw == 108.0
+    # 热源容量取自目录额定值（SHWE-100H-地埋管 353.5 kW），而非退化估算
+    assert result.equipment_balance.heat_source_capacity_kw == pytest.approx(353.5)
     assert result.equipment_balance.heating_balance_residual_kw <= 0.01

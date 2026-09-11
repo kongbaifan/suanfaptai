@@ -14678,5 +14678,58 @@
       "fan_power_kw",
       "approach_c"
     ]
+  },
+  {
+    "type": "送风口",
+    "role": "air_terminal",
+    "systems": [
+      "air"
+    ],
+    "brand": "示例品牌",
+    "series": "送风口",
+    "recommended_airflow_m3_h": 500.0,
+    "air_pressure_drop_pa": 30.0,
+    "local_resistance_coefficient": 2.5,
+    "name": "*",
+    "aliases": []
+  },
+  {
+    "type": "风阀",
+    "role": "air_accessory",
+    "systems": [
+      "air"
+    ],
+    "brand": "示例品牌",
+    "series": "风阀",
+    "air_pressure_drop_pa": 20.0,
+    "local_resistance_coefficient": 2.0,
+    "name": "*",
+    "aliases": []
+  },
+  {
+    "type": "分水器",
+    "role": "water_accessory",
+    "systems": [
+      "chilled_water",
+      "hot_water"
+    ],
+    "brand": "示例品牌",
+    "series": "分水器",
+    "local_resistance_coefficient": 1.5,
+    "name": "*",
+    "aliases": []
+  },
+  {
+    "type": "集水器",
+    "role": "water_accessory",
+    "systems": [
+      "chilled_water",
+      "hot_water"
+    ],
+    "brand": "示例品牌",
+    "series": "集水器",
+    "local_resistance_coefficient": 1.5,
+    "name": "*",
+    "aliases": []
   }
 ]

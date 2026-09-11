@@ -651,9 +651,9 @@ def test_rated_parameters_and_control_ranges_are_exposed():
             for item in rated.json()["devices"]
             if item["device_instance_id"] == "chiller_1"
         )
-        assert chiller["model_name"] == "30XW-P0312P"
+        assert chiller["model_name"] == "SCWE-90H+B"
         assert chiller["source"] == "catalog"
-        assert chiller["values"]["额定容量"] == 303.5
+        assert chiller["values"]["额定容量"] == 308.3
 
         controls = client.get(f"/api/v1/realtime/controls/{project_id}")
         assert controls.status_code == 200

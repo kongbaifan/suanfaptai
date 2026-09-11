@@ -29,8 +29,8 @@ class TestChiller:
 
     def test_larger_capacity_lowers_part_load_ratio(self):
         """同样负荷下额定容量越大，负荷率越低"""
-        small = resolve_rated_spec_by_type("冷源机组", "LG340MCF")
-        large = resolve_rated_spec_by_type("冷源机组", "LG540MCF")
+        small = resolve_rated_spec_by_type("冷源机组", "SCWE-90H+B")
+        large = resolve_rated_spec_by_type("冷源机组", "SCWE-200H+B")
 
         small_state = chiller_state(small, 300.0, SUPPLY_TEMP_C, CONDENSER_TEMP_C)
         large_state = chiller_state(large, 300.0, SUPPLY_TEMP_C, CONDENSER_TEMP_C)
@@ -39,8 +39,8 @@ class TestChiller:
 
     def test_model_change_moves_readings(self):
         """换型号必须改变读数——legacy 实现里这一条是断的"""
-        small = resolve_rated_spec_by_type("冷源机组", "LG340MCF")
-        large = resolve_rated_spec_by_type("冷源机组", "LG540MCF")
+        small = resolve_rated_spec_by_type("冷源机组", "SCWE-90H+B")
+        large = resolve_rated_spec_by_type("冷源机组", "SCWE-200H+B")
 
         small_state = chiller_state(small, 300.0, SUPPLY_TEMP_C, CONDENSER_TEMP_C)
         large_state = chiller_state(large, 300.0, SUPPLY_TEMP_C, CONDENSER_TEMP_C)
@@ -50,7 +50,7 @@ class TestChiller:
 
     def test_higher_condenser_temperature_lowers_cop(self):
         """冷凝温度升高压低 COP、抬高功率"""
-        rated = resolve_rated_spec_by_type("冷源机组", "LG340MCF")
+        rated = resolve_rated_spec_by_type("冷源机组", "SCWE-90H+B")
 
         cool = chiller_state(rated, 300.0, SUPPLY_TEMP_C, 28.0)
         hot = chiller_state(rated, 300.0, SUPPLY_TEMP_C, 36.0)
@@ -59,25 +59,39 @@ class TestChiller:
         assert hot.power_kw > cool.power_kw
 
     def test_higher_load_raises_plr_and_power(self):
-        """负荷升高使 PLR 与输入功率同时升高"""
-        rated = resolve_rated_spec_by_type("冷源机组", "LG540MCF")
+        """负荷升高使 PLR 与输入功率同时升高（正常部分负荷区间）"""
+        # 用与负荷匹配的机型：超大机组在 PLR<0.2 时部分负荷 COP 崩坏，
+        # 功率会非单调回升，那是真实物理，不属于本条要锁定的方向性。
+        rated = resolve_rated_spec_by_type("冷源机组", "SCWE-90H+B")
 
         low = chiller_state(rated, 150.0, SUPPLY_TEMP_C, CONDENSER_TEMP_C)
-        high = chiller_state(rated, 400.0, SUPPLY_TEMP_C, CONDENSER_TEMP_C)
+        high = chiller_state(rated, 280.0, SUPPLY_TEMP_C, CONDENSER_TEMP_C)
 
         assert high.load_ratio > low.load_ratio
         assert high.power_kw > low.power_kw
 
+    def test_oversized_chiller_degrades_below_normal_part_load(self):
+        """超大机组在极低负荷下 COP 恶化、功率回升（真实部分负荷特性）"""
+        rated = resolve_rated_spec_by_type("冷源机组", "SCWE-200H+B")
+
+        starved = chiller_state(rated, 150.0, SUPPLY_TEMP_C, CONDENSER_TEMP_C)
+        healthy = chiller_state(rated, 300.0, SUPPLY_TEMP_C, CONDENSER_TEMP_C)
+
+        assert starved.load_ratio < healthy.load_ratio
+        # 负荷率更低，却因部分负荷效率恶化而更耗电
+        assert starved.cop < healthy.cop
+        assert starved.power_kw > healthy.power_kw
+
     def test_heat_reject_exceeds_cooling_load(self):
         """排热量等于冷量加上压缩功，必须大于冷量"""
-        rated = resolve_rated_spec_by_type("冷源机组", "LG340MCF")
+        rated = resolve_rated_spec_by_type("冷源机组", "SCWE-90H+B")
         state = chiller_state(rated, 300.0, SUPPLY_TEMP_C, CONDENSER_TEMP_C)
 
         assert state.heat_reject_kw > state.cooling_kw
 
     def test_return_temp_above_supply_temp(self):
         """回水温高于供水温，且供水温设定值被如实采用"""
-        rated = resolve_rated_spec_by_type("冷源机组", "LG340MCF")
+        rated = resolve_rated_spec_by_type("冷源机组", "SCWE-90H+B")
         state = chiller_state(rated, 300.0, 6.0, CONDENSER_TEMP_C)
 
         assert state.supply_temp_c == 6.0
@@ -85,7 +99,7 @@ class TestChiller:
 
     def test_disabled_chiller_produces_no_load(self):
         """停机时不产生冷量与功耗"""
-        rated = resolve_rated_spec_by_type("冷源机组", "LG340MCF")
+        rated = resolve_rated_spec_by_type("冷源机组", "SCWE-90H+B")
         state = chiller_state(
             rated, 300.0, SUPPLY_TEMP_C, CONDENSER_TEMP_C, enabled=False
         )
@@ -95,7 +109,7 @@ class TestChiller:
 
     def test_zero_load_does_not_divide_by_zero(self):
         """零负荷不应触发除零"""
-        rated = resolve_rated_spec_by_type("冷源机组", "LG340MCF")
+        rated = resolve_rated_spec_by_type("冷源机组", "SCWE-90H+B")
         state = chiller_state(rated, 0.0, SUPPLY_TEMP_C, CONDENSER_TEMP_C)
 
         assert state.cooling_kw == 0.0
@@ -267,7 +281,7 @@ class TestCrossDeviceFeedback:
         这是教学演示最直观的一条链路：一个可调参数带动四个读数同时变化。
         """
         pump_rated = resolve_rated_spec_by_type("循环泵", "EC100")
-        chiller_rated = resolve_rated_spec_by_type("冷源机组", "LG340MCF")
+        chiller_rated = resolve_rated_spec_by_type("冷源机组", "SCWE-90H+B")
 
         def chiller_at(pump_speed: float):
             pump = pump_state(pump_rated, pump_speed)
@@ -294,7 +308,7 @@ class TestCrossDeviceFeedback:
         """
         pump_rated = resolve_rated_spec_by_type("循环泵", "EC100")
         tower_rated = resolve_rated_spec_by_type("冷却塔", None)
-        chiller_rated = resolve_rated_spec_by_type("冷源机组", "LG340MCF")
+        chiller_rated = resolve_rated_spec_by_type("冷源机组", "SCWE-90H+B")
 
         def chiller_at(pump_speed: float):
             pump = pump_state(pump_rated, pump_speed)
@@ -314,7 +328,7 @@ class TestCrossDeviceFeedback:
     def test_lower_tower_fan_speed_penalises_chiller(self):
         """冷却塔风机降速同样会通过冷凝温度压低冷机 COP"""
         tower_rated = resolve_rated_spec_by_type("冷却塔", None)
-        chiller_rated = resolve_rated_spec_by_type("冷源机组", "LG340MCF")
+        chiller_rated = resolve_rated_spec_by_type("冷源机组", "SCWE-90H+B")
 
         def chiller_at(fan_ratio: float):
             tower = cooling_tower_state(tower_rated, fan_ratio, 350.0, 27.0)
@@ -327,7 +341,7 @@ class TestCrossDeviceFeedback:
     def test_higher_wetbulb_raises_condensing_and_penalises_chiller(self):
         """湿球升高经冷却塔抬高冷凝温度并压低 COP"""
         tower_rated = resolve_rated_spec_by_type("冷却塔", None)
-        chiller_rated = resolve_rated_spec_by_type("冷源机组", "LG340MCF")
+        chiller_rated = resolve_rated_spec_by_type("冷源机组", "SCWE-90H+B")
 
         mild_tower = cooling_tower_state(tower_rated, 1.0, 350.0, 23.0)
         humid_tower = cooling_tower_state(tower_rated, 1.0, 350.0, 29.0)

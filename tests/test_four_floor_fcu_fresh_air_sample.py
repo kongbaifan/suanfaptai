@@ -165,9 +165,14 @@ def test_four_floor_cooling_uses_one_conserved_topology_aware_flow():
     assert snapshot.devices["chw_pump_b1"].values["flow_m3_h"] == pytest.approx(
         fcu_flow, abs=0.001
     )
-    assert snapshot.devices["chiller_b1"].values["flow_m3_h"] == pytest.approx(
-        fcu_flow, abs=0.001
+    # 制冷工况下热泵四通阀换向参与冷源池（教学口径），冷量与水量按容量份额
+    # 在冷机与热泵之间分摊。守恒发生在"冷源池"层面：所有冷源水量之和 = 环路水量。
+    source_flow = (
+        snapshot.devices["chiller_b1"].values["flow_m3_h"]
+        + snapshot.devices["ashp_roof"].values["flow_m3_h"]
     )
+    assert source_flow == pytest.approx(fcu_flow, abs=0.001)
+    assert snapshot.devices["chiller_b1"].values["flow_m3_h"] < fcu_flow
     terminal_cooling = sum(
         snapshot.devices[f"fcu_{floor}"].values["cooling_kw"]
         for floor in ("f1", "f2", "f3")
@@ -179,9 +184,12 @@ def test_four_floor_cooling_uses_one_conserved_topology_aware_flow():
     )
     assert snapshot.cooling_load_kw == pytest.approx(terminal_cooling)
     assert loop_cooling == pytest.approx(terminal_cooling)
-    assert snapshot.devices["chiller_b1"].values["cooling_kw"] == pytest.approx(
-        terminal_cooling
+    # 冷量同样在冷源池层面守恒（冷机 + 换向热泵），而非冷机独担。
+    source_cooling = (
+        snapshot.devices["chiller_b1"].values["cooling_kw"]
+        + snapshot.devices["ashp_roof"].values["cooling_kw"]
     )
+    assert source_cooling == pytest.approx(terminal_cooling)
     assert snapshot.devices["chiller_b1"].values[
         "return_temp_c"
     ] == pytest.approx(snapshot.return_water_temp_c)

@@ -4,9 +4,9 @@ from app.validators.system import validate_system
 
 
 def test_catalog_matches_exact_equipment_capacity():
-    device = DeviceInput(id="chiller", type="冷源机组", name="LG440MCF")
+    device = DeviceInput(id="chiller", type="冷源机组", name="SCWE-110H+B")
 
-    assert capacity_for_device(device) == 366.3
+    assert capacity_for_device(device) == 379.4
     assert role_for_device(device) == "cold_source"
     assert systems_for_device(device) == {"chilled_water", "cooling_water"}
 
@@ -14,7 +14,7 @@ def test_catalog_matches_exact_equipment_capacity():
 def test_topology_detects_pipe_system_mismatch():
     request = SystemEvaluateRequest(
         devices=[
-            DeviceInput(id="chiller", type="冷源机组", name="LG340MCF"),
+            DeviceInput(id="chiller", type="冷源机组", name="SCWE-90H+B"),
             DeviceInput(id="pump", type="循环泵", name="EC80"),
             DeviceInput(id="terminal", type="风机盘管", name="MCW1000V", quantity=3),
             DeviceInput(id="tower", type="冷却塔", name="CT-100"),
@@ -39,7 +39,7 @@ def test_topology_detects_pipe_system_mismatch():
 def test_complete_closed_topology_has_no_topology_error():
     request = SystemEvaluateRequest(
         devices=[
-            DeviceInput(id="chiller", type="冷源机组", name="LG340MCF"),
+            DeviceInput(id="chiller", type="冷源机组", name="SCWE-90H+B"),
             DeviceInput(id="pump", type="循环泵", name="EC80"),
             DeviceInput(id="terminal", type="风机盘管", name="MCW1000V", quantity=3),
             DeviceInput(id="tower", type="冷却塔", name="CT-100"),

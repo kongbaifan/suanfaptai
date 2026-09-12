@@ -51,7 +51,6 @@ from app.simcore.rated import RatedSpec
 from app.simcore.psychrometrics import (
     DRY_AIR_CP_KJ_KG_K,
     LATENT_HEAT_KJ_KG,
-    vapor_enthalpy_kj_kg,
 )
 from app.simcore.room import (
     MAX_ROOM_RH_PCT,
@@ -779,7 +778,7 @@ class SimulationSession:
             ]
             if active_tower_states:
                 condenser_temp = max(
-                    state.leaving_water_temp_c for state in active_tower_states
+                    state.entering_water_temp_c for state in active_tower_states
                 )
             else:
                 # 无冷却塔（风冷或未搭全）时冷凝侧跟随室外干球
@@ -1276,13 +1275,12 @@ class SimulationSession:
                         * (room_temp_c - supply_temp_c),
                         0.0,
                     )
-                    device_latent_kw = max(
+                    # 潜热 = 含湿量差 × 汽化潜热。干盘管（含湿量不变）潜热为零，
+                    # 湿盘管才除湿。新风加湿时为负值（送风含湿量高于室内）。
+                    device_latent_kw = (
                         air_mass_kg_s
-                        * (
-                            vapor_enthalpy_kj_kg(room_temp_c, room_ratio)
-                            - vapor_enthalpy_kj_kg(supply_temp_c, supply_ratio)
-                        ),
-                        0.0,
+                        * (room_ratio - supply_ratio)
+                        * LATENT_HEAT_KJ_KG
                     )
                     current = deliveries.get(room_id, RoomDelivery())
                     deliveries[room_id] = RoomDelivery(

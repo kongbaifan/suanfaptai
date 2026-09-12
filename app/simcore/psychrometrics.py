@@ -18,8 +18,8 @@ STANDARD_PRESSURE_PA = 101325.0
 # 水与干空气的分子量比
 MOLECULAR_WEIGHT_RATIO = 0.621945
 
-# 水的汽化潜热，取常规空调工况附近的定值
-LATENT_HEAT_KJ_KG = 2450.0
+# 水的汽化潜热，kJ/kg（0℃基准，与比焓公式一致）
+LATENT_HEAT_KJ_KG = 2501.0
 
 # 含湿量物理下界，避免除零与负湿
 MIN_HUMIDITY_RATIO = 1e-5

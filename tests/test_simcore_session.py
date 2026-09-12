@@ -633,8 +633,8 @@ class TestSessionGuards:
 
         snapshot = run(session, 2)
 
-        active_leaving = snapshot.devices["tower-2"].values["leaving_water_temp_c"]
-        assert snapshot.condenser_water_temp_c == active_leaving
+        active_entering = snapshot.devices["tower-2"].values["entering_water_temp_c"]
+        assert snapshot.condenser_water_temp_c == active_entering
 
     def test_active_count_scales_banked_equipment(self):
         """设备组运行台数按整机比例缩放容量、流量与功率。"""

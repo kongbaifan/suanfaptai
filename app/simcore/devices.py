@@ -379,14 +379,14 @@ def cooling_tower_state(
         if water_flow_m3_h is not None
         else _positive(rated.flow_m3_h, 0.0)
     )
-    entering = wetbulb_temp_c + _clamp(approach_c, 1.0, 25.0)
+    leaving = wetbulb_temp_c + _clamp(approach_c, 1.0, 25.0)
     rise = heat_reject_kw / (WATER_KW_PER_M3H_K * flow_m3_h) if flow_m3_h > 0.0 else 0.0
 
     return CoolingTowerState(
         fan_speed_ratio=ratio,
         approach_c=approach_c,
-        entering_water_temp_c=entering,
-        leaving_water_temp_c=entering + _clamp(rise, 0.0, 20.0),
+        entering_water_temp_c=leaving + _clamp(rise, 0.0, 20.0),
+        leaving_water_temp_c=leaving,
         flow_m3_h=flow_m3_h,
         fan_power_kw=_positive(rated.fan_power_kw, rated.power_kw or 0.0) * ratio**3,
     )

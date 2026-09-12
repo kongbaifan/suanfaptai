@@ -267,8 +267,8 @@ class TestCoolingTower:
         high = cooling_tower_state(rated, 1.0, 350.0, 27.0, water_flow_m3_h=70.0)
         low = cooling_tower_state(rated, 1.0, 350.0, 27.0, water_flow_m3_h=35.0)
 
-        high_rise = high.leaving_water_temp_c - high.entering_water_temp_c
-        low_rise = low.leaving_water_temp_c - low.entering_water_temp_c
+        high_rise = high.entering_water_temp_c - high.leaving_water_temp_c
+        low_rise = low.entering_water_temp_c - low.leaving_water_temp_c
         assert low_rise > high_rise
 
 
@@ -316,7 +316,7 @@ class TestCrossDeviceFeedback:
                 tower_rated, 1.0, 350.0, 27.0, water_flow_m3_h=pump.flow_m3_h
             )
             return chiller_state(
-                chiller_rated, 300.0, SUPPLY_TEMP_C, tower.leaving_water_temp_c
+                chiller_rated, 300.0, SUPPLY_TEMP_C, tower.entering_water_temp_c
             )
 
         healthy = chiller_at(1.0)

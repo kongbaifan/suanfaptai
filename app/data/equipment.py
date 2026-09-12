@@ -154,37 +154,59 @@ def resolve_device_type(device_type: str | None) -> str:
     return LEGACY_DEVICE_TYPE_ALIASES.get(text, text)
 
 
-def find_equipment_spec(device_type: str, name: str | None = None) -> dict[str, Any] | None:
-    device_type = resolve_device_type(device_type)
-    catalog = load_equipment_catalog()
-    # 工程参数解析只看真实设备条目；placement_only 条目只承载 Unity 摆放信息，
-    # 命中它们会拿不到任何额定参数，必须继续走 "*" 类型默认兜底。
-    engineering = [item for item in catalog if not item.get("placement_only")]
+def _match_catalog_row(rows: list[dict[str, Any]], device_type: str, name: str | None) -> dict[str, Any] | None:
+    """在给定条目集合内按 精确名 -> 别名 -> "*" 兜底 的顺序取首个命中。"""
     if name:
-        for item in engineering:
+        for item in rows:
             if item.get("type") == device_type and str(item.get("name")) == str(name):
                 return item
-        for item in engineering:
+        for item in rows:
             aliases = {str(alias) for alias in item.get("aliases", [])}
             if item.get("type") == device_type and str(name) in aliases:
                 return item
-    for item in engineering:
+    for item in rows:
         if item.get("type") == device_type and item.get("name") == "*":
             return item
     return None
+
+
+def find_equipment_spec(device_type: str, name: str | None = None) -> dict[str, Any] | None:
+    """工程参数解析入口：只看真实设备条目。
+
+    placement_only 条目只承载 Unity 摆放信息，不带任何额定参数，命中它们会让
+    容量/流量/扬程静默变成 0，必须跳过并继续走 "*" 类型默认兜底。
+    只需要拓扑角色时用 `topology_spec_for_device`。
+    """
+    device_type = resolve_device_type(device_type)
+    engineering = [item for item in load_equipment_catalog() if not item.get("placement_only")]
+    return _match_catalog_row(engineering, device_type, name)
 
 
 def spec_for_device(device: DeviceInput) -> dict[str, Any] | None:
     return find_equipment_spec(device.type, device.name)
 
 
-def role_for_device(device: DeviceInput) -> str | None:
+def topology_spec_for_device(device: DeviceInput) -> dict[str, Any] | None:
+    """拓扑信息解析入口：工程条目全部落空后，允许回退到 placement_only 条目。
+
+    `role` / `systems` 是纯拓扑声明，placement_only 条目同样带着它们，且部分
+    类型（如 `冷源机组`、`冷却塔`）没有 "*" 兜底行——只查工程条目会让这些型号
+    的角色变成 None，系统里就"没有冷源"，水力路径枚举随之返回空。
+    """
     spec = spec_for_device(device)
+    if spec is not None:
+        return spec
+    placement = [item for item in load_equipment_catalog() if item.get("placement_only")]
+    return _match_catalog_row(placement, resolve_device_type(device.type), device.name)
+
+
+def role_for_device(device: DeviceInput) -> str | None:
+    spec = topology_spec_for_device(device)
     return str(spec.get("role")) if spec and spec.get("role") else None
 
 
 def systems_for_device(device: DeviceInput) -> set[str]:
-    spec = spec_for_device(device)
+    spec = topology_spec_for_device(device)
     if not spec:
         return set()
     return {str(system) for system in spec.get("systems", [])}

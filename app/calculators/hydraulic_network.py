@@ -1,8 +1,9 @@
+from collections import defaultdict
 from typing import Literal
 
 from app.calculators.water import calculate_water_from_flow
 from app.calculators.topology import analyze_topology
-from app.calculators.network_paths import enumerate_network_paths, pipe_ids_in_path
+from app.calculators.network_paths import enumerate_network_paths, is_closed_circuit, pipe_ids_in_path
 from app.building import floor_base_summary, node_floor_id, pipe_floor_id
 from app.data.equipment import catalog_number_for_device, flow_for_device, head_for_device, role_for_device
 from app.data.rules import rule_value
@@ -24,6 +25,8 @@ def calculate_hydraulic_network(
     topology = analyze_topology(request, total_flow_by_system)
     pipes_by_system = {system: [pipe for pipe in water_pipes if pipe.system == system] for system in WATER_SYSTEMS}
     calculations: list[PipeCalculation] = []
+    # 设备阻力先一次性归到单根管段上，避免串联设备被供、回水管各计一次。
+    device_resistance = _water_resistance_by_pipe(request)
 
     for system, pipes in pipes_by_system.items():
         if not pipes:
@@ -33,7 +36,7 @@ def calculate_hydraulic_network(
             base_flow = float(len(pipes))
         for pipe in pipes:
             flow_m3_h = topology.pipe_flow_m3_h.get(pipe.id) or pipe.flow_m3_h or base_flow / max(len(pipes), 1)
-            connected_pressure_pa, connected_local_k = _connected_water_resistance(request, pipe.id)
+            connected_pressure_pa, connected_local_k = device_resistance.get(pipe.id, (0.0, 0.0))
             result = calculate_water_from_flow(
                 flow_m3_h=flow_m3_h,
                 length_m=pipe.length_m,
@@ -62,6 +65,7 @@ def calculate_hydraulic_network(
     most_unfavorable_path = max(path_calculations, key=lambda item: item.pressure_drop_pa, default=None)
     pump_check = _build_pump_check(request, total_flow_by_system.get("chilled_water", 0.0), required_pump_head_m)
     issues.extend(_issues_from_pump_check(pump_check))
+    issues.extend(_issues_from_circuits(request, path_calculations))
     balancing = _balancing_summary(path_calculations)
     issues.extend(_issues_from_balancing(balancing))
     issues.extend(topology.issues)
@@ -119,22 +123,46 @@ def _build_pump_check(request: SystemEvaluateRequest, required_flow_m3_h: float,
     )
 
 
-def _connected_water_resistance(request: SystemEvaluateRequest, pipe_id: str) -> tuple[float, float]:
+# 水侧阻力计入的设备角色。泵是**加压**部件，它的压降不是环路损失，
+# 若计入等于让泵自己抵消自己的扬程。
+RESISTANCE_ROLES = {"water_accessory", "terminal", "cold_source", "heat_source", "cooling_tower"}
+
+
+def _water_resistance_by_pipe(request: SystemEvaluateRequest) -> dict[str, tuple[float, float]]:
+    """把设备水侧阻力归到**一根**相邻管段上
+
+    串联设备（正常接法）同时挨着供水管和回水管。原先按"逐根相邻管各加一次"
+    摊派，环路把两根管一起累加时，同一台设备的压降就被算了两遍。
+    这里每台设备在每个系统里只挂到一根管上（按 id 排序取首根，保证确定性），
+    环路求和即为真实值。
+    """
     devices = {device.id: device for device in request.devices}
-    pressure_pa = 0.0
-    local_k = 0.0
+    pipe_systems = {pipe.id: pipe.system for pipe in request.pipes}
+
+    adjacent: defaultdict[tuple[str, str], list[str]] = defaultdict(list)
     for connection in request.connections:
-        if connection.from_id != pipe_id and connection.to_id != pipe_id:
+        for node, other in ((connection.from_id, connection.to_id), (connection.to_id, connection.from_id)):
+            if node not in devices or other not in pipe_systems:
+                continue
+            if pipe_systems[other] != connection.system:
+                continue
+            if other not in adjacent[(node, connection.system)]:
+                adjacent[(node, connection.system)].append(other)
+
+    resistance: dict[str, tuple[float, float]] = {}
+    for (device_id, _system), pipe_ids in adjacent.items():
+        device = devices[device_id]
+        if role_for_device(device) not in RESISTANCE_ROLES:
             continue
-        device = devices.get(connection.to_id if connection.from_id == pipe_id else connection.from_id)
-        if not device:
-            continue
-        role = role_for_device(device)
-        pressure_pa += catalog_number_for_device(device, "water_pressure_drop_kpa", 0.0) * 1000.0
+        pressure_pa = catalog_number_for_device(device, "water_pressure_drop_kpa", 0.0) * 1000.0
         pressure_pa += catalog_number_for_device(device, "pressure_drop_pa", 0.0)
-        if role in {"water_accessory", "terminal", "cold_source"}:
-            local_k += catalog_number_for_device(device, "local_resistance_coefficient", 0.0)
-    return pressure_pa, local_k
+        local_k = catalog_number_for_device(device, "local_resistance_coefficient", 0.0)
+        if pressure_pa <= 0.0 and local_k <= 0.0:
+            continue
+        target = sorted(pipe_ids)[0]
+        previous = resistance.get(target, (0.0, 0.0))
+        resistance[target] = (previous[0] + pressure_pa, previous[1] + local_k)
+    return resistance
 
 
 def _issues_from_pump_check(check: PumpCheckResult | None) -> list[Issue]:
@@ -181,6 +209,7 @@ def _path_calculations(request: SystemEvaluateRequest, calculations: list[PipeCa
                     head_m=round(head_m, 3),
                     flow_m3_h=round(path_flow, 3),
                     complete=bool(pipe_ids),
+                    closed_circuit=is_closed_circuit(request, nodes, system),
                 )
             )
     return path_items
@@ -213,15 +242,19 @@ def _path_floor_ids(request: SystemEvaluateRequest, nodes: list[str]) -> list[st
 
 
 def _required_head_from_paths(calculations: list[PipeCalculation], paths: list[NetworkPathCalculation]) -> float:
-    path_heads = []
-    for path in paths:
-        if path.system != "chilled_water" or not path.complete:
-            continue
-        path_head = path.head_m or 0.0
-        if path_head > 0:
-            path_heads.append(path_head)
-    if path_heads:
-        return round(max(path_heads), 3)
+    """水泵扬程 = 最不利**闭合环路**的阻力
+
+    只有闭合环路同时含供程与回程。退而用单管程路径的 max 会漏掉回程，
+    扬程偏小近一半，泵选型不足；故环路不闭合时改用全部冷冻水管之和兜底
+    （偏保守），并由 `_issues_from_circuits` 如实告警。
+    """
+    circuit_heads = [
+        path.head_m or 0.0
+        for path in paths
+        if path.system == "chilled_water" and path.closed_circuit and (path.head_m or 0.0) > 0
+    ]
+    if circuit_heads:
+        return round(max(circuit_heads), 3)
     return round(
         sum(
             item.pump_head_m or 0.0
@@ -230,6 +263,29 @@ def _required_head_from_paths(calculations: list[PipeCalculation], paths: list[N
         ),
         3,
     )
+
+
+def _issues_from_circuits(request: SystemEvaluateRequest, paths: list[NetworkPathCalculation]) -> list[Issue]:
+    """环路不闭合时告警
+
+    教学软件里画到一半是常态，但扬程只能按兜底估，必须让学生知道
+    这个数不是按最不利环路算出来的。
+    """
+    issues: list[Issue] = []
+    for system in WATER_SYSTEMS:
+        if not any(pipe.system == system for pipe in request.pipes):
+            continue
+        if any(path.system == system and path.closed_circuit for path in paths):
+            continue
+        issues.append(
+            Issue(
+                level="warning",
+                code="WATER_CIRCUIT_NOT_CLOSED",
+                message=f"{system} has no closed supply-return circuit; pump head falls back to a conservative sum.",
+                target=system,
+            )
+        )
+    return issues
 
 
 def _balancing_summary(paths: list[NetworkPathCalculation]) -> dict[str, dict[str, float | int | None]]:

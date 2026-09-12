@@ -224,6 +224,9 @@ class NetworkPathCalculation(BaseModel):
     flow_m3_h: float | None = None
     balancing_pressure_pa: float | None = None
     complete: bool = True
+    # 首尾相接的闭合环路（供程 + 回程都在内）。只有闭合环路才能用来定水泵扬程：
+    # 半条路径缺回程阻力，据此选泵会偏小近一半。风系统是开式的，恒为 False。
+    closed_circuit: bool = False
 
 
 class PumpCheckResult(BaseModel):

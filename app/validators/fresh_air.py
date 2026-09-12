@@ -18,7 +18,7 @@ from collections import defaultdict
 from app.calculators.load import calculate_load
 from app.data.design_defaults import PURPOSE_DEFAULTS
 from app.room_bindings import resolve_room_bindings
-from app.schemas import Issue, LoadRequest, SystemEvaluateRequest
+from app.schemas import Issue, LoadRequest, RoomInput, SystemEvaluateRequest
 from app.simcore.rated import resolve_rated_spec_by_type
 from app.unity_catalog import DeviceRole
 
@@ -37,7 +37,7 @@ def validate_fresh_air_and_terminals(
         return []
 
     issues: list[Issue] = []
-    room_by_id = {room.id: room for room in request.rooms}
+    room_by_id = {room.id: room for room in request.rooms if room.id}
 
     # 设备接入了哪些水系统
     water_systems_by_device: dict[str, set[str]] = defaultdict(set)
@@ -57,7 +57,7 @@ def validate_fresh_air_and_terminals(
                 safety_factor=request.safety_factor,
             )
         )
-        load_by_room = {item.id: item.cooling_kw for item in load_result.rooms}
+        load_by_room = {item.id: item.cooling_kw for item in load_result.rooms if item.id}
     except Exception:  # noqa: BLE001 - 设计负荷算不出来时跳过超配规则
         load_by_room = {}
 
@@ -72,7 +72,7 @@ def validate_fresh_air_and_terminals(
             fresh_air_capable_by_room[room_id].append(device.id)
 
     for room in request.rooms:
-        if (room.people or 0) <= 0:
+        if not room.id or (room.people or 0) <= 0:
             continue
         # 该房间按人数算出的新风量（与 load.py 同口径，仅用于判断"是否需要"）
         defaults_fresh_air = _fresh_air_per_person(room.purpose)
@@ -130,7 +130,7 @@ def _fresh_air_per_person(purpose: str | None) -> float:
 def _oversize_issues(
     request: SystemEvaluateRequest,
     load_by_room: dict[str, float],
-    room_by_id: dict[str, object],
+    room_by_id: dict[str, RoomInput],
 ) -> list[Issue]:
     """末端名义冷量相对房间设计负荷是否严重超配。
 

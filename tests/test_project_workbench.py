@@ -70,16 +70,18 @@ def test_mall_purpose_presets_apply_design_defaults():
     shop = calculate_load(LoadRequest(rooms=[RoomInput(name="e", area_m2=100, people=10, purpose="shop")]))
     unknown = calculate_load(LoadRequest(rooms=[RoomInput(name="f", area_m2=100, people=10, purpose="warehouse")]))
 
-    # 面积指标分项 = 冷指标 × 面积 / 1000
-    assert supermarket.rooms[0].components_kw["area_index"] == 20.0
-    assert restaurant.rooms[0].components_kw["area_index"] == 19.0
-    assert atrium.rooms[0].components_kw["area_index"] == 16.0
-    assert shop.rooms[0].components_kw["area_index"] == 17.5
-    # 商场类都应高于办公
+    # 面积指标是**校核值**，不进总量，走 index_estimate_kw = 冷指标 × 面积 / 1000
+    assert supermarket.rooms[0].index_estimate_kw == 20.0
+    assert restaurant.rooms[0].index_estimate_kw == 19.0
+    assert atrium.rooms[0].index_estimate_kw == 16.0
+    assert shop.rooms[0].index_estimate_kw == 17.5
+    # 指标既然不进总量，就不该出现在分项里
+    assert "area_index" not in atrium.rooms[0].components_kw
+    # 商场类都应高于办公：照明与设备密度都比办公高
     for result in (supermarket, restaurant, shop):
         assert result.total_cooling_kw > office.total_cooling_kw
     # 未登记用途回落 RoomInput 默认（冷指标 120）
-    assert unknown.rooms[0].components_kw["area_index"] == 12.0
+    assert unknown.rooms[0].index_estimate_kw == 12.0
     # 中庭人均新风 15，照明 25 W/m²
     assert atrium.rooms[0].fresh_air_m3_h == 150.0
     assert atrium.rooms[0].components_kw["lighting"] == 2.5

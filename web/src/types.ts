@@ -110,6 +110,14 @@ export interface RoomLoad {
   cooling_kw: number;
   heating_kw: number;
   fresh_air_m3_h: number;
+  /** 面积指标法校核值，不计入 cooling_kw */
+  index_estimate_kw: number;
+  /** 分项法相对指标法的偏差百分比 */
+  index_deviation_pct: number;
+  /** 供暖面积指标校核值，不计入 heating_kw */
+  heating_index_estimate_kw: number;
+  /** 供暖分项法相对指标法的偏差百分比 */
+  heating_index_deviation_pct: number;
   components_kw: Record<string, number>;
 }
 

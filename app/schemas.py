@@ -60,6 +60,13 @@ class RoomLoadResult(BaseModel):
     cooling_kw: float
     heating_kw: float
     fresh_air_m3_h: float
+    # 面积指标法的校核值，与 cooling_kw（分项法）并列，不参与求和。
+    index_estimate_kw: float = 0.0
+    # (分项法 - 指标法) / 指标法 × 100，供学生看两种口径的偏差。
+    index_deviation_pct: float = 0.0
+    # 供暖侧同构的指标校核值。
+    heating_index_estimate_kw: float = 0.0
+    heating_index_deviation_pct: float = 0.0
     components_kw: dict[str, float]
 
 

@@ -1,17 +1,37 @@
+"""设计负荷计算
+
+口径：**分项法为主，面积指标降为校核**。总冷负荷 = 人员 + 照明 + 设备 +
+新风显热 + 新风潜热 + 太阳辐射 + 围护传热；面积指标只作为 `index_estimate_kw`
+并列输出，配 `index_deviation_pct` 给出两种方法的偏差。
+
+指标法与分项法是**互相替代**的两种估算，不能相加：面积指标本身已经包含
+人员、照明、设备、新风，再把这些分项加上去就是重复计量。
+"""
+
+import math
 from collections import defaultdict
 
 from app.building import normalized_floors, room_floor_id
 from app.data.design_defaults import ORIENTATION_SOLAR_W_M2, PURPOSE_DEFAULTS
 from app.schemas import FloorLoadResult, Issue, LoadRequest, LoadResult, RoomLoadResult
+from app.simcore.psychrometrics import VAPORIZATION_HEAT_KJ_KG, humidity_ratio_from_rh
 
 
 AIR_DENSITY_KG_M3 = 1.2
 AIR_CP_KJ_KG_K = 1.005
-AIR_LATENT_KW_PER_M3H_RH_DELTA = 0.00072
+# 玻璃遮阳系数与得热修正的合并值（教学口径）
+SOLAR_GAIN_FACTOR = 0.55
 
 
 def _round(value: float) -> float:
     return round(value, 3)
+
+
+def _deviation_pct(itemized_kw: float, index_kw: float) -> float:
+    """分项法相对指标法的偏差百分比。指标为 0（面积或指标缺失）时无从比较，返回 0。"""
+    if index_kw <= 0:
+        return 0.0
+    return (itemized_kw - index_kw) / index_kw * 100.0
 
 
 def calculate_load(request: LoadRequest) -> LoadResult:
@@ -44,26 +64,41 @@ def calculate_load(request: LoadRequest) -> LoadResult:
         people_cooling_kw = room.people * 0.12
         lighting_cooling_kw = room.area_m2 * lighting_w_m2 / 1000.0
         equipment_cooling_kw = room.area_m2 * equipment_w_m2 / 1000.0
-        fresh_air_cooling_kw = AIR_DENSITY_KG_M3 * AIR_CP_KJ_KG_K * fresh_air_m3_h * summer_delta / 3600.0
-        latent_cooling_kw = max(room.outdoor_relative_humidity - room.indoor_relative_humidity, 0.0) * fresh_air_m3_h * AIR_LATENT_KW_PER_M3H_RH_DELTA
-        window_area_m2 = room.area_m2 * room.exposed_area_factor * room.window_wall_ratio
-        solar_cooling_kw = window_area_m2 * ORIENTATION_SOLAR_W_M2.get(room.orientation, 100.0) * 0.55 / 1000.0
+        fresh_air_mass_kg_s = AIR_DENSITY_KG_M3 * fresh_air_m3_h / 3600.0
+        fresh_air_cooling_kw = AIR_CP_KJ_KG_K * fresh_air_mass_kg_s * summer_delta
+        # 新风潜热按含湿量差算，不能按相对湿度差算：相对湿度是含湿量与当前温度
+        # 饱和值的比，35℃ 的 65% 与 26℃ 的 55% 含湿量差了一倍，直接相减没有物理含义。
+        humidity_ratio_delta = max(
+            humidity_ratio_from_rh(room.outdoor_summer_c, room.outdoor_relative_humidity * 100.0)
+            - humidity_ratio_from_rh(room.indoor_summer_c, room.indoor_relative_humidity * 100.0),
+            0.0,
+        )
+        latent_cooling_kw = fresh_air_mass_kg_s * humidity_ratio_delta * VAPORIZATION_HEAT_KJ_KG
+        # 窗墙比是**外墙**面积的比例，不是地面面积的比例。房间按方形足迹估算：
+        # 迎风外墙宽 √A、高 h，朝向字段只给一个方位，故只计一面外墙。
+        external_wall_area_m2 = math.sqrt(room.area_m2) * room.height_m
+        window_area_m2 = external_wall_area_m2 * room.window_wall_ratio
+        solar_cooling_kw = (
+            window_area_m2 * ORIENTATION_SOLAR_W_M2.get(room.orientation, 100.0) * SOLAR_GAIN_FACTOR / 1000.0
+        )
 
         exposed_area_m2 = room.area_m2 * room.exposed_area_factor
+        envelope_cooling_kw = room.envelope_u_w_m2k * exposed_area_m2 * summer_delta / 1000.0
         envelope_heating_kw = room.envelope_u_w_m2k * exposed_area_m2 * winter_delta / 1000.0
-        fresh_air_heating_kw = AIR_DENSITY_KG_M3 * AIR_CP_KJ_KG_K * fresh_air_m3_h * winter_delta / 3600.0
+        fresh_air_heating_kw = AIR_CP_KJ_KG_K * fresh_air_mass_kg_s * winter_delta
         index_heating_kw = room.area_m2 * heating_index_w_m2 / 1000.0
 
         cooling_kw = (
-            index_cooling_kw
-            + people_cooling_kw
+            people_cooling_kw
             + lighting_cooling_kw
             + equipment_cooling_kw
             + fresh_air_cooling_kw
             + latent_cooling_kw
             + solar_cooling_kw
+            + envelope_cooling_kw
         )
-        heating_kw = max(index_heating_kw, envelope_heating_kw + fresh_air_heating_kw)
+        # 供暖同样以分项为主：原来的 max() 会让面积指标反过来盖住分项结果。
+        heating_kw = envelope_heating_kw + fresh_air_heating_kw
 
         if room.area_m2 > 0 and cooling_kw / room.area_m2 > 0.35:
             issues.append(
@@ -83,14 +118,20 @@ def calculate_load(request: LoadRequest) -> LoadResult:
                 cooling_kw=_round(cooling_kw),
                 heating_kw=_round(heating_kw),
                 fresh_air_m3_h=_round(fresh_air_m3_h),
+                index_estimate_kw=_round(index_cooling_kw),
+                index_deviation_pct=_round(_deviation_pct(cooling_kw, index_cooling_kw)),
+                heating_index_estimate_kw=_round(index_heating_kw),
+                heating_index_deviation_pct=_round(_deviation_pct(heating_kw, index_heating_kw)),
+                # 各分项之和恒等于 cooling_kw（供暖两项单列）。面积指标不在其中——
+                # 它是校核值，走 index_estimate_kw。
                 components_kw={
-                    "area_index": _round(index_cooling_kw),
                     "people": _round(people_cooling_kw),
                     "lighting": _round(lighting_cooling_kw),
                     "equipment": _round(equipment_cooling_kw),
                     "fresh_air_cooling": _round(fresh_air_cooling_kw),
                     "latent_cooling": _round(latent_cooling_kw),
                     "solar": _round(solar_cooling_kw),
+                    "envelope_cooling": _round(envelope_cooling_kw),
                     "envelope_heating": _round(envelope_heating_kw),
                     "fresh_air_heating": _round(fresh_air_heating_kw),
                 },

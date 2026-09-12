@@ -14,21 +14,22 @@ const energyHours = ref(24);
 const energyPrice = ref(0.85);
 const edgeCount = computed(() => Object.values(evaluation.result?.topology?.edge_count_by_system ?? {}).reduce((sum, value) => sum + value, 0));
 
+// 面积指标已不是分项，它是校核值（index_estimate_kw），不进这张分项表。
 const COMPONENT_LABELS: Record<string, string> = {
-  area_index: "面积指标",
   people: "人员",
   lighting: "照明",
   equipment: "设备",
   fresh_air_cooling: "新风显热",
   latent_cooling: "新风潜热",
   solar: "太阳辐射",
-  envelope_heating: "围护传热",
+  envelope_cooling: "围护传热(冷)",
+  envelope_heating: "围护传热(热)",
   fresh_air_heating: "新风加热",
 };
 const componentOrder = [
-  "area_index", "people", "lighting", "equipment",
+  "people", "lighting", "equipment",
   "fresh_air_cooling", "latent_cooling", "solar",
-  "envelope_heating", "fresh_air_heating",
+  "envelope_cooling", "envelope_heating", "fresh_air_heating",
 ];
 const componentKeys = computed(() => {
   const seen = new Set<string>();

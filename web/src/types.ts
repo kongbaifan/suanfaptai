@@ -166,12 +166,30 @@ export interface PumpCheckResult {
   status: "ok" | "warning" | "error";
 }
 
+export interface NetworkPathCalculation {
+  path_id: string;
+  system: string;
+  nodes: string[];
+  floor_ids: string[];
+  pipe_ids: string[];
+  pressure_drop_pa: number;
+  head_m?: number | null;
+  flow_m3_h?: number | null;
+  balancing_pressure_pa?: number | null;
+  complete: boolean;
+  closed_circuit: boolean;
+}
+
 export interface HydraulicNetworkResult {
   total_flow_by_system_m3_h: Record<string, number>;
   pipes: PipeCalculation[];
+  paths: NetworkPathCalculation[];
   most_unfavorable_pipe_id?: string | null;
+  most_unfavorable_path_id?: string | null;
   required_pump_head_m: number;
   pump_check?: PumpCheckResult | null;
+  balancing: Record<string, unknown>;
+  floor_flow_summary: Record<string, Record<string, number>>;
   issues: Issue[];
 }
 

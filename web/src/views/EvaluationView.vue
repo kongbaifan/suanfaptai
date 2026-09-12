@@ -184,7 +184,22 @@ async function run() {
           <td>{{ pipe.pump_head_m == null ? "--" : `${finite(pipe.pump_head_m, 2)} m` }}</td>
         </tr>
       </tbody></table></div>
-      <p class="table-note">沿程扬程为空表示该管段不在最不利路径上；水力告警已并入下方问题列表。</p>
+
+      <div v-if="hydraulic.paths && hydraulic.paths.length > 0" class="table-wrap paths-table">
+        <h3>环路路径</h3>
+        <table><thead><tr><th>路径</th><th>系统</th><th>闭合环路</th><th>管段数</th><th>压降</th><th>扬程</th></tr></thead><tbody>
+          <tr v-for="path in hydraulic.paths" :key="path.path_id" :class="{ 'path-unfavorable': path.path_id === hydraulic.most_unfavorable_path_id }">
+            <td><strong>{{ path.path_id }}</strong><StatusBadge v-if="path.path_id === hydraulic.most_unfavorable_path_id" tone="warn" label="最不利" /></td>
+            <td>{{ SYSTEM_LABELS[path.system] ?? path.system }}</td>
+            <td>{{ path.closed_circuit ? "是" : "否" }}</td>
+            <td>{{ path.pipe_ids.length }}</td>
+            <td>{{ finite(path.pressure_drop_pa, 0) }} Pa</td>
+            <td>{{ path.head_m == null ? "--" : `${finite(path.head_m, 2)} m` }}</td>
+          </tr>
+        </tbody></table>
+      </div>
+
+      <p class="table-note">沿程扬程为空表示该管段不在最不利路径上；闭合环路包含供程与回程，是水泵扬程的真实依据；水力告警已并入下方问题列表。</p>
     </section>
 
     <section v-if="evaluation.result?.simulation" class="band-section">

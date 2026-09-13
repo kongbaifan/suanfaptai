@@ -20,6 +20,7 @@ from typing import Any, Literal
 from app.simcore.controls import clamp_controls, default_controls
 from app.simcore.devices import (
     AIR_DENSITY_KG_M3,
+    COIL_RATED_WATER_TEMP_C,
     SENSIBLE_HEAT_RATIO,
     ChillerState,
     CoolingTowerState,
@@ -1767,7 +1768,22 @@ class SimulationSession:
                 targets["opening_pct"] = 100.0 * demand
             if "supply_temp_c" in self._controls[node.instance_id]:
                 if role is DeviceRole.CHILLER:
-                    targets["supply_temp_c"] = 12.0 - 5.0 * demand
+                    # 出水温度目标由**除湿需求**与温度需求共同决定。
+                    #
+                    # 除湿能力对出水温度极其敏感：实测同一系统里 7℃ 出水可把
+                    # 房间压到 43.7%、10℃ 只能到 52.9%（目标 55%）。仅用
+                    # `12 - 5*demand` 时，湿度偏差经过等效相对湿度归一后
+                    # 需求常年在 0.4 上下，出水停在 10℃——刚好不够除湿。
+                    #
+                    # 取两者较大：温度需求维持原有的 12→7℃ 响应；一旦需要
+                    # 除湿，把出水压到设计工况（7℃）附近，让盘管表面低于
+                    # 室内露点、真正产生凝结。除湿量对出水温度极敏感，实测
+                    # 同一系统 10℃ 只能到 52.9%、7℃ 可到 43.7%（目标 55%），
+                    # 因此这里必须给到设计值而不是折中值。
+                    temp_target = 12.0 - 5.0 * demand
+                    if self._humidity_demand_is_active(node):
+                        temp_target = min(temp_target, COIL_RATED_WATER_TEMP_C)
+                    targets["supply_temp_c"] = temp_target
                 elif role is DeviceRole.HEAT_SOURCE:
                     targets["supply_temp_c"] = 35.0 + 10.0 * demand
 
@@ -1811,6 +1827,22 @@ class SimulationSession:
             if room.room_id == room_id:
                 return room.fresh_air_m3_h
         return 0.0
+
+    def _humidity_demand_is_active(self, node: DeviceNode) -> bool:
+        """系统内是否存在尚未满足的除湿需求
+
+        冷机出水温度对除湿能力影响极大（实测 7℃ vs 10℃ 相差约 9 个百分点
+        相对湿度），但出水温度目标只由聚合需求决定时，湿度偏差经等效相对湿度
+        归一后常年偏低，出水会停在偏暖侧、刚好不够除湿。
+
+        这里判断"是否有房间的湿度需求显著大于其温度需求"，用于把出水压到
+        更能除湿的区间。取 `_room_humidity_demand` 与死区比较而非与 0 比较，
+        避免噪声触发。
+        """
+        for room in self.layout.rooms:
+            if self._room_humidity_demand(room.room_id) > AUTO_DEADBAND_RH_PCT / 100.0:
+                return True
+        return False
 
     def _slew_value(self, node: DeviceNode, name: str, target: float) -> float:
         current = self._controls[node.instance_id][name]

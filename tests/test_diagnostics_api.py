@@ -30,6 +30,42 @@ def test_diagnostics_lists_release_resource_checks():
     assert all({"name", "ok", "required", "detail"} <= set(check) for check in body["checks"])
 
 
+def test_static_workbench_bundle_is_present_and_self_consistent():
+    """工作台构建产物必须存在，且 index.html 引用的带哈希资源也必须存在
+
+    这条测试守的是一个**启动即崩溃**的资源，此前没有任何测试覆盖它：
+
+    `app/main.py` 用 `StaticFiles(directory=STATIC_DIR)` 挂载静态目录，而
+    starlette 的 `StaticFiles.__init__` 默认 `check_dir=True`，目录不存在会在
+    **导入期**直接抛 `RuntimeError`。也就是说 `app/static` 一旦缺失，
+    `uvicorn app.main:app` 起不来，`/api/v1/diagnostics` 也没机会报告缺失——
+    诊断接口无法自查这个资源。
+
+    只断言"文件存在"还不够：vite 产物是带内容哈希的文件名，index.html 以字面
+    文件名引用它们，而 release.py 的资源审计只调 `Path.exists()`（对目录），
+    既不读 index.html 也不校验哈希。因此"index.html 在、被引用的 js/css 不在"
+    这种半新半旧的产物能通过审计，却会让工作台白屏。本测试把两者一起钉死。
+    """
+    import re
+
+    from app.main import STATIC_DIR
+
+    index_path = STATIC_DIR / "index.html"
+    assert index_path.is_file(), f"工作台入口缺失：{index_path}（会导致导入期 RuntimeError）"
+
+    html = index_path.read_text(encoding="utf-8")
+    # 抓取 /static/assets/xxx.js 与 /static/assets/xxx.css 两类引用
+    referenced = re.findall(r"/static/(assets/[^\"']+)", html)
+    assert referenced, "index.html 未引用任何构建资源，产物可能不完整"
+
+    for relative in referenced:
+        asset = STATIC_DIR / relative
+        assert asset.is_file(), (
+            f"index.html 引用了不存在的构建资源 {relative}；"
+            "产物半新半旧，工作台会白屏。请重新执行 npm run build。"
+        )
+
+
 def test_diagnostics_status_is_error_when_a_required_check_fails(monkeypatch, tmp_path):
     """必需项失败必须让总体状态变红，否则诊断页会谎报正常。"""
     broken = tmp_path / "release_manifest.json"

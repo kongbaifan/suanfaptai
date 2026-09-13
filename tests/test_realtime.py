@@ -797,9 +797,12 @@ def test_heating_realtime_projects_heat_source_hot_loop_and_room_trend():
         assert summary["cooling_water_flow_m3_h"] == 0.0
         assert summary["total_flow_m3_h"] == summary["hot_water_flow_m3_h"]
         assert summary["hot_water_supply_temp_c"] > summary["hot_water_return_temp_c"]
+        # delta_t_c 由**未取整**的供回水温相减后再取整到 2 位，而这里减的是两个
+        # 各自取整过的值，两次取整可相差 0.01。容差须覆盖该舍入误差，否则
+        # 数值恰好落在边界时（1.79 vs 1.80）会误报为物理回归。
         assert summary["delta_t_c"] == pytest.approx(
             summary["supply_water_temp_c"] - summary["return_water_temp_c"],
-            abs=0.01,
+            abs=0.02,
         )
         assert state["devices"]["ashp_roof"]["values"]["role"] == "heat_source"
         assert state["devices"]["ashp_roof"]["values"]["heating_kw"] > 0.0

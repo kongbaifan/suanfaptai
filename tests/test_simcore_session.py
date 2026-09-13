@@ -4,6 +4,7 @@
 比例系数），以及水侧/冷凝侧耦合是否收敛。断言仍以方向性为主。
 """
 
+import itertools
 import math
 from dataclasses import replace
 
@@ -104,6 +105,19 @@ def build_layout(
 
 def session_for(layout: PlantLayout | None = None) -> SimulationSession:
     return SimulationSession(layout or build_layout(), DEMO_CONFIG)
+
+
+def _terminal_rated_capacity_kw(layout: PlantLayout | None = None) -> float:
+    """布局中全部末端节点的额定容量之和（kW）
+
+    用于断言"末端出力不得越过额定能力"，而不是硬编码某个型号的数字。
+    """
+    target = layout or build_layout()
+    return sum(
+        node.rated.capacity_kw or 0.0
+        for node in target.devices
+        if node.rated.role in {DeviceRole.FCU, DeviceRole.AHU, DeviceRole.FRESH_AIR_UNIT}
+    )
 
 
 def build_heating_layout() -> PlantLayout:
@@ -496,20 +510,44 @@ class TestSessionDrivenByEquipment:
         )
 
     def test_source_capacity_above_terminal_delivery_does_not_invent_load(self):
-        """冷源均能满足末端时，不得因外部负荷虚构额外末端冷量。"""
+        """冷源不得虚构出末端额定能力之外的冷量。
+
+        本测试原断言"换更大冷机室温不变"，那是旧盘管模型的产物：旧式
+        `capacity·clamp(ΔT/12,0,1)` 在 ΔT>=12 K 时饱和，供水温完全不参与
+        换热，因此冷机大小只影响供水温读数、不影响末端出力。
+
+        盘管改为 ε-NTU 后供水温按物理进入换热，冷机更大 -> 供水温更低 ->
+        末端出力更高 -> 室温更低，这正是本测试第 508 行早就在断言的方向
+        （large.supply_water_temp_c < small.supply_water_temp_c）的必然结果。
+
+        真正需要守住的约束是：末端出力不得越过其额定能力，冷源再大也不能
+        凭空造出末端额定之外的冷量。下面按此重新钉死。
+        """
         config = replace(DEMO_CONFIG, design_cooling_load_kw=500.0)
         small = run(SimulationSession(build_layout("SCWE-90H+B"), config), 60)
         large = run(SimulationSession(build_layout("SCWE-200H+B"), config), 60)
 
-        assert large.rooms[ROOM_ID].temperature_c == pytest.approx(
-            small.rooms[ROOM_ID].temperature_c
-        )
-        assert large.cooling_load_kw == pytest.approx(small.cooling_load_kw)
+        # 冷源更大仍给出更低供水温、更低负荷率（方向不变）
         assert large.supply_water_temp_c < small.supply_water_temp_c
         assert (
             large.devices["chiller-1"].values["load_ratio"]
             < small.devices["chiller-1"].values["load_ratio"]
         )
+
+        # 供水温更低使末端出力更高，但不得越过末端额定能力上限。
+        terminal_capacity_kw = _terminal_rated_capacity_kw()
+        for session in (small, large):
+            delivered_kw = sum(
+                state.values.get("cooling_kw", 0.0)
+                for state in session.devices.values()
+                if state.role == "terminal"
+            )
+            assert delivered_kw <= terminal_capacity_kw * 1.001, (
+                f"末端出力 {delivered_kw:.3f} kW 越过额定 {terminal_capacity_kw:.3f} kW"
+            )
+
+        # 冷源充裕时末端应更接近其额定能力，而不是被冷源拖住
+        assert large.cooling_load_kw >= small.cooling_load_kw
 
     def test_design_load_caps_terminal_demand_and_keeps_source_energy_conserved(self):
         session = SimulationSession(
@@ -761,8 +799,20 @@ class TestSessionGuards:
         first_speed = first.devices["pump-chilled"].values["speed_pct"]
         second_speed = second.devices["pump-chilled"].values["speed_pct"]
         assert 0.0 <= second_speed <= 100.0
-        assert second_speed != first_speed
         assert abs(second_speed - first_speed) <= 8.0
+
+        # 控制必须在有限步内实际动作，且每步不超过 8% 的速率限幅。
+        # 起始室温 30℃、目标 26℃ 时偏差很大，前若干 tick 需求会顶到 100%，
+        # 此时相邻两步相同属于正常的速率限幅饱和，不代表控制器失效。
+        # 因此扫到控制真正开始下调为止，而不是要求第 2 步就必须不同。
+        speeds = [first_speed, second_speed]
+        for _ in range(10):
+            if speeds[-1] != speeds[-2]:
+                break
+            speeds.append(session.step().devices["pump-chilled"].values["speed_pct"])
+        assert len(set(speeds)) > 1, f"控制器始终未动作：{speeds}"
+        for earlier, later in itertools.pairwise(speeds):
+            assert abs(later - earlier) <= 8.0
 
         session.set_controls("pump-chilled", {"speed_pct": 50.0})
         manual = session.step()

@@ -240,8 +240,29 @@ def test_terminal_actual_flow_limits_capacity_without_counting_valve_twice():
     )
 
     assert full.water_flow_m3_h == pytest.approx(rated_flow)
-    assert half.cooling_kw == pytest.approx(full.cooling_kw * math.sqrt(0.5))
-    assert full.cooling_kw > 4.0 * terminal_state(rated, 0.2, 26.0, 7.0).cooling_kw
+    # 流量律由 sqrt(flow_ratio) 经验式改为 ε-NTU：水量下降同时抬高管内侧热阻
+    # （UA ∝ V̇^0.8）并改变 C_max，故衰减是物理推导而非经验开方。
+    # 此处只锁方向与量级，具体数值由 tests/test_coil_ntu.py 钉死。
+    assert 0.7 < half.cooling_kw / full.cooling_kw < 1.0
+
+    # 本测试的核心意图：传了 actual_water_flow 时不得再乘一次阀位。
+    # 直接钉死该不变量——阀位对结果必须完全没有影响（传实际流量时它只用于
+    # 在缺省情况下推算流量，两者不可叠加）。原断言用 4.0 倍关系间接表达
+    # 这一点，那个倍数来自旧 sqrt 经验式，随流量律更换而失效。
+    for opening in (0.0, 0.2, 0.5, 1.0):
+        same_flow = terminal_state(
+            rated,
+            valve_opening_ratio=opening,
+            room_temp_c=26.0,
+            supply_water_temp_c=7.0,
+            actual_water_flow_m3_h=rated_flow,
+        )
+        assert same_flow.cooling_kw == pytest.approx(full.cooling_kw)
+
+    # 未传实际流量时，阀位才决定流量，开度越小流量与换热量越小
+    small_opening = terminal_state(rated, 0.2, 26.0, 7.0)
+    assert small_opening.water_flow_m3_h < full.water_flow_m3_h
+    assert small_opening.cooling_kw < full.cooling_kw
 
 
 def test_terminal_zero_actual_water_flow_keeps_fan_side_running():

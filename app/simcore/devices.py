@@ -44,11 +44,46 @@ PEAK_EFFICIENCY_PLR = 0.7
 DEFAULT_PLR_CURVATURE = 3.0
 # AHRI 综合部分负荷权重展开后的系数，用于由 IPLV 反解曲线陡度
 _IPLV_CURVATURE_COEFFICIENT = 0.04575
+# 部分负荷曲线在极低负荷率处的下界。
+#
+# 原实现用无下界的抛物线 `peak - α·(PLR-0.7)²`，在 PLR→0 时趋于 -∞。
+# SCWE-90H+B（α=3.54）在 PLR=0.097 处 plr_factor 只有 0.0334，COP 被
+# `_clamp(cop, 1.5, ...)` 的下界钳到 1.5 —— 该钳位随后掩盖了冷凝温度的影响，
+# 使"降低冷却水温/风量 -> 冷凝温度升高 -> COP 下降"这条教学链路在低负荷时
+# 完全失效（冷凝温度 30 与 50℃ 算出同一个 COP=1.5）。
+#
+# 真实冷机在低负荷下通过卸载/间歇运行维持效率，COP 下降但不会崩塌。取 0.45
+# 作为曲线下界，使低负荷 COP 仍随冷凝温度变化，保留可观测的教学因果关系。
+# 该下界与 `_clamp(cop, 1.5, 12.0)` 共同作用，两者都不再在常规工况内饱和。
+PLR_FACTOR_FLOOR = 0.45
 
 # 目录标称容量为全热能力，只有显热部分体现为送风温降
 SENSIBLE_HEAT_RATIO = 0.75
-# 盘管效能上限：送风温最多逼近供水温到这个比例，不可能完全达到
-MAX_COIL_EFFECTIVENESS = 0.85
+
+# --- 盘管 ε-NTU 模型额定工况 -----------------------------------------------
+# **重要：目录未记录额定工况。** 549 条目录项没有任何字段记录进风干湿球或
+# 进/出水温度，以下工况是由目录数据反解出来的，属"目录缺工况"的降级假定，
+# 显式记录于此，不得静默改变。
+#
+# 反解依据（进水 7℃、水温差 5 K 由目录 Q = c·W·ΔT 反解得，64 个末端均在
+# 5.00 K 附近，偏差 < 0.02 K）：
+#   风侧：风机盘管系列显热温差落在 11.85..14.49 K
+# 与 GB/T 19232 名义工况（进风干球 27℃、进水 7℃、水温差 5 K）一致。
+#
+# 进风温度取 27℃ 由 ε<1 这一热力学硬约束强制，不是偏好：
+# 单程盘管的 Q 不可能超过 C_min·ΔT 这个上限，故必须 ε = Q/(C_min·ΔT) < 1。
+# 逐型号检验 9 个风机盘管（进水 7℃）：
+#     进风 25℃ -> 2/9 型号 ε >= 1（FP-34WA 达 1.0731），物理不可达
+#     进风 26℃ -> 1/9 型号 ε >= 1（FP-34WA 达 1.0166），物理不可达
+#     进风 27℃ -> 0/9 型号越界，ε 落在 0.79..0.97，UA 随容量单调，自洽
+# 因此 27℃ 是唯一使整个风机盘管目录同时可标定的进风温度。
+#
+# 另一条常被误用的判据是"出风干球必须高于出水温度 12℃"。该判据不成立：
+# 湿盘管的出风下限是**机器露点**而非出水温度，逆流盘管表面温度从进水 7℃
+# 到出水 12℃ 分布，机器露点下界由进水 7℃ 给出。按正确判据检验，9 个型号
+# 出风干球最小 11.51℃（进风 26℃ 时），远高于 7℃ 下限，全部通过。
+COIL_RATED_AIR_TEMP_C = 27.0
+COIL_RATED_WATER_TEMP_C = 7.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +146,12 @@ class TerminalState:
     water_flow_m3_h: float
     supply_air_temp_c: float
     power_kw: float
+    # 单程盘管标定不可行时置位（目录容量超过 C_min·ΔT 热力学上限）。
+    # 这类末端在额定工况下无法同时满足 Q=目录容量 与 ε<1，实际采用的是
+    # 上限容量。按「降级透明」约定必须显式暴露，不得静默钳制。
+    # 典型来源：新风机组（全新风工况，盘管负荷远高于同风量回风工况）
+    # 与 8 排 AHU（显热比 0.658，SENSIBLE_HEAT_RATIO=0.75 高估显热）。
+    coil_calibration_limited: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +214,13 @@ def chiller_state(
 
 
 def _chiller_cop(rated: RatedSpec, load_ratio: float, condenser_temp_c: float) -> float:
+    """冷机 COP：部分负荷曲线 × 冷凝温度修正
+
+    两者都必须保持对输入的**可观测敏感性**——任一环节被钳位饱和，另一环节的
+    影响就会被掩盖，教学链路随即断裂。因此：
+    - `PLR_FACTOR_FLOOR` 给抛物线一个物理下界（低负荷卸载），
+    - 冷凝修正保持线性，不再被总钳位吞掉。
+    """
     rated_cop = _positive(rated.cop, 4.5)
     curvature = _plr_curvature(rated)
     # 曲线在 PEAK_EFFICIENCY_PLR 处取峰值，并归一化为满负荷时 f(1.0) = 1.0
@@ -181,7 +229,11 @@ def _chiller_cop(rated: RatedSpec, load_ratio: float, condenser_temp_c: float) -
     condenser_factor = 1.0 - CONDENSER_COP_PENALTY_PER_K * (
         condenser_temp_c - CONDENSER_REFERENCE_C
     )
-    cop = rated_cop * _clamp(plr_factor, 0.25, 1.6) * _clamp(condenser_factor, 0.4, 1.3)
+    cop = (
+        rated_cop
+        * _clamp(plr_factor, PLR_FACTOR_FLOOR, 1.6)
+        * _clamp(condenser_factor, 0.4, 1.3)
+    )
     return _clamp(cop, 1.5, 12.0)
 
 
@@ -392,6 +444,137 @@ def cooling_tower_state(
     )
 
 
+def counterflow_effectiveness(ntu: float, capacity_ratio: float) -> float:
+    """逆流换热器效能 ε(NTU, Cr)
+
+        Cr < 1:  ε = (1 - exp(-NTU·(1-Cr))) / (1 - Cr·exp(-NTU·(1-Cr)))
+        Cr = 1:  ε = NTU / (1 + NTU)
+
+    量纲：NTU 与 Cr 均为无量纲，ε 落在 [0, 1)。
+
+    Cr = 1 时分母为零，必须走极限式；NTU = 0 时 ε = 0（无传热面即无换热）。
+    """
+    if not math.isfinite(ntu) or not math.isfinite(capacity_ratio):
+        return 0.0
+    if ntu <= 0.0:
+        return 0.0
+    ratio = _clamp(capacity_ratio, 0.0, 1.0)
+    if ratio >= 1.0 - 1e-9:
+        return ntu / (1.0 + ntu)
+    exponent = math.exp(-ntu * (1.0 - ratio))
+    return (1.0 - exponent) / (1.0 - ratio * exponent)
+
+
+def _coil_capacity_flows(
+    airflow_m3_h: float, water_flow_m3_h: float
+) -> tuple[float, float]:
+    """空气侧与水侧热容流率 C = ṁ·c_p，单位 kW/K
+
+    C_air = V(m3/h)·ρ·c_p/3600，与 `AIR_KW_PER_M3H_K` 同一口径；
+    C_w   = V(m3/h)·ρ_w·c_p,w/3600，与 `WATER_KW_PER_M3H_K` 同一口径。
+    """
+    return (
+        AIR_KW_PER_M3H_K * airflow_m3_h,
+        WATER_KW_PER_M3H_K * water_flow_m3_h,
+    )
+
+
+def ntu_from_counterflow_effectiveness(effectiveness: float, capacity_ratio: float) -> float:
+    """逆流换热器 ε -> NTU 的解析反解
+
+    由 ε = (1-x)/(1-Cr·x)（x = exp(-NTU(1-Cr))）解出：
+
+        x  = (1-ε)/(1-ε·Cr)
+        NTU = -ln(x)/(1-Cr),   Cr = 1 时 NTU = ε/(1-ε)
+
+    量纲：ε 与 Cr 无量纲，NTU 无量纲。ε 必须落在 [0,1)，否则无解——
+    这对应"要求的换热量超过 C_min·ΔT 热力学上限"，调用方须先判据。
+    解析反解优于数值求根：无迭代、无收敛容差、无平台误差。
+    """
+    if not math.isfinite(effectiveness) or not math.isfinite(capacity_ratio):
+        return 0.0
+    if effectiveness <= 0.0:
+        return 0.0
+    effectiveness = _clamp(effectiveness, 0.0, 1.0 - 1e-12)
+    ratio = _clamp(capacity_ratio, 0.0, 1.0)
+    if ratio >= 1.0 - 1e-9:
+        return effectiveness / (1.0 - effectiveness)
+    x = (1.0 - effectiveness) / (1.0 - effectiveness * ratio)
+    if x <= 0.0:
+        return 0.0
+    return -math.log(x) / (1.0 - ratio)
+
+
+def _rated_coil_ua(
+    rated: RatedSpec, capacity_kw: float, rated_airflow_m3_h: float, rated_water_flow: float
+) -> tuple[float, bool]:
+    """由目录额定点反标定盘管总传热系数 UA（kW/K）
+
+    这是 ε-NTU 模型唯一需要标定的参数。目录只给额定容量，没有 UA，因此按
+    **额定工况下 Q 严格等于目录容量** 反解：
+
+        ε_rated = Q_rated / (C_min,rated · (T_air,rated - T_w,rated))
+        NTU_rated = ε_rated -> NTU 的解析反解
+        UA = NTU_rated · C_min,rated
+
+    量纲：ε_rated 无量纲（必须 < 1），C_min 为 kW/K，UA 为 kW/K。
+
+    返回 `(UA, limited)`：`limited=True` 表示目录容量超过 `C_min·ΔT` 这一
+    单程盘管的热力学上限，ε>=1 无解，实际取上限容量。此时该型号在额定工况
+    下**无法**复现目录容量，必须由调用方标记降级（约 25/64 个目录末端属于
+    此类：全部 10 个新风机组、15 个 8 排 AHU）。
+
+    风量或水量为零时无换热面，返回 (0, False)——此时 Q 恒为 0，与物理一致，
+    不属于标定失败。
+    """
+    c_air = AIR_KW_PER_M3H_K * rated_airflow_m3_h
+    c_water = WATER_KW_PER_M3H_K * rated_water_flow
+    if capacity_kw <= 0.0 or c_air <= 0.0 or c_water <= 0.0:
+        return 0.0, False
+
+    c_min = min(c_air, c_water)
+    cr = c_min / max(c_air, c_water)
+    rated_delta = COIL_RATED_AIR_TEMP_C - COIL_RATED_WATER_TEMP_C
+    if rated_delta <= 0.0:
+        return 0.0, False
+
+    required_effectiveness = capacity_kw / (c_min * rated_delta)
+    limited = required_effectiveness >= 1.0
+    required_effectiveness = min(required_effectiveness, 1.0 - 1e-12)
+    return (
+        ntu_from_counterflow_effectiveness(required_effectiveness, cr) * c_min,
+        limited,
+    )
+
+
+# 盘管总传热系数中管内侧对流量依赖较弱（湍流强制对流 Nu ∝ Re^0.8），
+# 风侧占比更大且由风机转速单独处理。这里只把水流量对 UA 的影响显式建模，
+# 指数取 0.8 是 Dittus-Boelter 的经典值。
+COIL_WATER_FLOW_UA_EXPONENT = 0.8
+
+
+def _coil_ua_at_flow(ua_rated: float, water_flow_ratio: float) -> float:
+    """水流量偏离额定时的盘管 UA
+
+    UA 是一串热阻的串联：管内侧对流 + 管壁 + 翅片侧对流。水流量下降主要
+    抬高管内侧热阻，故 UA 随流量减弱但弱于线性：
+
+        UA/V̇_w < 1 时按 V̇_w^0.8 衰减；流量为零时 UA 为零（无换热面）。
+
+    量纲：ua_rated 为 kW/K，water_flow_ratio 无量纲，返回 kW/K。
+
+    没有这一项时，水量减半只改变 C_max 而 UA 不变，末端冷量几乎不随水量
+    变化（实测半流量仍有 96% 能力），"调水量看末端能力下降"的教学演示
+    就失效了。加入后水量下降同时抬高 NTU 分母与降低 UA，双重衰减。
+    """
+    if ua_rated <= 0.0:
+        return 0.0
+    if not math.isfinite(water_flow_ratio) or water_flow_ratio <= 0.0:
+        return 0.0
+    ratio = _clamp(water_flow_ratio, 0.0, 1.0)
+    return ua_rated * ratio**COIL_WATER_FLOW_UA_EXPONENT
+
+
 def terminal_state(
     rated: RatedSpec,
     valve_opening_ratio: float,
@@ -401,58 +584,89 @@ def terminal_state(
     enabled: bool = True,
     actual_water_flow_m3_h: float | None = None,
 ) -> TerminalState:
-    """末端：盘管换热受实际水量、风量与供水温共同限制。"""
+    """末端盘管：按 ε-NTU 逆流换热器计算换热量
+
+    模型替换了原先的经验式 `capacity·sqrt(flow_ratio)·clamp(ΔT/12, 0, 1)`。
+    旧式在 ΔT >= 12 K 时把温差项钳到 1.0，而冷冻水系统实际温差约 19 K
+    （室温 26、供水 7），供水温因此完全不参与换热——改供水温设定值对房间
+    温度没有影响，教学演示失效。ε-NTU 下供水温、水量、风量、室温都以物理
+    方式进入同一组热容流率，不再有平台区。
+
+        C_air = V_air·ρ·c_p/3600      [kW/K]
+        C_w   = V_w·ρ_w·c_p,w/3600    [kW/K]
+        C_min = min(C_air, C_w),  Cr = C_min/C_max
+        ε     = ε_逆流(NTU, Cr),   NTU = UA/C_min
+        Q     = ε·C_min·(T_air - T_w)          [kW]
+
+    UA 由目录额定点反标定（见 `_rated_coil_ua`），因此额定工况下 Q 严格等于
+    目录 `capacity_kw`，选型结论不变，只修正偏离额定点时的响应。
+
+    风侧显热与全热的换算仍沿用 `SENSIBLE_HEAT_RATIO`：目录容量为全热能力，
+    只有显热部分体现为送风温降。送风温的物理上限由 ε 本身给出（出风温不可能
+    越过供水温），不再需要独立的经验常数。
+    """
     opening = _clamp(valve_opening_ratio, 0.0, 1.0) if enabled else 0.0
     fan_ratio = _clamp(fan_speed_ratio, 0.0, 1.0) if enabled else 0.0
+    room_temp_c = room_temp_c if math.isfinite(room_temp_c) else COIL_RATED_AIR_TEMP_C
+    supply_water_temp_c = (
+        supply_water_temp_c
+        if math.isfinite(supply_water_temp_c)
+        else COIL_RATED_WATER_TEMP_C
+    )
 
     capacity_kw = _positive(rated.capacity_kw, 0.0)
-    airflow_m3_h = _positive(rated.airflow_m3_h, 0.0) * fan_ratio
+    rated_airflow_m3_h = _positive(rated.airflow_m3_h, 0.0)
+    airflow_m3_h = rated_airflow_m3_h * fan_ratio
     rated_water_flow = _positive(rated.flow_m3_h, 0.0)
+
     if actual_water_flow_m3_h is None:
         water_flow_m3_h = rated_water_flow * opening
-        water_factor = opening
     else:
         finite_flow = (
             actual_water_flow_m3_h if math.isfinite(actual_water_flow_m3_h) else 0.0
         )
         water_flow_m3_h = _clamp(finite_flow, 0.0, rated_water_flow) if enabled else 0.0
-        flow_ratio = (
-            water_flow_m3_h / rated_water_flow if rated_water_flow > 0.0 else 0.0
-        )
-        # A teaching coil retains part of its capacity as water flow falls;
-        # the sublinear curve also makes Q/(c*V) delta-T widen at low flow.
-        water_factor = math.sqrt(flow_ratio)
 
-    # 供水温越接近室温，可用换热温差越小，冷热能力都按温差线性衰减。
+    ua_rated, calibration_limited = _rated_coil_ua(
+        rated, capacity_kw, rated_airflow_m3_h, rated_water_flow
+    )
+    # 水流量偏离额定会抬高管内侧热阻，UA 随之下降。水量与 UA 同时衰减，
+    # 末端能力因此对水量敏感（见 `_coil_ua_at_flow` 的说明）。
+    water_flow_ratio = (
+        water_flow_m3_h / rated_water_flow if rated_water_flow > 0.0 else 0.0
+    )
+    ua_kw_per_k = _coil_ua_at_flow(ua_rated, water_flow_ratio)
+
+    c_air, c_water = _coil_capacity_flows(airflow_m3_h, water_flow_m3_h)
     cooling_delta = max(room_temp_c - supply_water_temp_c, 0.0)
     heating_delta = max(supply_water_temp_c - room_temp_c, 0.0)
-    cooling_kw = (
-        capacity_kw * water_factor * fan_ratio * _clamp(cooling_delta / 12.0, 0.0, 1.0)
-    )
-    heating_kw = (
-        capacity_kw * water_factor * fan_ratio * _clamp(heating_delta / 20.0, 0.0, 1.0)
-    )
-    water_side_limit_kw = (
-        WATER_KW_PER_M3H_K * water_flow_m3_h * MAX_HYDRONIC_DELTA_T_C
-    )
+
+    cooling_kw = 0.0
+    heating_kw = 0.0
+    c_min = min(c_air, c_water)
+    if c_min > 0.0 and ua_kw_per_k > 0.0:
+        cr = c_min / max(c_air, c_water)
+        effectiveness = counterflow_effectiveness(ua_kw_per_k / c_min, cr)
+        # 制冷与制热共用同一台盘管，按当前换热方向取温差。两者互斥：
+        # 供水温低于室温即制冷，高于室温即制热，不会同时为正。
+        cooling_kw = effectiveness * c_min * cooling_delta
+        heating_kw = effectiveness * c_min * heating_delta
+
+    # 水侧能量守恒硬约束：Q 不可能超过把水量加热/冷却到 dT 上限所需的能量。
+    water_side_limit_kw = WATER_KW_PER_M3H_K * water_flow_m3_h * MAX_HYDRONIC_DELTA_T_C
     cooling_kw = min(cooling_kw, water_side_limit_kw)
     heating_kw = min(heating_kw, water_side_limit_kw)
 
     supply_air_temp_c = room_temp_c
     if airflow_m3_h > 0.0 and cooling_kw > 0.0:
-        # 目录容量为全热能力，只有显热部分体现为送风温降
         sensible_kw = cooling_kw * SENSIBLE_HEAT_RATIO
         drop = sensible_kw / (AIR_KW_PER_M3H_K * airflow_m3_h)
-        # 盘管效能有限，送风温不可能压到供水温
-        supply_air_temp_c = room_temp_c - _clamp(
-            drop, 0.0, cooling_delta * MAX_COIL_EFFECTIVENESS
-        )
+        # 显热温降不得超过可用温差——盘管不可能把空气冷却到供水温以下。
+        supply_air_temp_c = room_temp_c - _clamp(drop, 0.0, cooling_delta)
     elif airflow_m3_h > 0.0 and heating_kw > 0.0:
         sensible_kw = heating_kw * SENSIBLE_HEAT_RATIO
         rise = sensible_kw / (AIR_KW_PER_M3H_K * airflow_m3_h)
-        supply_air_temp_c = room_temp_c + _clamp(
-            rise, 0.0, heating_delta * MAX_COIL_EFFECTIVENESS
-        )
+        supply_air_temp_c = room_temp_c + _clamp(rise, 0.0, heating_delta)
 
     return TerminalState(
         valve_opening_ratio=opening,
@@ -462,6 +676,7 @@ def terminal_state(
         water_flow_m3_h=water_flow_m3_h,
         supply_air_temp_c=supply_air_temp_c,
         power_kw=_positive(rated.fan_power_kw, 0.0) * fan_ratio**3,
+        coil_calibration_limited=calibration_limited,
     )
 
 

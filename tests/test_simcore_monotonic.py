@@ -58,6 +58,41 @@ class TestChiller:
         assert hot.cop < cool.cop
         assert hot.power_kw > cool.power_kw
 
+    def test_condenser_sensitivity_survives_across_the_whole_load_range(self):
+        """全负荷区间内冷凝温度必须始终可观测地影响 COP
+
+        原实现的部分负荷曲线是无下界抛物线 `peak - α·(PLR-0.7)²`，在
+        PLR→0 时趋于 -∞，于是被 `_clamp(cop, 1.5, 12)` 的下界钳住。钳位一旦
+        饱和，冷凝温度与供水温都失去影响——"降低冷却水流量 -> 冷凝温度升高
+        -> COP 下降"这条教学链路在低负荷时整段失效（30℃ 与 50℃ 同为 1.5）。
+
+        这里逐负荷率扫过整段区间，要求任意两档冷凝温度都给出不同 COP。
+        比只测单一负荷点更严格，能捕获"部分区间被钳死"这类退化。
+        """
+        rated = resolve_rated_spec_by_type("冷源机组", "SCWE-90H+B")
+
+        for load_kw in (30.0, 60.0, 100.0, 160.0, 220.0, 300.0):
+            cool = chiller_state(rated, load_kw, SUPPLY_TEMP_C, 32.0)
+            hot = chiller_state(rated, load_kw, SUPPLY_TEMP_C, 40.0)
+
+            assert hot.cop < cool.cop, (
+                f"负荷 {load_kw} kW 时冷凝温度未影响 COP："
+                f"32℃ -> {cool.cop:.4f}, 40℃ -> {hot.cop:.4f}（疑似钳位饱和）"
+            )
+            assert hot.power_kw > cool.power_kw, f"负荷 {load_kw} kW 时功率未随冷凝温度上升"
+
+    def test_low_load_cop_stays_physically_plausible(self):
+        """极低负荷率下 COP 不得崩塌到非物理值
+
+        真实冷机在低负荷通过卸载/间歇运行维持效率，COP 下降但不会趋零。
+        """
+        rated = resolve_rated_spec_by_type("冷源机组", "SCWE-90H+B")
+
+        state = chiller_state(rated, 20.0, SUPPLY_TEMP_C, CONDENSER_TEMP_C)
+
+        assert 1.5 <= state.cop <= 6.0
+        assert state.power_kw > 0.0
+
     def test_higher_load_raises_plr_and_power(self):
         """负荷升高使 PLR 与输入功率同时升高（正常部分负荷区间）"""
         # 用与负荷匹配的机型：超大机组在 PLR<0.2 时部分负荷 COP 崩坏，

@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import WebSocket
+from fastapi import WebSocket, WebSocketDisconnect
+
+logger = logging.getLogger(__name__)
 
 from app.data.equipment import flow_for_device, head_for_device, role_for_device
 from app.data.field_labels import keys_to_zh
@@ -284,7 +287,14 @@ async def subscribe(project_id: str, websocket: WebSocket) -> None:
     try:
         while True:
             await websocket.receive_text()
+    except WebSocketDisconnect:
+        # Normal client-side close: drop the subscriber without a traceback.
+        pass
     except Exception:
+        # Unexpected transport failure.  Still unsubscribe, but leave evidence
+        # in the service log instead of swallowing it silently.
+        logger.exception("Realtime subscriber for %s failed; dropping it", project_id)
+    finally:
         _subscribers.get(project_id, set()).discard(websocket)
 
 
@@ -338,7 +348,9 @@ async def stop_simulation(project_id: str) -> RealtimeSimulationControl:
         except asyncio.CancelledError:
             pass
         except Exception:
-            pass
+            # The loop task already failed on its own; stopping must still
+            # succeed, but the failure is worth a log line.
+            logger.exception("Simulation loop for %s raised while stopping", project_id)
     _sim_tasks.pop(project_id, None)
     if was_running:
         session = _sessions.get(project_id)
@@ -420,7 +432,8 @@ async def cleanup_project_runtime(project_id: str) -> None:
         except asyncio.CancelledError:
             pass
         except Exception:
-            pass
+            # Cleanup is best-effort: the project is being removed either way.
+            logger.exception("Simulation loop for %s raised during cleanup", project_id)
     for store in (
         _states,
         _updated_at,
@@ -1192,7 +1205,12 @@ async def _broadcast(project_id: str, event_type: str, data: dict[str, Any]) -> 
     for websocket in subscribers:
         try:
             await websocket.send_json({"type": event_type, "data": data})
+        except WebSocketDisconnect:
+            # Client went away: a routine unsubscribe, not an error.
+            _subscribers.get(project_id, set()).discard(websocket)
         except Exception:
+            # A failing subscriber must not abort the tick for the others.
+            logger.exception("Dropping realtime subscriber for %s after send failure", project_id)
             _subscribers.get(project_id, set()).discard(websocket)
 
 

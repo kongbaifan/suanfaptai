@@ -172,7 +172,7 @@ async function run() {
         <label>系统筛选<select v-model="hydraulicSystemFilter"><option value="all">全部（{{ hydraulic.pipes.length }} 段）</option><option v-for="system in hydraulicSystems" :key="system" :value="system">{{ SYSTEM_LABELS[system] ?? system }}（{{ hydraulic.pipes.filter((pipe) => pipe.system === system).length }} 段）</option></select></label>
       </div>
 
-      <div class="table-wrap"><table><thead><tr><th>序号</th><th>管段</th><th>系统</th><th>规格</th><th>流量</th><th>流速</th><th>压降</th><th>沿程扬程</th></tr></thead><tbody>
+      <div class="table-wrap pipes-table"><table><thead><tr><th>序号</th><th>管段</th><th>系统</th><th>规格</th><th>流量</th><th>流速</th><th>压降</th><th>沿程扬程</th></tr></thead><tbody>
         <tr v-for="(pipe, index) in filteredPipes" :key="pipe.pipe_id" :class="{ 'pipe-unfavorable': pipe.pipe_id === hydraulic.most_unfavorable_pipe_id }">
           <td class="pipe-index">{{ index + 1 }}</td>
           <td><strong>{{ pipe.pipe_id }}</strong><StatusBadge v-if="pipe.pipe_id === hydraulic.most_unfavorable_pipe_id" tone="warn" label="最不利" /></td>

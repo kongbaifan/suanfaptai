@@ -50,7 +50,23 @@ function evaluationWithHydraulic(overrides: Partial<EvaluationResult> = {}): Eva
         { pipe_id: "cw_main_supply", system: "cooling_water", flow_m3_h: 38.4, size: { selected_size: "DN100" }, velocity_m_s: 1.36, pressure_drop_pa: 310.9, pump_head_m: null },
         { pipe_id: "hw_main_supply", system: "hot_water", flow_m3_h: 7.0, size: { selected_size: "DN65" }, velocity_m_s: 0.62, pressure_drop_pa: 98.4, pump_head_m: null },
       ],
+      paths: [
+        {
+          path_id: "chw_path_1",
+          system: "chilled_water",
+          nodes: ["chiller_1", "chw_main_supply", "fcu_1", "chw_main_return"],
+          floor_ids: ["F1"],
+          pipe_ids: ["chw_main_supply"],
+          pressure_drop_pa: 215.4,
+          head_m: 1.2,
+          flow_m3_h: 32.0,
+          balancing_pressure_pa: null,
+          complete: true,
+          closed_circuit: true,
+        },
+      ],
       most_unfavorable_pipe_id: "chw_branch_supply_f2",
+      most_unfavorable_path_id: "chw_path_1",
       required_pump_head_m: 5.7,
       pump_check: {
         required_flow_m3_h: 32.0,
@@ -62,6 +78,13 @@ function evaluationWithHydraulic(overrides: Partial<EvaluationResult> = {}): Eva
         flow_margin: 1.9,
         head_margin: 2.6,
         status: "ok",
+      },
+      balancing: {
+        chw_branch_supply_f2: { required_pressure_pa: 412.7, balancing_pressure_pa: 0.0, status: "ok" },
+        chw_branch_supply_f3: { required_pressure_pa: 358.2, balancing_pressure_pa: 54.5, status: "ok" },
+      },
+      floor_flow_summary: {
+        F1: { chilled_water: 32.0, cooling_water: 38.4, hot_water: 7.0 },
       },
       issues: [],
     },
@@ -127,7 +150,7 @@ describe("evaluation hydraulic check", () => {
 
   it("renders all pipe rows with the most-unfavorable row highlighted and pump cards", async () => {
     const { wrapper } = await mountView(evaluationWithHydraulic());
-    const rows = wrapper.findAll(".band-section table tbody tr");
+    const rows = wrapper.findAll(".pipes-table table tbody tr");
     expect(rows).toHaveLength(5);
     expect(wrapper.text()).toContain("chw_main_supply");
     expect(wrapper.text()).toContain("cw_main_supply");
@@ -165,12 +188,37 @@ describe("evaluation hydraulic check", () => {
     expect(select.text()).toContain("热水（1 段）");
 
     await select.setValue("chilled_water");
-    const rows = wrapper.findAll(".band-section table tbody tr");
+    const rows = wrapper.findAll(".pipes-table table tbody tr");
     expect(rows).toHaveLength(3);
     expect(rows.every((row) => row.text().includes("chw_") || row.text().includes("冷冻水"))).toBe(true);
     // 筛选后序号重新编号
     expect(rows[0].findAll("td")[0].text()).toBe("1");
     expect(rows[2].findAll("td")[0].text()).toBe("3");
+    wrapper.unmount();
+  });
+
+  it("renders the closed-circuit path table with the most-unfavorable path highlighted", async () => {
+    const { wrapper } = await mountView(evaluationWithHydraulic());
+    const rows = wrapper.findAll(".paths-table table tbody tr");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].text()).toContain("chw_path_1");
+    expect(rows[0].text()).toContain("冷冻水");
+    // 闭合环路列按 closed_circuit 渲染中文标记
+    expect(rows[0].text()).toContain("是");
+    expect(rows[0].text()).toContain("215 Pa");
+    expect(rows[0].text()).toContain("1.20 m");
+    expect(rows[0].classes()).toContain("path-unfavorable");
+    expect(rows[0].text()).toContain("最不利");
+    wrapper.unmount();
+  });
+
+  it("hides the path table when the network reports no paths", async () => {
+    const result = evaluationWithHydraulic();
+    const { wrapper } = await mountView({
+      ...result,
+      hydraulic_network: { ...result.hydraulic_network!, paths: [] },
+    });
+    expect(wrapper.find(".paths-table").exists()).toBe(false);
     wrapper.unmount();
   });
 

@@ -4,7 +4,6 @@
 以及可达性诊断字段（humidity_shortfall_pct）随读数正确暴露。
 """
 
-import inspect
 import itertools
 from copy import deepcopy
 from dataclasses import replace
@@ -15,18 +14,12 @@ from app.samples import FOUR_FLOOR_FCU_FRESH_AIR_SAMPLE, MULTI_ZONE_ALL_AIR_SAMP
 from app.schemas import SystemEvaluateRequest
 from app.simcore.devices import (
     AIR_DENSITY_KG_M3,
-    AIR_KW_PER_M3H_K,
-    COIL_RATED_AIR_TEMP_C,
-    COIL_RATED_WATER_TEMP_C,
-    WATER_KW_PER_M3H_K,
     coil_leaving_state,
     terminal_state,
 )
 from app.simcore.project import build_project_layout
 from app.simcore.psychrometrics import (
-    enthalpy_kj_kg,
     humidity_ratio_from_rh,
-    saturation_humidity_ratio,
 )
 from app.simcore.rated import resolve_rated_spec_by_type
 from app.simcore.session import (
@@ -234,60 +227,64 @@ def _duty_for_leaving_temperature(
     return (lo + hi) / 2.0
 
 
-def test_coil_model_is_sensible_only_and_understates_wet_coils():
-    """盘管冷量按**显热**口径计算，对潜热主导的湿工况盘管会低估能力
+def test_wet_coil_capacity_is_modelled_not_capped_by_sensible_ceiling():
+    """湿工况盘管的冷量按**全热**口径建模，不再被显热上限截断
 
-    这条测试把上面那条根因的**机制**固定下来，供将来做模型重构的人定位。
+    这是"湿度达不到 55%"的修复所依赖的模型行为。
 
-    `terminal_state` 计算 `Q = ε·C_min·ΔT`（`C_min = min(ṁ_air·cp, ṁ_w·cp_w)`，
-    `ΔT` 为进风与进水温度之差），是纯显热公式；该函数**没有湿度输入**
-    （见其签名），因此无法表达湿工况盘管的凝结潜热。
+    背景：`Q = ε·C_min·ΔT` 是**显热**公式，潜热不参与。潜热主导的盘管
+    （典型是处理室外新风的新风机组，实测潜热占总负荷 65%）会被低估——
+    MKS02D4Y/C 目录 29 kW，按显热口径上限只有 13.4 kW（ε 需 2.16）。
 
-    对全新风机组，进风是 35℃/70% 的室外空气（含湿量 0.0251），处理到室内
-    水平时潜热占 65%。此时：
+    修复后 `terminal_state` 接受 `room_humidity_ratio`，结露时按焓差口径补足：
 
-    - 清单热口径：`C_min·ΔT` 上限约 13.4 kW，目录 29 kW 算出 ε=2.16 -> "不可达"
-    - 按焓差口径：可到 35.4 kW，目录 29 kW 完全可达
+        Q_湿 = ε · ṁ_da · (h_进风 − h_饱和(进水温度 + 接近温差))
 
-    即目录标称**没有错**，是模型的适用边界问题。修复需要让盘管状态知道进风
-    含湿量并按全热口径定能力（`terminal_state` 增加湿度入参、约 40 处调用点
-    随之调整），属模型重构，不在本测试范围内。
+    本测试钉死三条不变量：
+    1. 传含湿量后新风机组出力显著高于纯显热口径；
+    2. 出力随**供水温度降低**单调增大（否则"降低供水温反而出力下降"）；
+    3. 不传含湿量时行为与旧版一致（向后兼容，干工况不启用该修正）。
     """
     spec = resolve_rated_spec_by_type("新风机组", "MKS02D4Y/C")
-    airflow = spec.airflow_m3_h or 0.0
+    outdoor_ratio = humidity_ratio_from_rh(OUTDOOR_TEMP_C, OUTDOOR_RH_PCT)
 
-    # 签名里没有湿度入参 —— 湿工况能力无从表达
-    signature = inspect.signature(terminal_state)
-    assert "humidity" not in " ".join(signature.parameters).lower(), (
-        "terminal_state 已加入湿度入参；若湿工况能力已正确建模，"
-        "本测试与上一条根因测试都需复核"
-    )
-
-    # 显热口径上限（C_min × ΔT，ε→1 时的极值）
-    c_air = AIR_KW_PER_M3H_K * airflow
-    c_water = WATER_KW_PER_M3H_K * (spec.flow_m3_h or 0.0)
-    sensible_ceiling = min(c_air, c_water) * (
-        COIL_RATED_AIR_TEMP_C - COIL_RATED_WATER_TEMP_C
-    )
-    assert spec.capacity_kw > sensible_ceiling, (
-        "目录容量已不超过显热上限；前提不成立，需复核"
+    dry = terminal_state(spec, 1.0, OUTDOOR_TEMP_C, SUPPLY_WATER_TEMP_C)
+    wet = terminal_state(
+        spec,
+        1.0,
+        OUTDOOR_TEMP_C,
+        SUPPLY_WATER_TEMP_C,
+        room_humidity_ratio=outdoor_ratio,
     )
 
-    # 全热（焓差）口径上限远高于目录容量 —— 证明目录并非不可达
-    air_mass_kg_s = airflow * AIR_DENSITY_KG_M3 / 3600.0
-    enthalpy_in = enthalpy_kj_kg(
-        OUTDOOR_TEMP_C, humidity_ratio_from_rh(OUTDOOR_TEMP_C, OUTDOOR_RH_PCT)
+    # 1. 湿工况修正显著提升出力
+    assert wet.cooling_kw > 1.5 * dry.cooling_kw, (
+        f"湿工况出力 {wet.cooling_kw:.2f} kW 未显著高于显热口径 {dry.cooling_kw:.2f} kW"
     )
-    surface_c = SUPPLY_WATER_TEMP_C
-    enthalpy_out = enthalpy_kj_kg(surface_c, saturation_humidity_ratio(surface_c))
-    enthalpy_ceiling = air_mass_kg_s * (enthalpy_in - enthalpy_out)
 
-    assert enthalpy_ceiling > spec.capacity_kw, (
-        f"焓差口径上限 {enthalpy_ceiling:.2f} kW 未超过目录容量 {spec.capacity_kw} kW；"
-        "目录数据本身存疑，结论需复核"
+    # 2. 供水温越低出力越大（单调）——曾因用固定表面温度而破坏
+    duties = [
+        terminal_state(
+            spec,
+            1.0,
+            OUTDOOR_TEMP_C,
+            tw,
+            room_humidity_ratio=outdoor_ratio,
+        ).cooling_kw
+        for tw in (7.0, 9.0, 12.0, 14.0)
+    ]
+    for colder, warmer in itertools.pairwise(duties):
+        assert colder > warmer, (
+            f"供水温升高未使出力下降：{duties}；"
+            "表面温度必须跟随实际供水温，否则非单调"
+        )
+
+    # 3. 不传含湿量时保持旧行为（干工况不启用修正）
+    assert dry.cooling_kw == pytest.approx(
+        terminal_state(
+            spec, 1.0, OUTDOOR_TEMP_C, SUPPLY_WATER_TEMP_C, room_humidity_ratio=None
+        ).cooling_kw
     )
-    # 两者相差一倍以上，量级差异足以解释送风比房间更湿
-    assert enthalpy_ceiling > 2.0 * sensible_ceiling
 
 
 def test_unreachable_humidity_target_raises_alarm():
@@ -390,7 +387,7 @@ def test_wet_coil_dehumidifies_and_lands_on_saturation():
 
 def test_coil_sensible_plus_latent_equals_coil_load():
     """显热与潜热按同一组焓常数拆分，之和严格等于盘管冷量（不丢能量）"""
-    from app.simcore.devices import AIR_DENSITY_KG_M3, coil_leaving_state
+    from app.simcore.devices import coil_leaving_state
     from app.simcore.psychrometrics import (
         DRY_AIR_CP_KJ_KG_K,
         humidity_ratio_from_rh,

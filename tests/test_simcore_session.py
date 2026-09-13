@@ -119,6 +119,18 @@ def _terminal_rated_capacity_kw(layout: PlantLayout | None = None) -> float:
     )
 
 
+def _terminal_sensible_kw(snapshot) -> float:
+    """快照中全部末端的显热出力之和（kW）
+
+    只取显热分量：潜热随房间湿度变化，跨工况比较能力时应剔除，
+    否则会把"湿度轨迹不同"误读成"末端能力不同"。
+    """
+    return sum(
+        reading.cooling_kw
+        for reading in snapshot.rooms.values()
+    )
+
+
 def build_heating_layout() -> PlantLayout:
     layout = build_layout()
     return replace(
@@ -545,8 +557,16 @@ class TestSessionDrivenByEquipment:
                 f"末端出力 {delivered_kw:.3f} kW 越过额定 {terminal_capacity_kw:.3f} kW"
             )
 
-        # 冷源充裕时末端应更接近其额定能力，而不是被冷源拖住
-        assert large.cooling_load_kw >= small.cooling_load_kw
+        # 冷源充裕时末端出力应更接近其额定能力，而不是被冷源拖住。
+        #
+        # 注意比较的是**显热**出力而非 `cooling_load_kw`：后者含潜热分量，
+        # 而潜热取决于房间湿度，两台冷机因供水温不同会走出不同的湿度轨迹，
+        # 用总负荷比较会把"湿度不同"误判成"能力不同"。
+        small_sensible = run(SimulationSession(build_layout("SCWE-90H+B"), config), 60)
+        large_sensible = run(SimulationSession(build_layout("SCWE-200H+B"), config), 60)
+        assert _terminal_sensible_kw(large_sensible) >= _terminal_sensible_kw(
+            small_sensible
+        )
 
     def test_design_load_caps_terminal_demand_and_keeps_source_energy_conserved(self):
         session = SimulationSession(

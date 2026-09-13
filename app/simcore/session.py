@@ -895,6 +895,10 @@ class SimulationSession:
                     if actual_water_flows is not None
                     else None
                 ),
+                # 进风含湿量：湿工况盘管的结露换热量取决于它。
+                # 缺了它，`terminal_state` 只能用显热口径，潜热主导的新风机组
+                # 会被低估到 1/3 左右，出力被截断后送风反而比房间更湿。
+                room_humidity_ratio=self._terminal_entering_humidity_ratio(node),
             )
             if self.config.mode is SimulationMode.COOLING and state.heating_kw > 0.0:
                 state = replace(state, heating_kw=0.0, supply_air_temp_c=room_temp)
@@ -1336,11 +1340,46 @@ class SimulationSession:
         return handlers
 
     def _terminal_room_reference_temp(self, node: DeviceNode) -> float:
+        """末端盘管的**进风**温度
+
+        专用新风机组处理 100% 室外新风，其进风是室外状态而非房间状态——
+        这与 `_allocate_room_deliveries` 里 `coil_leaving_state` 对新风机组
+        取 `ambient` 的判断一致（见该处的新风分支）。若这里返回室温，同一台
+        机组会在"进风温度"与"出风状态"两处用上两股不同的风，湿工况能力被
+        按室内温差算小，出力随之被截断。
+        """
+        if node.rated.role is DeviceRole.FRESH_AIR_UNIT:
+            return self._ambient().dry_bulb_c
         weights = self._terminal_room_weights(node)
         if not weights:
             return self.config.target_temp_c
         return math.fsum(
             self._room_temp(room_id) * weight for room_id, weight in weights
+        )
+
+    def _terminal_entering_humidity_ratio(self, node: DeviceNode) -> float:
+        """末端盘管的进风含湿量
+
+        与 `_terminal_room_reference_temp` 同一口径：新风机组取室外状态
+        （进风即室外新风），其余末端按服务房间加权平均取回风状态。
+
+        含量纲：kg/kg 干空气。没有服务房间且非新风机组时返回 0（视为干空气，
+        等价于不启用湿工况修正）。
+        """
+        if node.rated.role is DeviceRole.FRESH_AIR_UNIT:
+            ambient = self._ambient()
+            return humidity_ratio_from_rh(
+                ambient.dry_bulb_c, ambient.relative_humidity_pct
+            )
+        weights = self._terminal_room_weights(node)
+        if not weights:
+            return 0.0
+        return math.fsum(
+            humidity_ratio_from_rh(
+                self._room_temp(room_id), self._room_humidity_pct[room_id]
+            )
+            * weight
+            for room_id, weight in weights
         )
 
     def _terminal_room_weights(

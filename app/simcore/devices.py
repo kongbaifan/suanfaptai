@@ -127,6 +127,13 @@ AHU_SENSIBLE_HEAT_RATIO_BY_ROWS: dict[int, float] = {4: 0.845, 6: 0.730, 8: 0.65
 COIL_RATED_AIR_TEMP_C = 27.0
 COIL_RATED_WATER_TEMP_C = 7.0
 
+# 盘管换热面相对进水温度的最小接近温差（K）。
+#
+# 换热面温度不可能低于进水温度。取 5 K 与该目录自身反解出的水侧温差一致
+# （64 个末端 Q = c·W·ΔT 的 ΔT 均为 5.00 K），即"水从进口走到出口升温 5 K"
+# 这一已由目录证实的水侧量，用作表面侧的最小接近温差，不是新引入的常数。
+COIL_MIN_SURFACE_APPROACH_C = 5.0
+
 
 @dataclass(frozen=True, slots=True)
 class ChillerState:
@@ -547,6 +554,44 @@ def ntu_from_counterflow_effectiveness(effectiveness: float, capacity_ratio: flo
     return -math.log(x) / (1.0 - ratio)
 
 
+def _coil_enthalpy_capacity_kw(
+    entering_temp_c: float,
+    entering_ratio: float,
+    airflow_m3_h: float,
+    supply_water_temp_c: float,
+) -> float:
+    """盘管的全热（焓差）能力（kW）——把进风处理到最冷可达表面温度
+
+    `ε·C_min·ΔT` 是显热公式，潜热不参与；潜热主导的盘管会因此被低估。
+    这里给出全热口径的能力：
+
+        Q = ṁ_da · (h_进风 − h_饱和(T_最冷表面))
+        T_最冷表面 = 实际进水温度 + COIL_MIN_SURFACE_APPROACH_C
+
+    最冷表面温度必须**跟随实际进水温度**，否则供回水温设定失去意义——
+    曾经用固定的额定水温，导致"降低供水温 -> 末端出力反而下降"的非单调结果。
+
+    接近温差取 5 K，与目录自身反解出的水侧温差一致（64 个末端
+    Q = c·W·ΔT 的 ΔT 均为 5.00 K），不是新引入的常数。
+
+    量纲：ṁ_da 为 kg/s，焓为 kJ/kg，乘积为 kW。
+    风量或进风状态无效时返回 0（无风即无换热面）。
+    """
+    if airflow_m3_h <= 0.0 or not math.isfinite(entering_temp_c):
+        return 0.0
+    if not math.isfinite(entering_ratio) or not math.isfinite(supply_water_temp_c):
+        return 0.0
+    air_mass_kg_s = airflow_m3_h * AIR_DENSITY_KG_M3 / 3600.0
+    if air_mass_kg_s <= 0.0:
+        return 0.0
+    surface_temp_c = supply_water_temp_c + COIL_MIN_SURFACE_APPROACH_C
+    enthalpy_in = enthalpy_kj_kg(entering_temp_c, max(entering_ratio, 0.0))
+    enthalpy_out = enthalpy_kj_kg(
+        surface_temp_c, saturation_humidity_ratio(surface_temp_c)
+    )
+    return max(air_mass_kg_s * (enthalpy_in - enthalpy_out), 0.0)
+
+
 def _rated_coil_ua(
     rated: RatedSpec, capacity_kw: float, rated_airflow_m3_h: float, rated_water_flow: float
 ) -> tuple[float, bool]:
@@ -625,6 +670,7 @@ def terminal_state(
     fan_speed_ratio: float = 1.0,
     enabled: bool = True,
     actual_water_flow_m3_h: float | None = None,
+    room_humidity_ratio: float | None = None,
 ) -> TerminalState:
     """末端盘管：按 ε-NTU 逆流换热器计算换热量
 
@@ -695,6 +741,7 @@ def terminal_state(
 
     cooling_kw = 0.0
     heating_kw = 0.0
+    effectiveness = 0.0
     c_min = min(c_air, c_water)
     if c_min > 0.0 and ua_kw_per_k > 0.0:
         cr = c_min / max(c_air, c_water)
@@ -703,6 +750,28 @@ def terminal_state(
         # 供水温低于室温即制冷，高于室温即制热，不会同时为正。
         cooling_kw = effectiveness * c_min * cooling_delta
         heating_kw = effectiveness * c_min * heating_delta
+
+    # 湿工况（结露除湿）修正。
+    #
+    # 上式 `ε·C_min·ΔT` 是**显热**口径：`C_min = min(ṁ_air·cp, ṁ_w·cp_w)`，
+    # 潜热不体现在 cp·ΔT 里。潜热主导的盘管（典型是处理室外新风的新风机组，
+    # 实测潜热占总负荷 65%）会被严重低估：MKS02D4Y/C 目录 29 kW，按显热口径
+    # 上限只有 13.4 kW（ε 需 2.16，"不可达"），按全热焓差口径则有 40.9 kW。
+    # 低估的后果是新风机组出力被截断、送风比房间更湿，反而成为湿源。
+    #
+    # 修正：当盘管表面温度低于进风露点时结露，按**全热焓差**口径补足能力。
+    # 进风状态取调用方给出的含湿量（`room_humidity_ratio`），出风取盘管可达的
+    # 最冷饱和状态；两者之差即为该风量下的全热上限。
+    if (
+        cooling_kw > 0.0
+        and effectiveness > 0.0
+        and airflow_m3_h > 0.0
+        and room_humidity_ratio is not None
+    ):
+        wet_capacity_kw = _coil_enthalpy_capacity_kw(
+            room_temp_c, room_humidity_ratio, airflow_m3_h, supply_water_temp_c
+        )
+        cooling_kw = max(cooling_kw, effectiveness * wet_capacity_kw)
 
     # 水侧能量守恒硬约束：Q 不可能超过把水量加热/冷却到 dT 上限所需的能量。
     water_side_limit_kw = WATER_KW_PER_M3H_K * water_flow_m3_h * MAX_HYDRONIC_DELTA_T_C

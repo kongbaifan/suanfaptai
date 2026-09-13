@@ -1,7 +1,6 @@
 from collections import defaultdict, deque
 
 from app.building import (
-    DEFAULT_FLOOR_ID,
     floor_base_summary,
     floor_weight_map,
     is_riser,
@@ -309,12 +308,24 @@ def _vertical_network(request: SystemEvaluateRequest) -> dict:
 
 
 def _path_floor_ids(request: SystemEvaluateRequest, nodes: list[str]) -> list[str]:
+    """路径所经节点归属楼层的去重列表，保持首次出现顺序
+
+    与 `air_network._path_floor_ids`、`hydraulic_network._path_floor_ids`
+    保持同一实现。此处原有一个恒真条件：
+
+        if floor_id != DEFAULT_FLOOR_ID or floor_id not in floor_ids:
+            if floor_id not in floor_ids:
+
+    记 X = (floor_id not in floor_ids)，整体为 `X and (A or X) ≡ X`，
+    即 `floor_id != DEFAULT_FLOOR_ID` 从不影响结果——`DEFAULT_FLOOR_ID` 是
+    设备未声明楼层时的兜底归属（见 building.py 的 device_floor_id），不是
+    无效楼层，本就不该被过滤掉。已删除该死条件，行为不变。
+    """
     floor_ids = []
     for node in nodes:
         floor_id = node_floor_id(request, node)
-        if floor_id != DEFAULT_FLOOR_ID or floor_id not in floor_ids:
-            if floor_id not in floor_ids:
-                floor_ids.append(floor_id)
+        if floor_id not in floor_ids:
+            floor_ids.append(floor_id)
     return floor_ids
 
 

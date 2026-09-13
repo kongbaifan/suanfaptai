@@ -1,7 +1,12 @@
 from fastapi.testclient import TestClient
 
+from app.calculators.air_network import _path_floor_ids as air_path_floor_ids
+from app.calculators.hydraulic_network import (
+    _path_floor_ids as hydraulic_path_floor_ids,
+)
 from app.calculators.hydraulic_network import calculate_hydraulic_network
 from app.calculators.load import calculate_load
+from app.calculators.topology import _path_floor_ids
 from app.main import app
 from app.schemas import LoadRequest, SystemEvaluateRequest
 
@@ -64,6 +69,54 @@ def test_typed_hydraulic_flow_uses_main_riser_and_branch_roles():
     assert flows["chw_main_supply_b1"] > flows["chw_branch_f1"]
     assert flows["chw_riser_supply"] >= flows["chw_branch_f2"]
     assert result.paths[0].floor_ids
+
+
+def test_path_floor_ids_are_a_dedup_of_the_nodes_own_floors():
+    """路径的 floor_ids 是所经节点归属楼层的**去重**，不做任何楼层过滤
+
+    `DEFAULT_FLOOR_ID` 是"设备没写 floor_id 时的兜底归属"（见 building.py
+    的 device_floor_id），不是"无效楼层"。设备仍在路径的 nodes 里，其楼层就
+    必须出现在 floor_ids 里，否则两者对不上，调用方按 floor_ids 反查楼层会
+    查不到东西。
+
+    topology / air_network / hydraulic_network 三个模块各有一份同名实现，此处
+    钉死它们必须一致（原先 topology 那份多出一个恒真的条件，虽不影响结果，
+    但使三份实现看起来语义不同）。
+    """
+    request = SystemEvaluateRequest(
+        floors=[{"id": "floor-1", "name": "F1", "level": 1}],
+        rooms=[{"id": "r1", "name": "r1", "area_m2": 10, "floor_id": "floor-1"}],
+        devices=[
+            {"id": "fcu_explicit", "type": "风机盘管", "name": "*", "floor_id": "floor-1"},
+            {"id": "fcu_default", "type": "风机盘管", "name": "*"},
+        ],
+        pipes=[],
+        connections=[],
+    )
+    nodes = ["fcu_explicit", "fcu_default"]
+
+    expected = ["floor-1", "default_floor"]
+    assert _path_floor_ids(request, nodes) == expected
+    assert air_path_floor_ids(request, nodes) == expected
+    assert hydraulic_path_floor_ids(request, nodes) == expected
+
+
+def test_path_floor_ids_dedupes_repeated_floors():
+    """同一楼层的多个节点只记一次，且保持首次出现顺序"""
+    request = SystemEvaluateRequest(
+        floors=[{"id": "F1", "name": "F1", "level": 1}, {"id": "F2", "name": "F2", "level": 2}],
+        rooms=[],
+        devices=[
+            {"id": "a", "type": "风机盘管", "name": "*", "floor_id": "F1"},
+            {"id": "b", "type": "风机盘管", "name": "*", "floor_id": "F2"},
+            {"id": "c", "type": "风机盘管", "name": "*", "floor_id": "F1"},
+        ],
+        pipes=[],
+        connections=[],
+    )
+
+    assert _path_floor_ids(request, ["a", "b", "c"]) == ["F1", "F2"]
+    assert _path_floor_ids(request, []) == []
 
 
 def test_project_save_load_preserves_floor_data():

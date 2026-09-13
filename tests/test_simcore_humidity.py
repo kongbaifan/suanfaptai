@@ -4,6 +4,7 @@
 以及可达性诊断字段（humidity_shortfall_pct）随读数正确暴露。
 """
 
+import inspect
 import itertools
 from copy import deepcopy
 from dataclasses import replace
@@ -12,9 +13,21 @@ import pytest
 
 from app.samples import FOUR_FLOOR_FCU_FRESH_AIR_SAMPLE, MULTI_ZONE_ALL_AIR_SAMPLE
 from app.schemas import SystemEvaluateRequest
-from app.simcore.devices import coil_leaving_state, terminal_state
+from app.simcore.devices import (
+    AIR_DENSITY_KG_M3,
+    AIR_KW_PER_M3H_K,
+    COIL_RATED_AIR_TEMP_C,
+    COIL_RATED_WATER_TEMP_C,
+    WATER_KW_PER_M3H_K,
+    coil_leaving_state,
+    terminal_state,
+)
 from app.simcore.project import build_project_layout
-from app.simcore.psychrometrics import humidity_ratio_from_rh
+from app.simcore.psychrometrics import (
+    enthalpy_kj_kg,
+    humidity_ratio_from_rh,
+    saturation_humidity_ratio,
+)
 from app.simcore.rated import resolve_rated_spec_by_type
 from app.simcore.session import (
     AUTO_DEHUMIDIFICATION_SUBCOOL_C,
@@ -139,8 +152,8 @@ def test_fresh_air_unit_cannot_dry_outdoor_air_below_room():
 
     这条测试钉死四层样例湿度达不到目标的**根因**（经多轮排查确认）：
 
-    新风机组在目录里标称 29 kW，但其盘管受自身几何限制（`coil_calibration_limited`
-    ——目录 10 台新风机组全部如此），物理上限只有约 15.9 kW。而要把室外新风
+    新风机组在目录里标称 29 kW，但其盘管受 `coil_calibration_limited` 约束
+    （目录 10 台新风机组全部如此），物理上限只有约 15.9 kW。而要把室外新风
     （32.2℃ / 70% RH，含湿量约 0.0214）干燥到室内水平（< 0.0140）需要约
     **21.4 kW**。
 
@@ -148,10 +161,28 @@ def test_fresh_air_unit_cannot_dry_outdoor_air_below_room():
     高于室内，潜热项转负，机组变成持续的湿源。实测该机组对房间的潜热贡献为
     **负值**，抵消掉内区风机盘管的除湿量，房间含湿量因此被钉在高位。
 
-    因此房间达不到 55% 是**设备选型/盘管能力问题**，不是控制律问题：
+    因此房间达不到 55% 是**设备能力/盘管模型问题**，不是控制律问题：
     任何控制律都无法让一台送风比房间更湿的机组把房间弄干。
     实测印证：把室外相对湿度从 70% 降到 30%，同一套控制器即可把房间带到
     53.4%（接近 55% 目标）；而在 70% 下只能到 75.3%。
+
+    ## 更深一层：显热口径不适用于湿工况盘管
+
+    进一步核查发现，`coil_calibration_limited` 并**不是**在指出目录数据有误，
+    而是在指出**盘管模型的适用边界**：
+
+    - `terminal_state` 用 `Q = ε·C_min·ΔT`，其中 `C_min = min(ṁ_air·cp,
+      ṁ_w·cp_w)`、`ΔT` 为进风与进水温度之差。这是**显热**公式，潜热不体现在
+      `cp·ΔT` 里。
+    - 全新风机组在室外 35℃/70% 工况下，**潜热占总负荷的 65%**。用显热口径
+      算出 ε=2.16（"不可能"），但按焓差口径其上限是 35.4 kW，目录的 29 kW
+      完全可达（全部 5 个 MKS 型号均如此）。
+    - 结果是：本可胜任的新风机组被判为"不可达"、按显热上限截断出力，送风
+      反而比房间更湿，成为湿源。
+
+    即：**`terminal_state` 没有湿度输入**（见其函数签名），无法评估湿工况盘管
+    的焓差能力。真正的修复需要让盘管状态知道进风含湿量并按全热口径定能力，
+    这超出本测试范围，属模型重构。本测试把现状与前提固定下来。
     """
     spec = resolve_rated_spec_by_type("新风机组", "MKS02D4Y/C")
 
@@ -201,6 +232,62 @@ def _duty_for_leaving_temperature(
         else:
             hi = mid
     return (lo + hi) / 2.0
+
+
+def test_coil_model_is_sensible_only_and_understates_wet_coils():
+    """盘管冷量按**显热**口径计算，对潜热主导的湿工况盘管会低估能力
+
+    这条测试把上面那条根因的**机制**固定下来，供将来做模型重构的人定位。
+
+    `terminal_state` 计算 `Q = ε·C_min·ΔT`（`C_min = min(ṁ_air·cp, ṁ_w·cp_w)`，
+    `ΔT` 为进风与进水温度之差），是纯显热公式；该函数**没有湿度输入**
+    （见其签名），因此无法表达湿工况盘管的凝结潜热。
+
+    对全新风机组，进风是 35℃/70% 的室外空气（含湿量 0.0251），处理到室内
+    水平时潜热占 65%。此时：
+
+    - 清单热口径：`C_min·ΔT` 上限约 13.4 kW，目录 29 kW 算出 ε=2.16 -> "不可达"
+    - 按焓差口径：可到 35.4 kW，目录 29 kW 完全可达
+
+    即目录标称**没有错**，是模型的适用边界问题。修复需要让盘管状态知道进风
+    含湿量并按全热口径定能力（`terminal_state` 增加湿度入参、约 40 处调用点
+    随之调整），属模型重构，不在本测试范围内。
+    """
+    spec = resolve_rated_spec_by_type("新风机组", "MKS02D4Y/C")
+    airflow = spec.airflow_m3_h or 0.0
+
+    # 签名里没有湿度入参 —— 湿工况能力无从表达
+    signature = inspect.signature(terminal_state)
+    assert "humidity" not in " ".join(signature.parameters).lower(), (
+        "terminal_state 已加入湿度入参；若湿工况能力已正确建模，"
+        "本测试与上一条根因测试都需复核"
+    )
+
+    # 显热口径上限（C_min × ΔT，ε→1 时的极值）
+    c_air = AIR_KW_PER_M3H_K * airflow
+    c_water = WATER_KW_PER_M3H_K * (spec.flow_m3_h or 0.0)
+    sensible_ceiling = min(c_air, c_water) * (
+        COIL_RATED_AIR_TEMP_C - COIL_RATED_WATER_TEMP_C
+    )
+    assert spec.capacity_kw > sensible_ceiling, (
+        "目录容量已不超过显热上限；前提不成立，需复核"
+    )
+
+    # 全热（焓差）口径上限远高于目录容量 —— 证明目录并非不可达
+    air_mass_kg_s = airflow * AIR_DENSITY_KG_M3 / 3600.0
+    enthalpy_in = enthalpy_kj_kg(
+        OUTDOOR_TEMP_C, humidity_ratio_from_rh(OUTDOOR_TEMP_C, OUTDOOR_RH_PCT)
+    )
+    surface_c = SUPPLY_WATER_TEMP_C
+    enthalpy_out = enthalpy_kj_kg(surface_c, saturation_humidity_ratio(surface_c))
+    enthalpy_ceiling = air_mass_kg_s * (enthalpy_in - enthalpy_out)
+
+    assert enthalpy_ceiling > spec.capacity_kw, (
+        f"焓差口径上限 {enthalpy_ceiling:.2f} kW 未超过目录容量 {spec.capacity_kw} kW；"
+        "目录数据本身存疑，结论需复核"
+    )
+    # 两者相差一倍以上，量级差异足以解释送风比房间更湿
+    assert enthalpy_ceiling > 2.0 * sensible_ceiling
 
 
 def test_unreachable_humidity_target_raises_alarm():

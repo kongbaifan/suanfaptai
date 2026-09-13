@@ -39,7 +39,7 @@ mypy app
 cd web
 npm install
 
-# 开发服务器（代理 /api、/health、/ws 到 127.0.0.1:8000）
+# 开发服务器（代理 /api、/health、/ws 到 127.0.0.1:8010）
 npm run dev
 
 # 测试与类型检查
@@ -50,7 +50,8 @@ npm run typecheck
 npm run build
 ```
 
-**注意**：`npm run dev` 代理指向 8000 端口，与后端默认示例的 8010 不同。开发时使用 `uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload` 或修改 `web/vite.config.ts` 代理目标。
+**前端 5173、后端 8010**：`npm run dev` 的代理目标与后端默认端口一致，按上面的
+文档启动 uvicorn 即可直接联调，无需额外改端口。
 
 ## 架构关键
 

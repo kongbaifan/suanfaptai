@@ -281,14 +281,14 @@ mypy app
 ```powershell
 cd web
 npm install
-npm run dev          # 开发服务器，代理 /api、/health、/ws 到 127.0.0.1:8000
+npm run dev          # 开发服务器（5173），代理 /api、/health、/ws 到 127.0.0.1:8010
 npm run test:unit
 npm run typecheck
 npm run build        # 产物写入 ../app/static，由 FastAPI 挂载在 / 和 /static
 ```
 
-`npm run dev` 的代理指向 8000 端口，与后端默认示例的 8010 不同；开发时用
-`--port 8000` 启动 uvicorn，或改 `web/vite.config.ts` 中的代理目标。
+前端开发服务器为 5173，代理目标与后端默认端口 8010 一致：按本文档启动 uvicorn
+后可直接联调，无需额外改端口。
 
 ## 文档
 

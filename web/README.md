@@ -9,7 +9,8 @@ npm install
 npm run dev
 ```
 
-Vite proxies `/api`, `/health`, and `/ws` to `http://127.0.0.1:8000`.
+Vite proxies `/api`, `/health`, and `/ws` to `http://127.0.0.1:8010`, matching the
+backend's documented default port (`uvicorn app.main:app --port 8010`).
 
 ## Verification And Production Build
 

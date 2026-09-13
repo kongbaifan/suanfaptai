@@ -12,7 +12,10 @@ import pytest
 
 from app.samples import FOUR_FLOOR_FCU_FRESH_AIR_SAMPLE, MULTI_ZONE_ALL_AIR_SAMPLE
 from app.schemas import SystemEvaluateRequest
+from app.simcore.devices import coil_leaving_state, terminal_state
 from app.simcore.project import build_project_layout
+from app.simcore.psychrometrics import humidity_ratio_from_rh
+from app.simcore.rated import resolve_rated_spec_by_type
 from app.simcore.session import (
     AUTO_DEHUMIDIFICATION_SUBCOOL_C,
     SimulationConfig,
@@ -22,6 +25,13 @@ from app.simcore.session import (
 
 # 四层样例中用于跟踪的房间
 ROOM_ID = "office_f1"
+
+# 四层样例的设计室外工况与冷冻水供水温度（见 samples.py 与 session 默认值）
+OUTDOOR_TEMP_C = 32.22
+OUTDOOR_RH_PCT = 70.0
+SUPPLY_WATER_TEMP_C = 8.5
+# 24℃/55% 对应的含湿量，即"室内水平"
+ROOM_LEVEL_RATIO = humidity_ratio_from_rh(24.0, 55.0)
 
 
 def _run(sample: dict, ticks: int = 600):
@@ -70,8 +80,9 @@ def test_overcooling_stays_within_subcool_allowance():
         "湿度 1.38 个百分点，3000 tick 后仍不衰减。"
         "成因不在 _room_humidity_demand 的 headroom 闸门——实测移除该闸门后振荡反而"
         "加剧（单步 0.0537 K、湿度带宽 12.3 pp，原为 8.5 pp），已回退。"
-        "真正成因是盘管出风含湿量够不到机器露点：物理路径用 coil_leaving_state 得到的"
-        "出风含湿量约 0.0109，而 24℃/55% 需要 0.0102。"
+        "根因见 test_fresh_air_unit_cannot_dry_outdoor_air_below_room：新风机组受"
+        "盘管物理上限（约 15.9 kW）约束，无法把室外新风干燥到室内含湿量以下，"
+        "因而持续向房间注入水分，房间含湿量被钉在高位、控制环围绕该高位振荡。"
         "本测试保留为缺陷证据与修复验收条件；修复后去掉 xfail 即可。"
     ),
     strict=True,
@@ -121,6 +132,75 @@ def test_humidity_control_settles_instead_of_limit_cycling():
     assert max_step_rh <= 0.05, (
         f"末段仍有 {max_step_rh:.4f} 个百分点的单步湿度变化，湿度控制未收敛"
     )
+
+
+def test_fresh_air_unit_cannot_dry_outdoor_air_below_room():
+    """新风机组把室外新风干燥到室内含湿量以下，是房间能达标的**前提**
+
+    这条测试钉死四层样例湿度达不到目标的**根因**（经多轮排查确认）：
+
+    新风机组在目录里标称 29 kW，但其盘管受自身几何限制（`coil_calibration_limited`
+    ——目录 10 台新风机组全部如此），物理上限只有约 15.9 kW。而要把室外新风
+    （32.2℃ / 70% RH，含湿量约 0.0214）干燥到室内水平（< 0.0140）需要约
+    **21.4 kW**。
+
+    能力不够的后果不是"少除一点湿"，而是**供给比房间更湿的空气**：送风含湿量
+    高于室内，潜热项转负，机组变成持续的湿源。实测该机组对房间的潜热贡献为
+    **负值**，抵消掉内区风机盘管的除湿量，房间含湿量因此被钉在高位。
+
+    因此房间达不到 55% 是**设备选型/盘管能力问题**，不是控制律问题：
+    任何控制律都无法让一台送风比房间更湿的机组把房间弄干。
+    实测印证：把室外相对湿度从 70% 降到 30%，同一套控制器即可把房间带到
+    53.4%（接近 55% 目标）；而在 70% 下只能到 75.3%。
+    """
+    spec = resolve_rated_spec_by_type("新风机组", "MKS02D4Y/C")
+
+    # 该型号受盘管物理上限约束，标称容量不可达
+    assert spec.capacity_kw == pytest.approx(29.0)
+    ceiling = terminal_state(
+        spec, 1.0, OUTDOOR_TEMP_C, SUPPLY_WATER_TEMP_C, fan_speed_ratio=1.0
+    )
+    assert ceiling.coil_calibration_limited is True, (
+        "该型号应受盘管物理上限约束；若不再受限，说明盘管模型已变，本测试的前提需复核"
+    )
+
+    # 达到"送风比室内更干"所需的冷量，超出其物理上限
+    outdoor_ratio = humidity_ratio_from_rh(OUTDOOR_TEMP_C, OUTDOOR_RH_PCT)
+    duty_needed = _duty_for_leaving_temperature(
+        outdoor_ratio, spec.airflow_m3_h or 0.0, ROOM_LEVEL_RATIO
+    )
+    assert duty_needed > ceiling.cooling_kw, (
+        f"所需的 {duty_needed:.2f} kW 未超过盘管上限 {ceiling.cooling_kw:.2f} kW；"
+        "本测试的结论（新风机组无法把新风干燥到室内水平）不再成立，需复核"
+    )
+
+    # 上限出力下，送风含湿量仍高于室内 -> 机组是湿源
+    _, leaving_ratio = coil_leaving_state(
+        OUTDOOR_TEMP_C, outdoor_ratio, spec.airflow_m3_h or 0.0, ceiling.cooling_kw
+    )
+    assert leaving_ratio > ROOM_LEVEL_RATIO, (
+        "上限出力下新风送风已能干燥到室内水平以下，结论需复核"
+    )
+
+
+def _duty_for_leaving_temperature(
+    entering_ratio: float, airflow_m3_h: float, target_ratio: float
+) -> float:
+    """二分求把送风含湿量压到 target_ratio 所需的盘管冷量
+
+    含湿量随出风温度单调下降（出风落在饱和线上），故对冷量单调，可二分。
+    """
+    lo, hi = 0.0, 500.0
+    for _ in range(80):
+        mid = (lo + hi) / 2.0
+        _, leaving = coil_leaving_state(
+            OUTDOOR_TEMP_C, entering_ratio, airflow_m3_h, mid
+        )
+        if leaving > target_ratio:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2.0
 
 
 def test_unreachable_humidity_target_raises_alarm():

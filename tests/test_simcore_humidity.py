@@ -63,6 +63,11 @@ def test_overcooling_stays_within_subcool_allowance():
 def test_unreachable_humidity_target_raises_alarm():
     """散湿量超过除湿能力时，室温会停在偏湿侧并告警，而不是静默失效。"""
     _, snapshot = _run(MULTI_ZONE_ALL_AIR_SAMPLE)
+    # 打印实际湿度结果
+    print("\n稳态结果（目标: 26.0C / 55.0% RH）:")
+    for room_id, reading in sorted(snapshot.rooms.items()):
+        print(f"  {room_id}: T={reading.temperature_c:.2f}C, RH={reading.relative_humidity_pct:.1f}%, 缺口={reading.humidity_shortfall_pct:.1f}%")
+    print(f"告警: {snapshot.alarms}")
     assert "humidity_target_unreachable" in snapshot.alarms
     # 告警与诊断字段必须一致：确有房间超出目标死区
     assert any(reading.humidity_shortfall_pct > 3.0 for reading in snapshot.rooms.values())

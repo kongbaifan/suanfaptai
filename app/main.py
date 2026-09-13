@@ -5,77 +5,78 @@ from fastapi import Body, FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.data.catalog_import import import_catalog
-from app.data.equipment import delete_equipment_item
-from app.data.equipment import load_equipment_catalog
-from app.data.equipment import save_equipment_catalog
-from app.data.equipment import strip_unity_internals
-from app.data.unity_sync import sync_device_library
-from app.data.equipment import upsert_equipment_item
-from app.data.field_labels import keys_to_zh
-from app.data.project_store import add_project_history
-from app.data.project_store import delete_project
-from app.data.project_store import get_project
-from app.data.project_store import list_project_history
-from app.data.project_store import list_projects
-from app.data.project_store import save_project
-from app.data.catalog_quality import build_catalog_quality_report
-from app.diagnostics import DiagnosticsResponse
-from app.diagnostics import read_diagnostics
-from app.data.rules import load_rules
-from app.equipment_selection import (
-    SelectionRequirementsUnavailableError,
-    recommend_equipment,
-)
-from app.equipment_knowledge import (
-    get_equipment_knowledge,
-    list_equipment_knowledge,
-)
-from app.calculators.air_network import calculate_air_network
 from app.calculators.air import calculate_air
+from app.calculators.air_network import calculate_air_network
 from app.calculators.energy import simulate_energy
 from app.calculators.hydraulic_network import calculate_hydraulic_network
 from app.calculators.load import calculate_load
 from app.calculators.simulation import simulate_steady_state
 from app.calculators.topology import analyze_topology
 from app.calculators.water import calculate_water
-from app.project_validation import validate_project_data
-from app.room_bindings import ProjectRoomBindingError
-from app.realtime import get_realtime_history
-from app.realtime import get_realtime_state
-from app.realtime import get_room_states
-from app.realtime import get_pipe_states
-from app.realtime import get_device_states
-from app.realtime import get_rated_devices
-from app.realtime import get_runtime_controls
-from app.realtime import reset_runtime_controls
-from app.realtime import RuntimeConfigRequiresStopError
-from app.realtime import RuntimeConfigValidationError
-from app.realtime import get_simulation_config
-from app.realtime import cleanup_project_runtime, invalidate_project_runtime_caches
-from app.realtime import is_simulation_running
-from app.realtime import ProjectEditRequiresStopError
-from app.realtime import set_simulation_config
-from app.realtime import set_runtime_controls
-from app.realtime import start_simulation
-from app.realtime import stop_simulation
-from app.realtime import subscribe
-from app.realtime import update_realtime_state
-from app.reporting import build_report
-from app.samples import SAMPLES
-from app.teaching_scenarios import (
-    ScenarioNotApplicableError,
-    compare_teaching_scenario,
-    list_teaching_scenarios,
+from app.data.catalog_import import import_catalog
+from app.data.catalog_quality import build_catalog_quality_report
+from app.data.equipment import (
+    delete_equipment_item,
+    load_equipment_catalog,
+    save_equipment_catalog,
+    strip_unity_internals,
+    upsert_equipment_item,
 )
+from app.data.field_labels import keys_to_zh
+from app.data.project_store import (
+    add_project_history,
+    delete_project,
+    get_project,
+    list_project_history,
+    list_projects,
+    save_project,
+)
+from app.data.rules import load_rules
+from app.data.unity_sync import sync_device_library
+from app.diagnostics import DiagnosticsResponse, read_diagnostics
+from app.equipment_knowledge import (
+    get_equipment_knowledge,
+    list_equipment_knowledge,
+)
+from app.equipment_selection import (
+    SelectionRequirementsUnavailableError,
+    recommend_equipment,
+)
+from app.project_validation import validate_project_data
+from app.realtime import (
+    ProjectEditRequiresStopError,
+    RuntimeConfigRequiresStopError,
+    RuntimeConfigValidationError,
+    cleanup_project_runtime,
+    get_device_states,
+    get_pipe_states,
+    get_rated_devices,
+    get_realtime_history,
+    get_realtime_state,
+    get_room_states,
+    get_runtime_controls,
+    get_simulation_config,
+    invalidate_project_runtime_caches,
+    is_simulation_running,
+    reset_runtime_controls,
+    set_runtime_controls,
+    set_simulation_config,
+    start_simulation,
+    stop_simulation,
+    subscribe,
+    update_realtime_state,
+)
+from app.reporting import build_report
+from app.room_bindings import ProjectRoomBindingError
+from app.samples import SAMPLES
 from app.schemas import (
     AirNetworkResult,
     AirRequest,
     AirResult,
     CatalogImportRequest,
     CatalogImportResult,
-    DevicePortView,
     DevicePortsResult,
+    DevicePortView,
     EnergySimulationRequest,
     EnergySimulationResult,
     EquipmentKnowledgeDetail,
@@ -84,17 +85,17 @@ from app.schemas import (
     Issue,
     LoadRequest,
     LoadResult,
-    ProjectValidationResult,
     ProjectHistoryEntry,
     ProjectRecord,
     ProjectSaveRequest,
     ProjectSummary,
+    ProjectValidationResult,
     RatedDevicesResult,
     RealtimeControlRequest,
-    RealtimeControlsResult,
     RealtimeControlsResetRequest,
-    RealtimeHistoryResult,
+    RealtimeControlsResult,
     RealtimeDeviceStatesResult,
+    RealtimeHistoryResult,
     RealtimePipeStatesResult,
     RealtimeRoomStatesResult,
     RealtimeSimulationConfig,
@@ -114,11 +115,15 @@ from app.schemas import (
     WaterRequest,
     WaterResult,
 )
-from app.validators.system import validate_system
+from app.steady_solver.port_graph import query_device_port_layout
 from app.steady_solver.solver import build_steady_network_result
 from app.steady_solver.solver import solve_steady_state as solve_steady_network
-from app.steady_solver.port_graph import query_device_port_layout
-
+from app.teaching_scenarios import (
+    ScenarioNotApplicableError,
+    compare_teaching_scenario,
+    list_teaching_scenarios,
+)
+from app.validators.system import validate_system
 
 logger = logging.getLogger(__name__)
 app = FastAPI(title="HVAC Algorithm Support", version="0.1.0")
@@ -475,7 +480,7 @@ def selection_recommend(
 
 
 @app.post("/api/v1/realtime/simulate/start/{project_id}", response_model=RealtimeSimulationControl)
-async def realtime_simulate_start(project_id: str, config: RealtimeSimulationConfig | None = Body(default=None)) -> RealtimeSimulationControl:
+async def realtime_simulate_start(project_id: str, config: RealtimeSimulationConfig | None = Body(default=None)) -> RealtimeSimulationControl:  # noqa: B008 - FastAPI 要求以 Body(default=...) 声明可选请求体
     try:
         return await start_simulation(project_id, config)
     except FileNotFoundError as exc:

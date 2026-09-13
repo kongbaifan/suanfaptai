@@ -4,9 +4,10 @@
 """
 
 import pytest
-from app.schemas import SystemEvaluateRequest, DeviceInput, ConnectionInput
-from app.steady_solver.port_graph import build_port_graph
+
 from app.hardy_cross.bridge import allocate_flow_hardy_cross
+from app.schemas import ConnectionInput, DeviceInput, SystemEvaluateRequest
+from app.steady_solver.port_graph import build_port_graph
 
 
 class TestHardyCrossBridge:

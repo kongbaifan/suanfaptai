@@ -10,7 +10,6 @@ from app.steady_solver.port_graph import build_port_graph
 from app.steady_solver.solver import build_steady_network_result, solve_steady_state
 from app.steady_solver.topology_validator import validate_topology
 
-
 client = TestClient(app)
 
 

@@ -25,7 +25,6 @@ from app.release import (
     run_diagnostics,
 )
 
-
 _STARTED_AT = time.time()
 
 

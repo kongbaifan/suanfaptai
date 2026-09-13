@@ -3,7 +3,6 @@ from typing import Any, Protocol
 
 from app.schemas import FloorInput, PipeInput, SystemEvaluateRequest
 
-
 DEFAULT_FLOOR_ID = "default_floor"
 RISER_TYPES = {"riser_supply", "riser_return"}
 SUPPLY_TYPES = {"main_supply", "branch_supply", "terminal_branch", "riser_supply"}

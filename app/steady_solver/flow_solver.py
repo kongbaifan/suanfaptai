@@ -8,7 +8,8 @@
 
 from collections import defaultdict, deque
 from dataclasses import dataclass
-from .port_graph import PortGraph, Port, Edge, Medium
+
+from .port_graph import Edge, Medium, Port, PortGraph
 
 
 @dataclass

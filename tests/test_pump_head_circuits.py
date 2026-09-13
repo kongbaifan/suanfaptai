@@ -17,6 +17,7 @@ NOTE 2: test_pump_head_matches_pipe_resistance_when_no_device_data 当前失败�
 这证实了"只算单程"缺陷确实存在。修复后此测试应通过。
 """
 import math
+
 from app.calculators.hydraulic_network import calculate_hydraulic_network
 from app.calculators.water import GRAVITY_M_S2, WATER_DENSITY_KG_M3
 from app.schemas import SystemEvaluateRequest

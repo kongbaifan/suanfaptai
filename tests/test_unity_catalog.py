@@ -3,14 +3,14 @@
 测试 427 条唯一性、几何解析、DeviceID=11 分段、铜管浮点名。
 """
 
-from app.unity_catalog import get_device_spec, get_all_device_specs, find_equipment_spec
-from app.unity_catalog.roles import DeviceRole
+from app.unity_catalog import find_equipment_spec, get_all_device_specs, get_device_spec
 from app.unity_catalog.geometry import (
+    parse_copper_pipe_od,
     parse_dn,
     parse_rect_size,
     parse_reducer_pair,
-    parse_copper_pipe_od,
 )
+from app.unity_catalog.roles import DeviceRole
 
 
 class TestDeviceLibraryLoading:

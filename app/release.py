@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-
 APP_VERSION = "0.1.0"
 PROJECT_SCHEMA_VERSION = "1.0"
 PRODUCT_NAME = "HVACAlgorithmService"
@@ -76,7 +75,10 @@ def load_release_manifest() -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as file:
         value = json.load(file)
     if not isinstance(value, dict):
-        raise ValueError("release manifest must contain a JSON object")
+        # 必须保持 ValueError：`run_diagnostics` 捕获
+        # `(OSError, ValueError, json.JSONDecodeError)` 并把异常降级成一条
+        # DiagnosticCheck。换成 TypeError 会越过该捕获，让诊断接口直接崩溃。
+        raise ValueError("release manifest must contain a JSON object")  # noqa: TRY004
     return value
 
 

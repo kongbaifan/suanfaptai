@@ -5,7 +5,6 @@ from app.calculators.load import calculate_load
 from app.main import app
 from app.schemas import LoadRequest, SystemEvaluateRequest
 
-
 client = TestClient(app)
 
 
@@ -23,7 +22,7 @@ def test_old_payload_without_floors_uses_default_floor():
 
 
 def test_load_result_groups_rooms_by_floor():
-    request = LoadRequest(**{"floors": [{"id": "F1", "level": 1}, {"id": "F2", "level": 2}], "rooms": [{"id": "r1", "floor_id": "F1", "area_m2": 100}, {"id": "r2", "floor_id": "F2", "area_m2": 200}]})
+    request = LoadRequest(floors=[{"id": "F1", "level": 1}, {"id": "F2", "level": 2}], rooms=[{"id": "r1", "floor_id": "F1", "area_m2": 100}, {"id": "r2", "floor_id": "F2", "area_m2": 200}])
 
     result = calculate_load(request)
 

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from typing import Mapping
 
 from app.calculators.load import calculate_load
 from app.room_bindings import (
@@ -24,7 +24,6 @@ from app.simcore.rated import RatedSpec, resolve_rated_spec_by_type
 from app.simcore.room import RoomThermalConfig
 from app.simcore.session import DeviceNode, PlantLayout, RoomNode, WaterLoop
 from app.unity_catalog import DeviceRole
-
 
 THERMAL_MASS_KJ_PER_M2_K = 80.0
 _DEVICE_TYPE_ALIASES = {"冷水机组": "冷源机组", "一体式新风机组": "新风机组"}

@@ -1,4 +1,9 @@
-from app.data.equipment import capacity_for_device, flow_for_device, head_for_device, role_for_device
+from app.data.equipment import (
+    capacity_for_device,
+    flow_for_device,
+    head_for_device,
+    role_for_device,
+)
 from app.schemas import (
     AirNetworkResult,
     HydraulicNetworkResult,

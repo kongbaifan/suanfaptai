@@ -1,7 +1,6 @@
 from copy import deepcopy
 from typing import Any
 
-
 COMPLETE_SYSTEM_SAMPLE: dict[str, Any] = {
     "floors": [{"id": "default_floor", "name": "默认楼层", "level": 0, "elevation_m": 0, "height_m": 3.6}],
     "rooms": [

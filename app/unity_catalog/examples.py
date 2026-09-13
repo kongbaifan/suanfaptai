@@ -4,9 +4,9 @@
 """
 
 from app.unity_catalog import (
-    get_device_spec,
-    get_all_device_specs,
     find_equipment_spec,
+    get_all_device_specs,
+    get_device_spec,
 )
 
 

@@ -5,7 +5,6 @@ from app.data.rules import rule_value
 from app.data.standards import STANDARD_WATER_PIPES
 from app.schemas import Issue, WaterRequest, WaterResult
 
-
 WATER_DENSITY_KG_M3 = 1000.0
 GRAVITY_M_S2 = 9.80665
 FRICTION_FACTOR = 0.025

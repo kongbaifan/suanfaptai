@@ -22,7 +22,6 @@ from app.data import project_store
 from app.main import app
 from app.schemas import SystemEvaluateRequest
 
-
 SAMPLE_NAMES = ("four_floor_fcu_fresh_air", "multi_zone_all_air")
 TERMINAL_TYPES = frozenset({"风机盘管", "组合式空调机组", "新风机组"})
 SYSTEM_EQUIPMENT_TYPES = frozenset(

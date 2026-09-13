@@ -1,5 +1,5 @@
-from copy import deepcopy
 import math
+from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
@@ -14,7 +14,6 @@ from app.schemas import SystemEvaluateRequest
 from app.simcore.project import build_project_layout
 from app.simcore.session import SimulationConfig, SimulationMode, SimulationSession
 from app.simcore.steady import solve_steady
-
 
 client = TestClient(app)
 SAMPLE_PATH = "/api/v1/project/sample/multi_zone_all_air"
@@ -260,13 +259,12 @@ def test_multi_room_allocation_is_mode_weighted_and_conserved(
         assert room.airflow_m3_h == pytest.approx(
             ahu["airflow_m3_h"] * weight / total_weight
         )
-        if expected_load is not None:
-            # 风量与制热按权重精确分摊；制冷时房间读数是显热，由盘管出风状态
-            # 算出，不按固定显热比分摊，因此只校验风量这一条守恒关系。
-            if expected_load != "cooling_kw":
-                assert getattr(room, expected_load) == pytest.approx(
-                    ahu[expected_load] * weight / total_weight
-                )
+        # 风量与制热按权重精确分摊；制冷时房间读数是显热，由盘管出风状态
+        # 算出，不按固定显热比分摊，因此只校验风量这一条守恒关系。
+        if expected_load is not None and expected_load != "cooling_kw":
+            assert getattr(room, expected_load) == pytest.approx(
+                ahu[expected_load] * weight / total_weight
+            )
     if expected_load is None:
         # 通风既不制冷也不制热，只送风。
         assert ahu["cooling_kw"] == 0.0

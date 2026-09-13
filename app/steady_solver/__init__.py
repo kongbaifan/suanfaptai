@@ -12,6 +12,6 @@ Modules:
     solver: 主求解器入口
 """
 
-from .solver import solve_steady_state, SteadySolverResult
+from .solver import SteadySolverResult, solve_steady_state
 
-__all__ = ["solve_steady_state", "SteadySolverResult"]
+__all__ = ["SteadySolverResult", "solve_steady_state"]

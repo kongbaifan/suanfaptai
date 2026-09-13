@@ -7,7 +7,7 @@ import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -19,11 +19,11 @@ from app.data.project_store import get_project
 from app.room_bindings import raise_for_room_binding_errors, resolve_room_bindings
 from app.schemas import (
     Issue,
-    RatedDeviceView,
     RatedDevicesResult,
+    RatedDeviceView,
     RealtimeControlRequest,
-    RealtimeControlsResult,
     RealtimeControlsResetRequest,
+    RealtimeControlsResult,
     RealtimeControlValue,
     RealtimeDeviceControls,
     RealtimeDeviceReading,
@@ -65,7 +65,6 @@ from app.simcore.session import (
 )
 from app.unity_catalog import DeviceRole
 
-
 HISTORY_DIR = Path(__file__).parent / "data" / "realtime_history"
 MAX_HISTORY_POINTS = 1000
 OFFLINE_SECONDS = 10.0
@@ -93,7 +92,9 @@ class RuntimeConfigValidationError(ValueError):
 
 
 class RuntimeConfigRequiresStopError(ValueError):
-    detail = {
+    # 类是只读的异常载体：detail 由 HTTP 处理器按类读取，从不逐实例改写，
+    # 故显式声明为 ClassVar（RUF012 的默认可变类属性告警在此不适用）。
+    detail: ClassVar[dict[str, str]] = {
         "code": "RUNTIME_CONFIG_REQUIRES_STOP",
         "message": "Stop the simulation before changing its mode or initial room state.",
     }
@@ -106,7 +107,7 @@ class ProjectEditRequiresStopError(ValueError):
     面积是不同的操作，客户端提示语不一样。
     """
 
-    detail = {
+    detail: ClassVar[dict[str, str]] = {
         "code": "PROJECT_EDIT_REQUIRES_STOP",
         "message": "Stop the simulation before editing the project.",
     }
@@ -594,10 +595,11 @@ def get_device_states(
     known_ids = {device.id for device in project.devices}
     if device_id is not None and device_id not in known_ids:
         raise KeyError(device_id)
-    if device_type is not None:
-        # 非法设备类型：目录类型解析会抛 ValueError，交给上层转 422。
-        if not any(device.type == device_type for device in project.devices):
-            raise ValueError(f"项目中不存在设备类型：{device_type}")
+    # 非法设备类型：目录类型解析会抛 ValueError，交给上层转 422。
+    if device_type is not None and not any(
+        device.type == device_type for device in project.devices
+    ):
+        raise ValueError(f"项目中不存在设备类型：{device_type}")
 
     readings = []
     roles_by_device = {

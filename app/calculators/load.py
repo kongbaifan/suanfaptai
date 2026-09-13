@@ -16,7 +16,6 @@ from app.data.design_defaults import ORIENTATION_SOLAR_W_M2, PURPOSE_DEFAULTS
 from app.schemas import FloorLoadResult, Issue, LoadRequest, LoadResult, RoomLoadResult
 from app.simcore.psychrometrics import VAPORIZATION_HEAT_KJ_KG, humidity_ratio_from_rh
 
-
 AIR_DENSITY_KG_M3 = 1.2
 AIR_CP_KJ_KG_K = 1.005
 # 玻璃遮阳系数与得热修正的合并值（教学口径）

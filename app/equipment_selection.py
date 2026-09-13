@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import math
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
-import math
-from typing import Any, Callable
+from typing import Any
 
 from app.calculators.air import calculate_air
 from app.calculators.hydraulic_network import calculate_hydraulic_network
@@ -29,7 +30,6 @@ from app.schemas import (
     SelectionStatus,
     SelectionTargetRole,
 )
-
 
 _EPSILON = 1e-9
 _BLOCKING_REASON_CODES = {

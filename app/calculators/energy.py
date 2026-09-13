@@ -1,8 +1,20 @@
 import math
 
 from app.calculators.load import calculate_load
-from app.data.equipment import capacity_for_device, fan_power_for_device, power_for_device, role_for_device, weighted_average_for_role
-from app.schemas import EnergyHourlyPoint, EnergySimulationRequest, EnergySimulationResult, Issue, LoadRequest
+from app.data.equipment import (
+    capacity_for_device,
+    fan_power_for_device,
+    power_for_device,
+    role_for_device,
+    weighted_average_for_role,
+)
+from app.schemas import (
+    EnergyHourlyPoint,
+    EnergySimulationRequest,
+    EnergySimulationResult,
+    Issue,
+    LoadRequest,
+)
 
 
 def simulate_energy(request: EnergySimulationRequest) -> EnergySimulationResult:

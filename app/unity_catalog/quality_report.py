@@ -4,7 +4,7 @@
 """
 
 from collections import Counter
-from typing import Dict
+
 from .catalog import get_all_device_specs
 
 
@@ -18,13 +18,13 @@ def generate_quality_report() -> str:
 
     # 统计基础数据
     total_count = len(specs)
-    type_count = len(set(s.device_type for s in specs))
+    type_count = len({s.device_type for s in specs})
 
     # 参数来源分布
     source_dist = Counter(s.source for s in specs)
 
     # 按类型分组的来源统计
-    type_source: Dict[str, Counter] = {}
+    type_source: dict[str, Counter] = {}
     for spec in specs:
         if spec.device_type not in type_source:
             type_source[spec.device_type] = Counter()

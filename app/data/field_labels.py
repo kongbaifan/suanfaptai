@@ -11,7 +11,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 FIELD_LABELS_ZH: dict[str, str] = {
     # 标识字段

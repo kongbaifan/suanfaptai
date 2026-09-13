@@ -18,7 +18,6 @@ from app.simcore.psychrometrics import (
     rh_from_humidity_ratio,
 )
 
-
 # 人员显热得热
 PERSON_SENSIBLE_KW = 0.075
 

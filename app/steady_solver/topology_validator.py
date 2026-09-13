@@ -14,6 +14,7 @@ from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
 
 from app.schemas import Issue
+
 from .port_graph import PortGraph
 
 

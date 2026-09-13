@@ -3,7 +3,6 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-
 RULES_PATH = Path(__file__).with_name("rules.json")
 
 

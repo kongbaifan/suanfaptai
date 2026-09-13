@@ -12,7 +12,6 @@ from collections import defaultdict
 from app.data.equipment import role_for_device
 from app.schemas import SystemEvaluateRequest
 
-
 WATER_SYSTEMS = ("chilled_water", "cooling_water", "hot_water")
 
 

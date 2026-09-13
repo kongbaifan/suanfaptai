@@ -7,11 +7,11 @@ import pytest
 from app.schemas import SystemEvaluateRequest
 from app.simcore.devices import pump_state, terminal_state
 from app.simcore.hydronics import (
+    MAX_HYDRONIC_DELTA_T_C,
+    WATER_KW_PER_M3H_K,
     HydronicBranch,
     HydronicDemand,
     HydronicThermalBranch,
-    MAX_HYDRONIC_DELTA_T_C,
-    WATER_KW_PER_M3H_K,
     advance_temperature,
     allocate_branch_flows,
     branch_return_temperature,

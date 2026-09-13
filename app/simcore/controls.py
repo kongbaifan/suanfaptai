@@ -15,7 +15,6 @@ from app.simcore.devices import is_terminal, is_valve
 from app.simcore.rated import RatedSpec
 from app.unity_catalog import DeviceRole
 
-
 ControlKind = Literal["number", "switch"]
 
 

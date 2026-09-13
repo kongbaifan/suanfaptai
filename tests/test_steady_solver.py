@@ -8,13 +8,22 @@
 """
 
 import pytest
-from app.schemas import SystemEvaluateRequest, DeviceInput, PipeInput, ConnectionInput, FloorInput
-from app.steady_solver import solve_steady_state
-from app.steady_solver.port_graph import build_port_graph
-from app.steady_solver.solver import _build_terminal_demands, build_steady_network_result
-from app.steady_solver.topology_validator import validate_topology
-from app.steady_solver.flow_solver import allocate_flow, check_conservation_tolerance
 
+from app.schemas import (
+    ConnectionInput,
+    DeviceInput,
+    FloorInput,
+    PipeInput,
+    SystemEvaluateRequest,
+)
+from app.steady_solver import solve_steady_state
+from app.steady_solver.flow_solver import allocate_flow, check_conservation_tolerance
+from app.steady_solver.port_graph import build_port_graph
+from app.steady_solver.solver import (
+    _build_terminal_demands,
+    build_steady_network_result,
+)
+from app.steady_solver.topology_validator import validate_topology
 
 # ============================================================================
 # 测试夹具：典型系统配置

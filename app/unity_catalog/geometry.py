@@ -4,10 +4,9 @@
 """
 
 import re
-from typing import Optional, Tuple
 
 
-def parse_dn(device_name: str) -> Optional[float]:
+def parse_dn(device_name: str) -> float | None:
     """解析管道 DN 规格
 
     支持格式：DN{n}、DN {n}、{n}
@@ -38,7 +37,7 @@ def parse_dn(device_name: str) -> Optional[float]:
         return None
 
 
-def parse_rect_size(device_name: str) -> Optional[Tuple[float, float]]:
+def parse_rect_size(device_name: str) -> tuple[float, float] | None:
     """解析矩形尺寸
 
     支持格式：{W}x{H}、{W}×{H}（ASCII x 或全角 ×）
@@ -64,7 +63,7 @@ def parse_rect_size(device_name: str) -> Optional[Tuple[float, float]]:
     return None
 
 
-def parse_reducer_pair(device_name: str) -> Optional[Tuple[float, float]]:
+def parse_reducer_pair(device_name: str) -> tuple[float, float] | None:
     """解析异径管规格对
 
     支持格式：{a}-{b}
@@ -89,7 +88,7 @@ def parse_reducer_pair(device_name: str) -> Optional[Tuple[float, float]]:
     return None
 
 
-def parse_copper_pipe_od(device_name: str) -> Optional[float]:
+def parse_copper_pipe_od(device_name: str) -> float | None:
     """解析铜管外径
 
     铜管 DeviceName 在 JSON 中为数字字面量，Python 读出为 float/int。
@@ -112,7 +111,7 @@ def parse_copper_pipe_od(device_name: str) -> Optional[float]:
         return None
 
 
-def parse_manifold_dn(device_name: str) -> Optional[float]:
+def parse_manifold_dn(device_name: str) -> float | None:
     """解析分集水器 DN 规格
 
     分集水器名称格式通常为 DN{n} 或纯数字。

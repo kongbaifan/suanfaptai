@@ -1,13 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterable
 
 from pydantic import TypeAdapter
 
 from app.schemas import EquipmentKnowledgeDetail, EquipmentKnowledgeSummary
-
 
 KNOWLEDGE_PATH = Path(__file__).parent / "data" / "equipment_knowledge.json"
 KNOWLEDGE_ORDER = (

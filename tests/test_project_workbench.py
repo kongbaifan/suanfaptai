@@ -4,7 +4,6 @@ from app.calculators.load import calculate_load
 from app.main import app
 from app.schemas import LoadRequest, RoomInput
 
-
 client = TestClient(app)
 
 

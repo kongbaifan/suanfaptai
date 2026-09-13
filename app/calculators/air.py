@@ -4,7 +4,6 @@ from typing import Any
 from app.data.standards import STANDARD_RECT_DUCTS, STANDARD_ROUND_DUCTS_MM
 from app.schemas import AirRequest, AirResult, Issue
 
-
 AIR_DENSITY_KG_M3 = 1.2
 AIR_CP_J_KG_K = 1005.0
 

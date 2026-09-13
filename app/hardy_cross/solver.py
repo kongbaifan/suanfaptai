@@ -3,7 +3,7 @@
 实现 Hardy Cross 方法的迭代求解流程。
 """
 
-from app.hardy_cross.models import NetworkModel, SolverConfig, SolverResult, Loop
+from app.hardy_cross.models import Loop, NetworkModel, SolverConfig, SolverResult
 from app.hardy_cross.resistance import (
     calculate_pressure_drop,
     calculate_resistance_derivative,

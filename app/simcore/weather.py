@@ -10,7 +10,6 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-
 # 日最高温出现的时刻
 PEAK_HOUR = 14.0
 # 日温度波动幅值（峰谷差的一半）

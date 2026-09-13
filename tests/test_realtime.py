@@ -9,7 +9,6 @@ from app.data import project_store
 from app.main import app
 from app.schemas import RealtimeRoomStatesResult, RealtimeSimulationConfig
 
-
 client = TestClient(app)
 
 

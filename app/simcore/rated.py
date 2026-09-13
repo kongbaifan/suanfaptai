@@ -12,13 +12,13 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from typing import Any, Literal, Mapping
+from typing import Any, Literal
 
 from app.data.equipment import find_equipment_spec, load_equipment_catalog
 from app.simcore.hydronics import WATER_KW_PER_M3H_K
 from app.unity_catalog import DeviceRole, get_device_spec
-
 
 ParameterOrigin = Literal["catalog", "type_default", "builtin_fallback"]
 """额定参数来源。`catalog` 为型号精确命中，其余两级为降级结果。"""

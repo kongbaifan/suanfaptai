@@ -11,7 +11,6 @@ from app.data import project_store
 from app.main import app
 from app.schemas import RealtimePipeStatesResult
 
-
 client = TestClient(app)
 
 

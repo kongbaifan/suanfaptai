@@ -10,6 +10,8 @@ from dataclasses import replace
 
 import pytest
 
+from app.simcore.hydronics import advance_temperature
+from app.simcore.rated import RatedSpec, resolve_rated_spec_by_type
 from app.simcore.room import (
     MAX_ROOM_RH_PCT,
     MIN_ROOM_RH_PCT,
@@ -18,9 +20,9 @@ from app.simcore.room import (
     step_room_humidity,
     step_room_temperature,
 )
-from app.simcore.hydronics import advance_temperature
 from app.simcore.session import (
     AUTO_DEHUMIDIFICATION_SUBCOOL_C,
+    WATER_TEMPERATURE_TIME_CONSTANT_SECONDS,
     DeviceNode,
     PlantLayout,
     RoomInitialState,
@@ -28,13 +30,10 @@ from app.simcore.session import (
     SimulationConfig,
     SimulationMode,
     SimulationSession,
-    WATER_TEMPERATURE_TIME_CONSTANT_SECONDS,
 )
-from app.simcore.rated import RatedSpec, resolve_rated_spec_by_type
 from app.simcore.steady import DESIGN_HOUR_OF_DAY, solve_steady
 from app.simcore.weather import ambient_at, wet_bulb_c
 from app.unity_catalog import DeviceRole
-
 
 ROOM_ID = "room-1"
 
@@ -311,17 +310,17 @@ class TestSessionDrivenByEquipment:
             occupancy_people=40,
             volume_m3=300.0,
         )
-        kwargs = dict(
-            current_rh_pct=55.0,
-            current_temp_c=26.0,
-            next_temp_c=26.0,
-            outdoor_temp_c=33.0,
-            outdoor_rh_pct=85.0,
-            latent_cooling_kw=0.0,
-            config=room,
-            step_seconds=60.0,
-            fresh_air_m3_h=1200.0,
-        )
+        kwargs = {
+            "current_rh_pct": 55.0,
+            "current_temp_c": 26.0,
+            "next_temp_c": 26.0,
+            "outdoor_temp_c": 33.0,
+            "outdoor_rh_pct": 85.0,
+            "latent_cooling_kw": 0.0,
+            "config": room,
+            "step_seconds": 60.0,
+            "fresh_air_m3_h": 1200.0,
+        }
 
         untreated = step_room_humidity(**kwargs)
         treated = step_room_humidity(**kwargs, fresh_air_latent_capacity_kw=3.0)
@@ -358,15 +357,15 @@ class TestSessionDrivenByEquipment:
         一旦带出非有限值就会污染快照。
         """
         room = RoomThermalConfig(volume_m3=300.0, occupancy_people=8)
-        base = dict(
-            current_rh_pct=55.0,
-            current_temp_c=26.0,
-            next_temp_c=26.0,
-            outdoor_temp_c=33.0,
-            outdoor_rh_pct=70.0,
-            config=room,
-            step_seconds=60.0,
-        )
+        base = {
+            "current_rh_pct": 55.0,
+            "current_temp_c": 26.0,
+            "next_temp_c": 26.0,
+            "outdoor_temp_c": 33.0,
+            "outdoor_rh_pct": 70.0,
+            "config": room,
+            "step_seconds": 60.0,
+        }
         hostile = (
             {"latent_cooling_kw": math.nan, "fresh_air_m3_h": 240.0},
             {"latent_cooling_kw": math.inf, "fresh_air_m3_h": 240.0},

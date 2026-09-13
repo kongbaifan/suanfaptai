@@ -3,15 +3,15 @@
 测试回路检测、阻力计算、迭代求解的正确性。
 """
 
+from app.hardy_cross.loop_detector import detect_loops
 from app.hardy_cross.models import (
     NetworkModel,
     NetworkNode,
     PipeEdge,
     SolverConfig,
 )
-from app.hardy_cross.loop_detector import detect_loops
-from app.hardy_cross.solver import solve_hardy_cross
 from app.hardy_cross.resistance import calculate_resistance_coefficient
+from app.hardy_cross.solver import solve_hardy_cross
 
 
 class TestLoopDetection:

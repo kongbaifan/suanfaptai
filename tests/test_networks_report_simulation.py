@@ -8,7 +8,6 @@ from app.calculators.simulation import simulate_steady_state
 from app.main import app
 from app.schemas import LoadResult, SystemEvaluateRequest
 
-
 client = TestClient(app)
 
 

@@ -11,7 +11,6 @@ from app.simcore.project import build_project_layout
 from app.simcore.session import SimulationConfig, SimulationMode, SimulationSession
 from app.steady_solver.port_graph import build_port_graph
 
-
 client = TestClient(app)
 SAMPLE_PATH = "/api/v1/project/sample/four_floor_fcu_fresh_air"
 

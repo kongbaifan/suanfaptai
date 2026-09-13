@@ -1,5 +1,5 @@
-from app.schemas import Issue, ProjectValidationResult, SystemEvaluateRequest
 from app.room_bindings import resolve_room_bindings
+from app.schemas import Issue, ProjectValidationResult, SystemEvaluateRequest
 from app.validators.fresh_air import validate_fresh_air_and_terminals
 from app.validators.system import validate_system
 

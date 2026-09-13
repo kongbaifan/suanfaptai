@@ -24,7 +24,6 @@ from app.samples import COMPLETE_SYSTEM_SAMPLE
 from app.schemas import DeviceInput, SelectionRequirements, SystemEvaluateRequest
 from app.steady_solver.solver import solve_steady_state
 
-
 HEAT_PUMP_TYPES = ("空气源热泵", "水源热泵", "地源热泵")
 # 目录对每个热泵型号都必须给出制冷与制热两侧的额定参数，
 # 否则选型与仿真会退回按类型估算。

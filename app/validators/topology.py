@@ -3,7 +3,6 @@ from collections import defaultdict, deque
 from app.data.equipment import role_for_device, systems_for_device
 from app.schemas import Issue, SystemEvaluateRequest
 
-
 WATER_SYSTEMS = {"chilled_water", "cooling_water", "hot_water"}
 
 
@@ -104,24 +103,37 @@ def _validate_required_paths(devices, adjacency) -> list[Issue]:
     roles_by_id = {device_id: role_for_device(device) for device_id, device in devices.items()}
 
     chilled_components = _components_for_system("chilled_water", adjacency)
-    if _has_role(roles_by_id, "cold_source") and _has_role(roles_by_id, "pump") and _has_role(roles_by_id, "terminal"):
-        if not any(_component_has_roles(component, roles_by_id, {"cold_source", "pump", "terminal"}) for component in chilled_components):
-            issues.append(
-                Issue(
-                    level="error",
-                    code="INCOMPLETE_CHILLED_WATER_PATH",
-                    message="Chilled-water topology does not connect cold source, pump, and terminal equipment in one path.",
-                )
+    if (
+        _has_role(roles_by_id, "cold_source")
+        and _has_role(roles_by_id, "pump")
+        and _has_role(roles_by_id, "terminal")
+        and not any(
+            _component_has_roles(component, roles_by_id, {"cold_source", "pump", "terminal"})
+            for component in chilled_components
+        )
+    ):
+        issues.append(
+            Issue(
+                level="error",
+                code="INCOMPLETE_CHILLED_WATER_PATH",
+                message="Chilled-water topology does not connect cold source, pump, and terminal equipment in one path.",
             )
+        )
 
     cooling_components = _components_for_system("cooling_water", adjacency)
-    if _has_role(roles_by_id, "cold_source") and _has_role(roles_by_id, "cooling_tower"):
-        if not any(_component_has_roles(component, roles_by_id, {"cold_source", "cooling_tower"}) for component in cooling_components):
-            issues.append(
-                Issue(
-                    level="warning",
-                    code="INCOMPLETE_COOLING_WATER_PATH",
-                    message="Cooling-water topology does not connect cold source and cooling tower.",
+    if (
+        _has_role(roles_by_id, "cold_source")
+        and _has_role(roles_by_id, "cooling_tower")
+        and not any(
+            _component_has_roles(component, roles_by_id, {"cold_source", "cooling_tower"})
+            for component in cooling_components
+        )
+    ):
+        issues.append(
+            Issue(
+                level="warning",
+                code="INCOMPLETE_COOLING_WATER_PATH",
+                message="Cooling-water topology does not connect cold source and cooling tower.",
                 )
             )
 

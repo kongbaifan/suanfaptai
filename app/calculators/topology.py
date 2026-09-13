@@ -11,9 +11,13 @@ from app.building import (
     served_floor_ids,
 )
 from app.data.equipment import role_for_device
-from app.schemas import Issue, SystemEvaluateRequest, TopologyAnalysisResult, TopologyPath
+from app.schemas import (
+    Issue,
+    SystemEvaluateRequest,
+    TopologyAnalysisResult,
+    TopologyPath,
+)
 from app.validators.topology import validate_topology
-
 
 WATER_SYSTEMS = {"chilled_water", "cooling_water", "hot_water"}
 ALL_SYSTEMS = ("chilled_water", "cooling_water", "hot_water", "air")

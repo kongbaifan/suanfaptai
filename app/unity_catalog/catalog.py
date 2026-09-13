@@ -4,18 +4,18 @@
 """
 
 import json
-from typing import Optional, List, Literal
 from dataclasses import dataclass
+from typing import Literal
 
 from app.release import resource_path
-from .roles import get_device_role, DeviceRole, get_system_type, get_solver_behaviors
+
 from .geometry import (
+    parse_copper_pipe_od,
     parse_dn,
     parse_rect_size,
     parse_reducer_pair,
-    parse_copper_pipe_od,
 )
-
+from .roles import DeviceRole, get_device_role, get_solver_behaviors, get_system_type
 
 # 参数来源类型
 ParameterSource = Literal["measured", "engineering_default", "derived_from_name", "unresolved"]
@@ -24,12 +24,12 @@ ParameterSource = Literal["measured", "engineering_default", "derived_from_name"
 @dataclass
 class GeometricParams:
     """几何参数（从 DeviceName 派生）"""
-    dn: Optional[float] = None  # 管道 DN（mm）
-    width: Optional[float] = None  # 矩形宽度（mm）
-    height: Optional[float] = None  # 矩形高度（mm）
-    od: Optional[float] = None  # 铜管外径（mm）
-    reducer_large: Optional[float] = None  # 异径管大端（mm）
-    reducer_small: Optional[float] = None  # 异径管小端（mm）
+    dn: float | None = None  # 管道 DN（mm）
+    width: float | None = None  # 矩形宽度（mm）
+    height: float | None = None  # 矩形高度（mm）
+    od: float | None = None  # 铜管外径（mm）
+    reducer_large: float | None = None  # 异径管大端（mm）
+    reducer_small: float | None = None  # 异径管小端（mm）
 
 
 @dataclass
@@ -45,24 +45,24 @@ class DeviceSpec:
     device_library: str  # Unity DeviceLibrary（如"暖通设备"）
 
     # 角色与语义
-    role: Optional[DeviceRole]  # 设备角色
-    system_type: Optional[str]  # 支持系统（water/air/both）
-    solver_behaviors: List[str]  # 求解行为列表
+    role: DeviceRole | None  # 设备角色
+    system_type: str | None  # 支持系统（water/air/both）
+    solver_behaviors: list[str]  # 求解行为列表
 
     # 几何参数（派生）
     geometric: GeometricParams
 
     # 参数来源与质量
     source: ParameterSource
-    issues: List[str]  # 质量问题列表
+    issues: list[str]  # 质量问题列表
 
 
 # 全局目录缓存
-_CATALOG: Optional[List[DeviceSpec]] = None
-_CATALOG_INDEX: Optional[dict[tuple[int, int], DeviceSpec]] = None
+_CATALOG: list[DeviceSpec] | None = None
+_CATALOG_INDEX: dict[tuple[int, int], DeviceSpec] | None = None
 
 
-def _load_device_library() -> List[dict]:
+def _load_device_library() -> list[dict]:
     """加载 DeviceLibrary.json"""
     json_path = resource_path(
         "Assets/StreamingAssets/SoftwareSerializationData/Json/DeviceLibrary.json"
@@ -102,10 +102,10 @@ def _parse_geometric_params(device_type: str, device_name: str) -> GeometricPara
     return geom
 
 
-def _build_catalog() -> tuple[List[DeviceSpec], dict[tuple[int, int], DeviceSpec]]:
+def _build_catalog() -> tuple[list[DeviceSpec], dict[tuple[int, int], DeviceSpec]]:
     """构建设备目录和索引"""
     raw_data = _load_device_library()
-    catalog: List[DeviceSpec] = []
+    catalog: list[DeviceSpec] = []
     index: dict[tuple[int, int], DeviceSpec] = {}
 
     for entry in raw_data:
@@ -158,7 +158,7 @@ def _build_catalog() -> tuple[List[DeviceSpec], dict[tuple[int, int], DeviceSpec
     return catalog, index
 
 
-def get_device_spec(device_id: int, model_id: int) -> Optional[DeviceSpec]:
+def get_device_spec(device_id: int, model_id: int) -> DeviceSpec | None:
     """根据 (DeviceID, ModelID) 获取设备规格
 
     Args:
@@ -176,7 +176,7 @@ def get_device_spec(device_id: int, model_id: int) -> Optional[DeviceSpec]:
     return _CATALOG_INDEX.get((device_id, model_id))
 
 
-def get_all_device_specs() -> List[DeviceSpec]:
+def get_all_device_specs() -> list[DeviceSpec]:
     """获取所有设备规格（427 条）"""
     global _CATALOG, _CATALOG_INDEX
 
@@ -186,7 +186,7 @@ def get_all_device_specs() -> List[DeviceSpec]:
     return _CATALOG
 
 
-def find_equipment_spec(device_type: str, device_name: str) -> Optional[DeviceSpec]:
+def find_equipment_spec(device_type: str, device_name: str) -> DeviceSpec | None:
     """根据 (type, name) 查找设备规格
 
     提供向后兼容的查询接口。
@@ -198,10 +198,8 @@ def find_equipment_spec(device_type: str, device_name: str) -> Optional[DeviceSp
     Returns:
         设备规格，未找到返回 None
     """
-    global _CATALOG
-
     if _CATALOG is None:
-        get_all_device_specs()  # 触发加载
+        get_all_device_specs()  # 触发加载（赋值在那里完成，此处只读）
 
     device_name_str = str(device_name)  # 确保字符串比较
 

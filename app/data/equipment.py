@@ -5,7 +5,6 @@ from typing import Any
 
 from app.schemas import DeviceInput
 
-
 CATALOG_PATH = Path(__file__).with_name("equipment_catalog.json")
 NUMERIC_CATALOG_FIELDS = {
     "capacity_kw",

@@ -1,15 +1,33 @@
 from collections import defaultdict
 from typing import Literal
 
-from app.calculators.water import calculate_water_from_flow
-from app.calculators.topology import analyze_topology
-from app.calculators.network_paths import enumerate_network_paths, is_closed_circuit, pipe_ids_in_path
 from app.building import floor_base_summary, node_floor_id, pipe_floor_id
-from app.data.equipment import catalog_number_for_device, flow_for_device, head_for_device, role_for_device
+from app.calculators.network_paths import (
+    enumerate_network_paths,
+    is_closed_circuit,
+    pipe_ids_in_path,
+)
+from app.calculators.topology import analyze_topology
+from app.calculators.water import (
+    GRAVITY_M_S2,
+    WATER_DENSITY_KG_M3,
+    calculate_water_from_flow,
+)
+from app.data.equipment import (
+    catalog_number_for_device,
+    flow_for_device,
+    head_for_device,
+    role_for_device,
+)
 from app.data.rules import rule_value
-from app.schemas import HydraulicNetworkResult, Issue, NetworkPathCalculation, PipeCalculation, PumpCheckResult, SystemEvaluateRequest
-from app.calculators.water import GRAVITY_M_S2, WATER_DENSITY_KG_M3
-
+from app.schemas import (
+    HydraulicNetworkResult,
+    Issue,
+    NetworkPathCalculation,
+    PipeCalculation,
+    PumpCheckResult,
+    SystemEvaluateRequest,
+)
 
 WATER_SYSTEMS = ("chilled_water", "cooling_water", "hot_water")
 
@@ -159,7 +177,9 @@ def _water_resistance_by_pipe(request: SystemEvaluateRequest) -> dict[str, tuple
         local_k = catalog_number_for_device(device, "local_resistance_coefficient", 0.0)
         if pressure_pa <= 0.0 and local_k <= 0.0:
             continue
-        target = sorted(pipe_ids)[0]
+        # pipe_ids 由 defaultdict(list) 的 .append 唯一构造，且此处遍历的是
+        # 已存在的键，故必非空，min() 与 sorted()[0] 等价。
+        target = min(pipe_ids)
         previous = resistance.get(target, (0.0, 0.0))
         resistance[target] = (previous[0] + pressure_pa, previous[1] + local_k)
     return resistance

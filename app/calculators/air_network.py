@@ -1,15 +1,33 @@
 import math
 from typing import Literal
 
-from app.calculators.air import AIR_DENSITY_KG_M3, _area_for_rect, _area_for_round, calculate_air
-from app.calculators.air_tree import solve_air_trees
-from app.calculators.topology import analyze_topology
-from app.calculators.network_paths import enumerate_network_paths, pipe_ids_in_path
 from app.building import floor_base_summary, node_floor_id, pipe_floor_id
-from app.data.equipment import airflow_for_device, catalog_number_for_device, role_for_device
+from app.calculators.air import (
+    AIR_DENSITY_KG_M3,
+    _area_for_rect,
+    _area_for_round,
+    calculate_air,
+)
+from app.calculators.air_tree import solve_air_trees
+from app.calculators.network_paths import enumerate_network_paths, pipe_ids_in_path
+from app.calculators.topology import analyze_topology
+from app.data.equipment import (
+    airflow_for_device,
+    catalog_number_for_device,
+    role_for_device,
+)
 from app.data.rules import rule_value
-from app.schemas import AirNetworkBalancing, AirNetworkResult, AirNetworkSolverStatus, AirRequest, DuctCalculation, FanCheckResult, Issue, NetworkPathCalculation, SystemEvaluateRequest
-
+from app.schemas import (
+    AirNetworkBalancing,
+    AirNetworkResult,
+    AirNetworkSolverStatus,
+    AirRequest,
+    DuctCalculation,
+    FanCheckResult,
+    Issue,
+    NetworkPathCalculation,
+    SystemEvaluateRequest,
+)
 
 MAX_CALCULATION_VALUE = 1_000_000_000_000.0
 

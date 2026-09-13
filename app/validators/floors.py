@@ -1,6 +1,14 @@
 from collections import defaultdict
 
-from app.building import RISER_TYPES, device_floor_id, floor_ids, is_riser, pipe_floor_id, pipe_floor_span, room_floor_id
+from app.building import (
+    RISER_TYPES,
+    device_floor_id,
+    floor_ids,
+    is_riser,
+    pipe_floor_id,
+    pipe_floor_span,
+    room_floor_id,
+)
 from app.data.equipment import role_for_device
 from app.schemas import Issue, SystemEvaluateRequest
 

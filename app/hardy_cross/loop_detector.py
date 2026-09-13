@@ -129,10 +129,7 @@ def _is_valid_loop(loop: Loop) -> bool:
         return False
 
     # 检查是否有重复边
-    if len(set(loop.edges)) != len(loop.edges):
-        return False
-
-    return True
+    return len(set(loop.edges)) == len(loop.edges)
 
 
 def _build_adjacency_list(model: NetworkModel) -> dict[str, list[tuple[str, str, int]]]:

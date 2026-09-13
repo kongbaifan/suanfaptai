@@ -3,9 +3,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from app.schemas import ProjectHistoryEntry, ProjectRecord, ProjectSaveRequest, ProjectSummary, SystemEvaluateResult
 from app.room_bindings import raise_for_room_binding_errors, resolve_room_bindings
-
+from app.schemas import (
+    ProjectHistoryEntry,
+    ProjectRecord,
+    ProjectSaveRequest,
+    ProjectSummary,
+    SystemEvaluateResult,
+)
 
 PROJECT_DIR = Path(__file__).with_name("projects")
 

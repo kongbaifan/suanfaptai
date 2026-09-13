@@ -4,8 +4,7 @@
 """
 
 from collections import defaultdict, deque
-from app.steady_solver.port_graph import Medium, PortGraph
-from app.steady_solver.flow_solver import FlowAllocation
+
 from app.hardy_cross import (
     NetworkModel,
     NetworkNode,
@@ -14,6 +13,8 @@ from app.hardy_cross import (
     detect_loops,
     solve_hardy_cross,
 )
+from app.steady_solver.flow_solver import FlowAllocation
+from app.steady_solver.port_graph import Medium, PortGraph
 
 
 def allocate_flow_hardy_cross(

@@ -4,7 +4,6 @@
 """
 
 from enum import Enum
-from typing import Optional, Set
 
 
 class DeviceRole(str, Enum):
@@ -126,7 +125,7 @@ ROLE_TO_SYSTEM: dict[DeviceRole, SystemType] = {
 
 
 # Role -> Solver Behavior 映射
-ROLE_TO_BEHAVIOR: dict[DeviceRole, Set[SolverBehavior]] = {
+ROLE_TO_BEHAVIOR: dict[DeviceRole, set[SolverBehavior]] = {
     DeviceRole.CHILLER: {SolverBehavior.DYNAMIC_SOURCE},
     DeviceRole.HEAT_SOURCE: {SolverBehavior.DYNAMIC_SOURCE},
     DeviceRole.PUMP: {SolverBehavior.DYNAMIC_SOURCE},
@@ -150,7 +149,7 @@ ROLE_TO_BEHAVIOR: dict[DeviceRole, Set[SolverBehavior]] = {
 }
 
 
-def get_device_role(device_type: str) -> Optional[DeviceRole]:
+def get_device_role(device_type: str) -> DeviceRole | None:
     """根据 Unity DeviceType 获取设备角色
 
     Args:
@@ -170,6 +169,6 @@ def get_system_type(role: DeviceRole) -> SystemType:
     return ROLE_TO_SYSTEM[role]
 
 
-def get_solver_behaviors(role: DeviceRole) -> Set[SolverBehavior]:
+def get_solver_behaviors(role: DeviceRole) -> set[SolverBehavior]:
     """获取设备角色的求解行为"""
     return ROLE_TO_BEHAVIOR[role]

@@ -16,8 +16,8 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 from app.calculators.water import (
     GRAVITY_M_S2,
@@ -25,7 +25,6 @@ from app.calculators.water import (
     calculate_water_from_flow,
 )
 from app.schemas import PipeInput, SystemEvaluateRequest
-
 
 WATER_SYSTEMS: tuple[str, ...] = ("chilled_water", "cooling_water", "hot_water")
 

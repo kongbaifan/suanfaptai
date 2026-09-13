@@ -20,7 +20,6 @@ from app.main import app
 from app.release import load_release_manifest
 from app.schemas import EquipmentKnowledgeDetail
 
-
 client = TestClient(app)
 
 

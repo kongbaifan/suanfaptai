@@ -47,7 +47,7 @@ def test_overcooling_stays_within_subcool_allowance():
     无再热盘管，故过冷量以 ``AUTO_DEHUMIDIFICATION_SUBCOOL_C`` 为界。
     """
     assert AUTO_DEHUMIDIFICATION_SUBCOOL_C > 0.0
-    session, snapshot = _run(MULTI_ZONE_ALL_AIR_SAMPLE)
+    _, snapshot = _run(MULTI_ZONE_ALL_AIR_SAMPLE)
     # 允许超调一点（控制离散化），但不应远低于除湿下限
     limit_c = 26.0 - AUTO_DEHUMIDIFICATION_SUBCOOL_C - 1.5
     for reading in snapshot.rooms.values():
@@ -105,8 +105,8 @@ def test_coil_treats_mixed_air_so_fresh_air_load_cannot_bypass():
     这是"新风绕过盘管"缺陷的回归防线——旧口径把新风湿负荷直接注入房间，
     盘管只处理回风，无论怎么加大冷量都除不掉新风带进来的水分。
     """
-    from app.simcore.psychrometrics import humidity_ratio_from_rh
     from app.simcore.devices import coil_leaving_state
+    from app.simcore.psychrometrics import humidity_ratio_from_rh
 
     room_temp_c, room_rh = 26.0, 55.0
     outdoor_temp_c, outdoor_rh = 33.0, 70.0
@@ -130,8 +130,8 @@ def test_coil_treats_mixed_air_so_fresh_air_load_cannot_bypass():
 
 def test_dry_coil_does_not_dehumidify():
     """冷量不足以把送风压到露点时，盘管等湿降温、不除湿"""
-    from app.simcore.psychrometrics import humidity_ratio_from_rh
     from app.simcore.devices import coil_leaving_state
+    from app.simcore.psychrometrics import humidity_ratio_from_rh
 
     ratio_in = humidity_ratio_from_rh(26.0, 55.0)
     supply_temp_c, supply_ratio = coil_leaving_state(26.0, ratio_in, 8000.0, 3.0)
@@ -142,11 +142,11 @@ def test_dry_coil_does_not_dehumidify():
 
 def test_wet_coil_dehumidifies_and_lands_on_saturation():
     """冷量足够时盘管降温除湿，出口落在饱和线上"""
+    from app.simcore.devices import coil_leaving_state
     from app.simcore.psychrometrics import (
         humidity_ratio_from_rh,
         rh_from_humidity_ratio,
     )
-    from app.simcore.devices import coil_leaving_state
 
     ratio_in = humidity_ratio_from_rh(26.0, 55.0)
     supply_temp_c, supply_ratio = coil_leaving_state(26.0, ratio_in, 8000.0, 60.0)

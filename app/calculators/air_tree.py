@@ -5,9 +5,12 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Literal
 
-from app.data.equipment import airflow_for_device, catalog_number_for_device, role_for_device
+from app.data.equipment import (
+    airflow_for_device,
+    catalog_number_for_device,
+    role_for_device,
+)
 from app.schemas import AirNodeBalance, Issue, SystemEvaluateRequest
-
 
 SUPPLY_PIPE_TYPES = {"main_supply", "branch_supply", "riser_supply"}
 RETURN_PIPE_TYPES = {"main_return", "branch_return", "riser_return"}
@@ -525,7 +528,10 @@ def _finite_nonnegative(value) -> float:
 
 
 def _flow_units(value: float) -> int:
-    return int(round(_finite_nonnegative(value) * FLOW_SCALE))
+    # int() 是显式类型契约：round() 无 ndigits 时已返回 int，但写出 int() 可保证
+    # 日后若有人给 round 加 ndigits，本函数仍返回整数，不悄悄变成 float 而破坏
+    # 下游整数守恒累加器 tree_flow_units: dict[str, int]。
+    return int(round(_finite_nonnegative(value) * FLOW_SCALE))  # noqa: RUF046
 
 
 def _flow_value(units: int) -> float:

@@ -11,10 +11,11 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Callable, Iterable, Literal, Mapping
+from typing import Any, Literal
 
 from app.simcore.controls import clamp_controls, default_controls
 from app.simcore.devices import (
@@ -47,11 +48,11 @@ from app.simcore.hydronics import (
     mixed_return_temperature,
     normalized_resistance_index,
 )
-from app.simcore.rated import RatedSpec
 from app.simcore.psychrometrics import (
     DRY_AIR_CP_KJ_KG_K,
     LATENT_HEAT_KJ_KG,
 )
+from app.simcore.rated import RatedSpec
 from app.simcore.room import (
     MAX_ROOM_RH_PCT,
     MIN_ROOM_RH_PCT,
@@ -65,7 +66,6 @@ from app.simcore.room import (
 )
 from app.simcore.weather import Ambient, ambient_at
 from app.unity_catalog import DeviceRole
-
 
 # 水侧/冷凝侧耦合的不动点迭代次数
 FIXED_POINT_ITERATIONS = 3
@@ -522,7 +522,7 @@ class SimulationSession:
 
     # ---------- 求解 ----------
 
-    def _solve(self, ambient: Ambient) -> "_SolveResult":
+    def _solve(self, ambient: Ambient) -> _SolveResult:
         chillers = self._nodes_with_role(DeviceRole.CHILLER)
         heat_sources = self._nodes_with_role(DeviceRole.HEAT_SOURCE)
         towers = self._nodes_with_role(DeviceRole.COOLING_TOWER)
@@ -1159,7 +1159,7 @@ class SimulationSession:
     # ---------- 房间推进 ----------
 
     def _allocate_room_deliveries(
-        self, solved: "_SolveResult", ambient: Ambient
+        self, solved: _SolveResult, ambient: Ambient
     ) -> dict[str, RoomDelivery]:
         """把各末端的冷热风分配到房间
 
@@ -1504,7 +1504,7 @@ class SimulationSession:
     def _build_snapshot(
         self,
         ambient: Ambient,
-        solved: "_SolveResult",
+        solved: _SolveResult,
         balances: Mapping[str, RoomBalance],
         deliveries: Mapping[str, RoomDelivery],
         humidity_balances: Mapping[str, RoomHumidityBalance] | None = None,
@@ -1584,7 +1584,7 @@ class SimulationSession:
             alarms=self._alarms(solved),
         )
 
-    def _alarms(self, solved: "_SolveResult") -> tuple[str, ...]:
+    def _alarms(self, solved: _SolveResult) -> tuple[str, ...]:
         alarms: list[str] = []
         if self.config.mode is SimulationMode.COOLING:
             if solved.installed_capacity_kw <= 0.0 and self.layout.devices:
@@ -2033,7 +2033,7 @@ class _SolveResult:
     valves: Mapping[str, object] = field(default_factory=dict)
 
     @classmethod
-    def empty(cls, initial_water_temp_c: float = 20.0) -> "_SolveResult":
+    def empty(cls, initial_water_temp_c: float = 20.0) -> _SolveResult:
         return cls(
             supply_water_temp_c=initial_water_temp_c,
             return_water_temp_c=initial_water_temp_c,

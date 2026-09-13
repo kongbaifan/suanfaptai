@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass, replace
-from typing import Literal, Mapping
+from typing import Literal
 
 from app.data.project_store import get_project
 from app.realtime import get_current_control_snapshot, get_simulation_config
@@ -34,7 +35,6 @@ from app.simcore.session import (
 )
 from app.simcore.steady import SteadyResult, solve_steady
 from app.unity_catalog import DeviceRole
-
 
 ScenarioTarget = Literal[
     "all_equipment",

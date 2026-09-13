@@ -26,7 +26,12 @@ from typing import Any
 
 from app.data.equipment import load_equipment_catalog, save_equipment_catalog
 from app.release import resource_path
-from app.unity_catalog.roles import ROLE_TO_SYSTEM, DEVICE_TYPE_TO_ROLE, DeviceRole, SystemType
+from app.unity_catalog.roles import (
+    DEVICE_TYPE_TO_ROLE,
+    ROLE_TO_SYSTEM,
+    DeviceRole,
+    SystemType,
+)
 
 DEVICE_LIBRARY_RELATIVE = "Assets/StreamingAssets/SoftwareSerializationData/Json/DeviceLibrary.json"
 

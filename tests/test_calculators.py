@@ -7,7 +7,6 @@ from app.calculators.load import calculate_load
 from app.calculators.water import calculate_water
 from app.schemas import AirRequest, LoadRequest, RoomInput, WaterRequest
 
-
 KW = pytest.approx
 
 

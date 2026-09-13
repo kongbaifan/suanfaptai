@@ -14,7 +14,6 @@ from app.simcore.session import (
 )
 from app.teaching_scenarios import list_teaching_scenarios
 
-
 SCENARIO_IDS = [
     "normal_operation",
     "chiller_capacity_low",

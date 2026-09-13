@@ -10,8 +10,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from typing import Mapping
 
 from app.simcore.session import (
     PlantLayout,
@@ -20,7 +20,6 @@ from app.simcore.session import (
     SimulationSession,
 )
 from app.simcore.weather import PEAK_HOUR
-
 
 DEFAULT_MAX_TICKS = 500
 DEFAULT_TOLERANCE_C = 0.01

@@ -4,7 +4,6 @@ from typing import Any
 from app.data.equipment import load_equipment_catalog
 from app.schemas import Issue
 
-
 REQUIRED_BY_ROLE = {
     "cold_source": ["capacity_kw", "cop", "power_kw", "chilled_flow_m3_h", "cooling_flow_m3_h"],
     "heat_source": ["capacity_kw", "flow_m3_h", "power_kw", "cop", "cooling_capacity_kw", "cooling_power_kw", "eer"],

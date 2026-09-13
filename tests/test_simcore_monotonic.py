@@ -5,6 +5,8 @@
 数值会随物理模型细化而变，方向不会。
 """
 
+import pytest
+
 from app.simcore.devices import (
     chiller_state,
     cooling_tower_state,
@@ -16,9 +18,6 @@ from app.simcore.devices import (
     water_delta_t,
 )
 from app.simcore.rated import resolve_rated_spec_by_type
-
-import pytest
-
 
 SUPPLY_TEMP_C = 7.0
 CONDENSER_TEMP_C = 30.0

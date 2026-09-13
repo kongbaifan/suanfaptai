@@ -15,7 +15,6 @@ from app.data.equipment import role_for_device, spec_for_device
 from app.schemas import DeviceInput, PipeInput, SystemEvaluateRequest
 from app.unity_catalog import DeviceRole, find_equipment_spec, get_device_role
 
-
 Medium = Literal["chilled_water", "cooling_water", "hot_water", "air"]
 
 MANIFOLD_DEVICE_TYPES = {"分水器", "集水器"}

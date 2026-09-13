@@ -17,7 +17,6 @@ from app.samples import SAMPLES
 from app.schemas import SystemEvaluateRequest
 from app.steady_solver.solver import _normalized_solver_request
 
-
 SAMPLE_NAMES = sorted(SAMPLES)
 
 

@@ -11,13 +11,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 from app.schemas import Issue, RoomInput, SystemEvaluateRequest
 from app.simcore.rated import resolve_rated_spec_by_type
 from app.unity_catalog import DeviceRole
-
 
 TERMINAL_ROLES = frozenset(
     {DeviceRole.FCU, DeviceRole.AHU, DeviceRole.FRESH_AIR_UNIT}

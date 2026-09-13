@@ -7,7 +7,6 @@ from openpyxl import Workbook
 from app.data.equipment import load_equipment_catalog
 from app.main import app
 
-
 client = TestClient(app)
 
 

@@ -6,9 +6,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-from app.data.equipment import BOOLEAN_CATALOG_FIELDS, NUMERIC_CATALOG_FIELDS, merge_equipment_catalog
+from app.data.equipment import (
+    BOOLEAN_CATALOG_FIELDS,
+    NUMERIC_CATALOG_FIELDS,
+    merge_equipment_catalog,
+)
 from app.schemas import CatalogImportRequest, CatalogImportResult, Issue
-
 
 REQUIRED_COLUMNS = {"type", "name", "role", "systems"}
 NUMERIC_COLUMNS = NUMERIC_CATALOG_FIELDS
@@ -71,7 +74,13 @@ def _parse_json(raw: bytes) -> list[dict[str, Any]]:
     if isinstance(data, dict) and "items" in data:
         data = data["items"]
     if not isinstance(data, list):
-        raise ValueError("Catalog JSON must be a list or an object with an items list.")
+        # 必须保持 ValueError：调用方在 `except (UnicodeDecodeError,
+        # json.JSONDecodeError, ValueError)` 中统一转成结构化的
+        # CATALOG_IMPORT_PARSE_ERROR（HTTP 200）。换成 TypeError 会越过该捕获，
+        # 变成 500，并被 tests/test_catalog_management.py 的解析错误用例抓到。
+        raise ValueError(  # noqa: TRY004
+            "Catalog JSON must be a list or an object with an items list."
+        )
     return [dict(item) for item in data]
 
 

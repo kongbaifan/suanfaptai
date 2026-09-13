@@ -20,11 +20,9 @@ from app.simcore.devices import (
 from app.simcore.project import build_project_layout
 from app.simcore.psychrometrics import (
     humidity_ratio_from_rh,
-    rh_from_humidity_ratio,
 )
 from app.simcore.rated import resolve_rated_spec_by_type
 from app.simcore.session import (
-    AUTO_DEADBAND_RH_PCT,
     AUTO_DEHUMIDIFICATION_SUBCOOL_C,
     SimulationConfig,
     SimulationMode,
@@ -304,72 +302,20 @@ def test_unreachable_humidity_target_raises_alarm():
     assert any(reading.humidity_shortfall_pct > 3.0 for reading in snapshot.rooms.values())
 
 
-def test_humidity_demand_is_not_throttled_by_subcool_headroom():
-    """除湿需求不受"离过冷下限还有多远"的比例削减
+def test_humidity_demand_ramp_length_is_the_subcool_band():
+    """除湿需求的斜坡量程必须是**合法过冷带**，不是 ``AUTO_FULL_DEMAND_C``
 
-    回归防线（此前 `_room_humidity_demand` 的缺陷）：除湿需求曾乘过
-    ``min(1.0, headroom / AUTO_FULL_DEMAND_C)``，把"还能不能再冷"当成了
-    "该不该除湿"。实测 `complete/office_1` 湿度偏差对应需求 0.965，
-    距下限 22.0℃ 尚有 1.74 K 余量，比例因子 0.436 把需求压到 0.420，
-    与实测水阀开度 42% 完全吻合，房间因此停在 69.5%（目标 55%）。
+    回归防线（原缺陷）：除湿需求曾乘
+    ``min(1.0, headroom / AUTO_FULL_DEMAND_C)``，斜坡长度取了 4.0 K，
+    而合法过冷带只有 2.0 K——量程错一倍，导致**室温还在目标以上就开始打折**。
+    实测 `complete/office_1` 室温 23.74℃（目标 24.0℃）、湿度需求本应 0.965，
+    被 ``1.74/4.0 = 0.436`` 压到 **0.420**，与实测水阀开度 **42%** 完全吻合，
+    房间停在 69.5%。
 
-    钉死两条不变量：
-    1. 距下限尚有充裕余量时，需求必须是**完整的比例输出**，不得被打折；
-    2. 需求必须对湿度偏差单调——偏差越大需求越大。
-    """
-    from app.simcore.session import AUTO_FULL_DEMAND_RH_PCT
-
-    layout = build_project_layout(SystemEvaluateRequest(**_basic_sample())).layout
-    session = SimulationSession(
-        layout,
-        SimulationConfig(
-            mode=SimulationMode.COOLING,
-            step_seconds=300.0,
-            target_temp_c=24.0,
-            target_humidity_pct=55.0,
-            automatic_control=True,
-        ),
-    )
-    room_id = layout.rooms[0].room_id
-
-    # 各湿度水平下的需求，室温固定在下限之上 1.74 K（旧缺陷的折扣点）
-    room_temp_c = 24.0 - AUTO_DEHUMIDIFICATION_SUBCOOL_C + 1.74
-    demands = {}
-    for rh_pct in (70.0, 80.0, 90.0):
-        session._room_temps[room_id] = room_temp_c
-        session._room_humidity_pct[room_id] = rh_pct
-        demands[rh_pct] = session._room_humidity_demand(room_id)
-
-    # 1. 折算到目标室温下的等效湿度偏差，反算期望需求
-    for rh_pct, demand in demands.items():
-        ratio = humidity_ratio_from_rh(room_temp_c, rh_pct)
-        equivalent_rh = rh_from_humidity_ratio(24.0, ratio)
-        error = equivalent_rh - 55.0
-        expected = min(
-            1.0,
-            (error - AUTO_DEADBAND_RH_PCT)
-            / (AUTO_FULL_DEMAND_RH_PCT - AUTO_DEADBAND_RH_PCT),
-        )
-        # 不得因 headroom 只有 1.74 K 而被按 1.74/4.0 打折
-        assert demand == pytest.approx(expected, abs=1e-9), (
-            f"RH={rh_pct}% 时需求 {demand:.4f} 与完整比例输出 {expected:.4f} 不符，"
-            "疑似过冷余量比例削减回归"
-        )
-
-    # 2. 对湿度偏差单调不减（高偏差处饱和到 1.0，故是"不减"而非"严格递增"）
-    ordered = [demands[k] for k in sorted(demands)]
-    assert ordered == sorted(ordered), f"除湿需求未随湿度偏差单调不减：{demands}"
-    assert ordered[0] < ordered[-1], f"除湿需求未随湿度偏差增长：{demands}"
-
-
-def test_humidity_demand_stops_at_subcool_floor():
-    """触到过冷下限即归零，把室温交给温度需求接管
-
-    反直觉但经实测确立：若触界后仍输出除湿需求，`_room_demand` 的
-    ``max(温度, 湿度)`` 会让除湿压过温度需求，房间被带到 17.8℃（下限
-    22.0℃），而湿度**并未**达标（`complete/meeting_1` 仍 95.0% RH）。
-    根因是过冷本身不产生除湿量——继续拉低室温只吃掉显热，同一含湿量下
-    温度更低反而相对湿度更高。故下限必须是硬截断。
+    钉死三条不变量：
+    1. 室温在目标**及以上**时不得打折（斜坡必须已被 min 截到 1.0）；
+    2. 室温进入过冷带后才线性收力，触下限归零；
+    3. 需求对湿度偏差单调不减。
     """
     layout = build_project_layout(SystemEvaluateRequest(**_basic_sample())).layout
     session = SimulationSession(
@@ -384,19 +330,81 @@ def test_humidity_demand_stops_at_subcool_floor():
     )
     room_id = layout.rooms[0].room_id
     floor_c = 24.0 - AUTO_DEHUMIDIFICATION_SUBCOOL_C
+    session._room_humidity_pct[room_id] = 85.0  # 强偏差，使纯比例项达饱和
 
-    # 严重偏湿，但室温已在下限或以下
-    session._room_humidity_pct[room_id] = 95.0
-    for temp_c in (floor_c, floor_c - 1.0, floor_c - 2.1):
+    def demand_at(temp_c: float, rh_pct: float = 85.0) -> float:
         session._room_temps[room_id] = temp_c
-        assert session._room_humidity_demand(room_id) == 0.0, (
-            f"室温 {temp_c:.2f}℃ 已达/越过过冷下限 {floor_c:.2f}℃，"
-            "除湿需求应归零交由温度需求接管"
+        session._room_humidity_pct[room_id] = rh_pct
+        return session._room_humidity_demand(room_id)
+
+    # 1. 目标温度及以上：斜坡必须饱和，需求等于纯偏差比例项（满值 1.0）
+    for temp_c in (26.0, 25.0, 24.0):
+        assert demand_at(temp_c) == pytest.approx(1.0, abs=1e-9), (
+            f"室温 {temp_c}℃ 在目标及以上却被打折（{demand_at(temp_c):.4f}）；"
+            "斜坡量程疑似又取成了 AUTO_FULL_DEMAND_C"
         )
 
-    # 下限之上则恢复输出，且随余量退出而恢复（不做比例削减）
-    session._room_temps[room_id] = floor_c + 0.5
-    assert session._room_humidity_demand(room_id) > 0.0
+    # 2. 过冷带内线性收力：中点应为满值的一半
+    mid_c = (24.0 + floor_c) / 2.0
+    assert demand_at(mid_c) == pytest.approx(0.5, abs=1e-9), (
+        f"过冷带中点 {mid_c}℃ 的需求应为满值一半，实为 {demand_at(mid_c):.4f}"
+    )
+    # 触下限归零
+    assert demand_at(floor_c) == 0.0
+    assert demand_at(floor_c - 1.0) == 0.0
+    # 带内单调递减（温度越低收力越多）
+    ramp = [demand_at(24.0 - 0.5 * i) for i in range(5)]
+    assert ramp == sorted(ramp, reverse=True), f"过冷带内未随温度降低而收力：{ramp}"
+
+    # 3. 过冷带以上对湿度偏差单调递增（取未饱和的偏差区间）
+    vals = [demand_at(24.0, rh) for rh in (60.0, 63.0, 66.0)]
+    assert vals == sorted(vals), f"除湿需求未随湿度偏差单调不减：{vals}"
+    assert vals[0] < vals[-1], f"除湿需求未随湿度偏差增长：{vals}"
+
+
+def test_humidity_demand_ramp_prevents_chiller_cycling():
+    """保留斜坡可抑制冷机启停振荡（斜坡是必要结构，不可删除）
+
+    实测：把斜坡整个去掉（触界前恒为满需求）虽能进一步降低湿度，却让房间在
+    过冷下限附近来回穿越、需求在 0 与满值间跳变，`complete` 冷机开机率由
+    400/400 掉到 **297/400**，湿度单步最大跳变达 **21 个百分点**。
+    以过冷带为斜坡长度则 400/400 连续运行。
+
+    本测试用 `complete` 样例（只配风机盘管、除湿压力大）钉死"冷机不停机"。
+    """
+    from app.samples import COMPLETE_SYSTEM_SAMPLE
+
+    layout = build_project_layout(
+        SystemEvaluateRequest(**deepcopy(COMPLETE_SYSTEM_SAMPLE))
+    ).layout
+    session = SimulationSession(
+        layout,
+        SimulationConfig(
+            mode=SimulationMode.COOLING,
+            step_seconds=300.0,
+            target_temp_c=24.0,
+            target_humidity_pct=55.0,
+            outdoor_humidity_pct=70.0,
+            automatic_control=True,
+        ),
+    )
+    for _ in range(4000):
+        session.step()
+
+    on_ticks = 0
+    window = 200
+    for _ in range(window):
+        snapshot = session.step()
+        if any(
+            reading.values.get("enabled", 0.0) > 0.0
+            for reading in snapshot.devices.values()
+            if reading.role in {"chiller", "heat_source"}
+        ):
+            on_ticks += 1
+    assert on_ticks == window, (
+        f"冷机在末段 {window} tick 内仅开机 {on_ticks} 次，出现启停振荡；"
+        "除湿需求的过冷带斜坡可能被削弱或删除"
+    )
 
 
 def _basic_sample() -> dict:

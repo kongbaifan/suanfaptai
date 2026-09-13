@@ -84,13 +84,15 @@ def test_overcooling_stays_within_subcool_allowance():
 
 @pytest.mark.xfail(
     reason=(
-        "已知缺陷（尚未修复）：湿度控制处于极限环。实测末段单步温度变化 0.0416 K、"
-        "湿度 1.38 个百分点，3000 tick 后仍不衰减。"
-        "成因不在 _room_humidity_demand 的 headroom 闸门——实测移除该闸门后振荡反而"
-        "加剧（单步 0.0537 K、湿度带宽 12.3 pp，原为 8.5 pp），已回退。"
-        "根因见 test_fresh_air_unit_cannot_dry_outdoor_air_below_room：新风机组受"
-        "盘管物理上限（约 15.9 kW）约束，无法把室外新风干燥到室内含湿量以下，"
-        "因而持续向房间注入水分，房间含湿量被钉在高位、控制环围绕该高位振荡。"
+        "已知缺陷（尚未修复）：四层样例的湿度控制处于极限环。实测 3000 tick 后"
+        "末段 1500 tick 窗口内单步温度变化 0.0516 K、湿度 0.3616 个百分点，"
+        "湿度带宽 3.29 pp（49.8~53.1%），不衰减。"
+        "注意：本样例已能达标（均值 52.2%，目标 55%），残余的是小幅极限环，"
+        "不是目标不可达。"
+        "成因不在 `_room_humidity_demand` 的过冷闸门——该处的比例削减已修复"
+        "（提交 5530975，见 test_humidity_demand_is_not_throttled_by_subcool_headroom），"
+        "但触界硬截断本身是必需的（见 test_humidity_demand_stops_at_subcool_floor）。"
+        "残余振荡来自盘管出力与水阀/水温之间的离散耦合，属独立问题。"
         "本测试保留为缺陷证据与修复验收条件；修复后去掉 xfail 即可。"
     ),
     strict=True,

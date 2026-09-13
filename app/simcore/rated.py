@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import Any, Literal
@@ -51,6 +52,14 @@ class RatedSpec:
     efficiency: float | None = None
     approach_c: float | None = None
     variable_speed: bool = False
+
+    sensible_heat_ratio: float = 0.75
+    """显热比（显冷量 / 全冷量），用于把目录全热容量折算成送风温差。
+
+    组合式空调机组的真值随盘管排数变化，由型号名 `N排` 后缀解析得到
+    （见 `resolve_rated_spec_by_type`）；其余末端没有可依据的分排数数据，
+    保持 `SENSIBLE_HEAT_RATIO` 兜底值。来源见 `docs/设备样本参数.md:255-256`。
+    """
 
     origin: ParameterOrigin = "builtin_fallback"
     degraded_fields: tuple[str, ...] = ()
@@ -166,6 +175,34 @@ _BUILTIN_FALLBACK[DeviceRole.FRESH_AIR_UNIT] = {
 # 水侧 9/9 精确对上 ΔT=5.00K；风侧显热温差落在 11.85..14.49K，取均值 12.8K。
 _COIL_WATER_DELTA_T_C = 5.0
 _COIL_AIR_DELTA_T_C = 12.8
+
+# 组合式空调机组型号名里的盘管排数后缀，如 `AHU-06-07-8排`。
+# 排数是**唯一**记录显热比差异的地方：目录没有 `sensible_capacity_kw` 字段
+# （`derived_fields` 只列了 `water_flow_m3_h` / `fan_power_kw`），
+# 分排数显热比只存在于 `docs/设备样本参数.md:255-256` 的图上。
+_AHU_ROW_SUFFIX_PATTERN = re.compile(r"(\d+)\s*排\s*$")
+
+
+def _sensible_heat_ratio_for(role: DeviceRole, model_name: str) -> float | None:
+    """按型号名解析显热比
+
+    组合式空调机组的显热比随盘管排数变化（4/6/8 排 -> 0.845/0.730/0.658，
+    见 `docs/设备样本参数.md:255-256`），排数只编码在型号名后缀里。
+    非 AHU 角色（风机盘管、新风机组）没有分排数数据，返回 None 由调用方兜底。
+
+    AHU 但型号名解析不出排数时**同样返回 None**：目录里确有这类条目
+    （`K39G0608` 等 7 条 placement_only 摆放项，以及 Unity 同步来的裸型号），
+    它们没有可依据的排数，只能退回兜底值——这种情况必须被标记出来，
+    不能静默当成某个排数。
+    """
+    if role is not DeviceRole.AHU:
+        return None
+    from app.simcore.devices import AHU_SENSIBLE_HEAT_RATIO_BY_ROWS
+
+    match = _AHU_ROW_SUFFIX_PATTERN.search(str(model_name))
+    if match is None:
+        return None
+    return AHU_SENSIBLE_HEAT_RATIO_BY_ROWS.get(int(match.group(1)))
 
 
 def resolve_rated_spec(device_id: str | int, model_id: str | int) -> RatedSpec:
@@ -293,8 +330,20 @@ def _from_catalog_item(
         origin=origin,
         **values,
     )
+    # 显热比按型号名后缀解析；AHU 解析不出排数时记一次降级标记。
+    # `type_default` 的 AHU 代表型号通常也没有排数后缀，同样标记——
+    # 它确实在用兜底显热比，按「降级透明」约定必须说出来。
+    sensible_heat_ratio = _sensible_heat_ratio_for(role, spec.model_name)
+    ratio_degraded: tuple[str, ...] = ()
+    if sensible_heat_ratio is None:
+        from app.simcore.devices import SENSIBLE_HEAT_RATIO
+
+        sensible_heat_ratio = SENSIBLE_HEAT_RATIO
+        if role is DeviceRole.AHU:
+            ratio_degraded = ("default:sensible_heat_ratio",)
+    spec = replace(spec, sensible_heat_ratio=sensible_heat_ratio)
     spec, filled = _fill_required_fields(spec, item)
-    degraded = (*filled, *_missing_required(spec))
+    degraded = (*filled, *_missing_required(spec), *ratio_degraded)
     if origin != "catalog" and requested_model:
         degraded = ("model_not_in_catalog", *degraded)
     return replace(spec, degraded_fields=degraded) if degraded else spec
@@ -323,6 +372,12 @@ def _fill_required_fields(
     from app.simcore.devices import AIR_KW_PER_M3H_K, SENSIBLE_HEAT_RATIO
 
     # 全热容量与风量之间的换算系数：目录容量为全热，只有显热部分体现为送风温差。
+    #
+    # 这里固定用模块兜底 `SENSIBLE_HEAT_RATIO` 而**不用** `spec.sensible_heat_ratio`：
+    # 本系数要由风量反推一个缺字段的**全热容量**，是全热/风量之间的口径换算；
+    # 而分排数显热比只在 `terminal_state()` 里把全热折成显热送风温差时才有意义。
+    # 若用它做这层换算，同一型号的容量回填值会随排数变，等于让显热比去改全热容量，
+    # 口径就串了（盘管排数不改变机组的总冷量，只改变显热占比）。
     air_kw_per_m3h = AIR_KW_PER_M3H_K * _COIL_AIR_DELTA_T_C / SENSIBLE_HEAT_RATIO
     water_kw_per_m3h = WATER_KW_PER_M3H_K * _COIL_WATER_DELTA_T_C
     fallback = _BUILTIN_FALLBACK.get(spec.role, {})
@@ -406,6 +461,11 @@ def _builtin_spec(
 ) -> RatedSpec:
     values = dict(_BUILTIN_FALLBACK.get(role, {}))
     variable_speed = bool(values.pop("variable_speed", False))
+    # 兜底路径同样解析排数后缀：型号名带 `N排` 时排数是已知的一手信息，
+    # 没有理由因为容量参数缺失而把显热比一起丢掉。解析不到则保持
+    # `RatedSpec` 默认值 0.75；本路径整条都已标记 `reason`，降级是显式的，
+    # 不必再重复记一次 `default:sensible_heat_ratio`。
+    sensible_heat_ratio = _sensible_heat_ratio_for(role, model_name)
     spec = RatedSpec(
         device_type=device_type,
         model_name=model_name,
@@ -414,6 +474,8 @@ def _builtin_spec(
         origin="builtin_fallback",
         **values,
     )
+    if sensible_heat_ratio is not None:
+        spec = replace(spec, sensible_heat_ratio=sensible_heat_ratio)
     return replace(spec, degraded_fields=(reason, *_missing_required(spec)))
 
 

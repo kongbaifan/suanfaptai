@@ -56,8 +56,51 @@ _IPLV_CURVATURE_COEFFICIENT = 0.04575
 # 该下界与 `_clamp(cop, 1.5, 12.0)` 共同作用，两者都不再在常规工况内饱和。
 PLR_FACTOR_FLOOR = 0.45
 
-# 目录标称容量为全热能力，只有显热部分体现为送风温降
+# 目录标称容量为全热能力，只有显热部分体现为送风温降。
+#
+# **无排数信息时的兜底显热比。** 组合式空调机组的显热比随盘管排数显著变化
+# （见 `AHU_SENSIBLE_HEAT_RATIO_BY_ROWS`），型号名带 `N排` 后缀才能取到真值；
+# 风机盘管、新风机组及缺少排数后缀的条目没有可依据的分排数数据，仍用此值。
+#
+# 0.75 落在 AHU 三档 0.845/0.730/0.658 的中间（接近 6 排的 0.730），
+# 作为单一常量选得合理——`docs/设备样本参数.md:340-343` 对此有明确评价。
 SENSIBLE_HEAT_RATIO = 0.75
+
+# --- 组合式空调机组显热比（按盘管排数） --------------------------------------
+# 来源：`docs/设备样本参数.md:255-256`
+#
+#   "显冷量与总冷量的比值（显热比）随排数变化。以 06-07 号机为例：
+#    4 排 0.845、6 排 0.730、8 排 0.658。"
+#
+#     4 排：显冷 8.2 kW / 总冷 9.7 kW = 0.845
+#     6 排：显冷 9.2 kW / 总冷 12.6 kW = 0.730
+#     8 排：显冷 10.4 kW / 总冷 15.8 kW = 0.658
+#
+# 物理上排数越多、盘管表面温度越低、除湿能力越强，显热占比相应下降，
+# 与 0.845 > 0.730 > 0.658 单调一致。
+#
+# **这三个数是 06-07 号机的样例值，不是全系列统一值。** 按 `设备样本参数.md:239-253`
+# 的 15 行逐行复算，系列内的离散度是：
+#
+#   6 排：0.7229 .. 0.7333 —— 基本恒定，取 0.730 误差 < 0.007
+#   8 排：0.6575 .. 0.6645 —— 基本恒定，取 0.658 误差 < 0.007
+#   4 排：**并非恒定**，在系列中段有一次台阶式变化：
+#         06-07..13-18（2016..15993 m³/h）为 0.8429 .. 0.8454
+#         15-19..45-65（20283..237253 m³/h）为 0.8132 .. 0.8159
+#
+# 即大规格 4 排机组的实际显热比更接近 0.813，用 0.845 会**高估**其显热约 4%。
+# 本表按排数取单一值是一个**简化**：它无法表达同一档排数内部的规格差异。
+# 采用它的理由是 06-07 那组数是文档明确引用、可追溯的，且即便对最不利的
+# 大规格 4 排机组，0.845 也比原先一刀切的 0.75 更接近真值（0.813）；
+# 若要进一步分档，应把显热比做成随型号（或风量档）变化的字段，属数据录入
+# 工作，不在此处臆测。
+#
+# 另：8 排 `29-40` 号机显冷 168.1 kW / 总冷 711.9 kW = 0.2361，明显偏离同档其余
+# 各行的 0.6575..0.6645。按趋势该行显冷应为 ~468 kW（468.1/711.9 = 0.6575），
+# 判断为 `设备样本参数.md:250` 录入笔误，**不作为数据使用**，也不因此修改本表。
+#
+# 量纲：显冷 kW / 总冷 kW，无量纲。
+AHU_SENSIBLE_HEAT_RATIO_BY_ROWS: dict[int, float] = {4: 0.845, 6: 0.730, 8: 0.658}
 
 # --- 盘管 ε-NTU 模型额定工况 -----------------------------------------------
 # **重要：目录未记录额定工况。** 549 条目录项没有任何字段记录进风干湿球或
@@ -600,9 +643,13 @@ def terminal_state(
     UA 由目录额定点反标定（见 `_rated_coil_ua`），因此额定工况下 Q 严格等于
     目录 `capacity_kw`，选型结论不变，只修正偏离额定点时的响应。
 
-    风侧显热与全热的换算仍沿用 `SENSIBLE_HEAT_RATIO`：目录容量为全热能力，
-    只有显热部分体现为送风温降。送风温的物理上限由 ε 本身给出（出风温不可能
-    越过供水温），不再需要独立的经验常数。
+    风侧显热与全热的换算用**型号自己的**显热比 `rated.sensible_heat_ratio`：
+    目录容量为全热能力，只有显热部分体现为送风温降。组合式空调机组的显热比
+    随盘管排数在 0.845/0.730/0.658 间变化，由型号名后缀解析（见 `rated.py`）；
+    风机盘管与新风机组无分排数数据，保持 `SENSIBLE_HEAT_RATIO` 兜底值。
+    显热比只影响送风温，**不参与** UA 标定，因此不改变末端冷量。
+    送风温的物理上限由 ε 本身给出（出风温不可能越过供水温），不再需要独立的
+    经验常数。
     """
     opening = _clamp(valve_opening_ratio, 0.0, 1.0) if enabled else 0.0
     fan_ratio = _clamp(fan_speed_ratio, 0.0, 1.0) if enabled else 0.0
@@ -611,6 +658,12 @@ def terminal_state(
         supply_water_temp_c
         if math.isfinite(supply_water_temp_c)
         else COIL_RATED_WATER_TEMP_C
+    )
+    # 显热比是型号属性，取不到（或非有限）时退回模块兜底常量，不产生 NaN。
+    sensible_heat_ratio = (
+        rated.sensible_heat_ratio
+        if math.isfinite(rated.sensible_heat_ratio)
+        else SENSIBLE_HEAT_RATIO
     )
 
     capacity_kw = _positive(rated.capacity_kw, 0.0)
@@ -658,12 +711,12 @@ def terminal_state(
 
     supply_air_temp_c = room_temp_c
     if airflow_m3_h > 0.0 and cooling_kw > 0.0:
-        sensible_kw = cooling_kw * SENSIBLE_HEAT_RATIO
+        sensible_kw = cooling_kw * sensible_heat_ratio
         drop = sensible_kw / (AIR_KW_PER_M3H_K * airflow_m3_h)
         # 显热温降不得超过可用温差——盘管不可能把空气冷却到供水温以下。
         supply_air_temp_c = room_temp_c - _clamp(drop, 0.0, cooling_delta)
     elif airflow_m3_h > 0.0 and heating_kw > 0.0:
-        sensible_kw = heating_kw * SENSIBLE_HEAT_RATIO
+        sensible_kw = heating_kw * sensible_heat_ratio
         rise = sensible_kw / (AIR_KW_PER_M3H_K * airflow_m3_h)
         supply_air_temp_c = room_temp_c + _clamp(rise, 0.0, heating_delta)
 

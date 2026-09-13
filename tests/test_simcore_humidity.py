@@ -4,6 +4,7 @@
 以及可达性诊断字段（humidity_shortfall_pct）随读数正确暴露。
 """
 
+import itertools
 from copy import deepcopy
 from dataclasses import replace
 
@@ -18,6 +19,9 @@ from app.simcore.session import (
     SimulationMode,
     SimulationSession,
 )
+
+# 四层样例中用于跟踪的房间
+ROOM_ID = "office_f1"
 
 
 def _run(sample: dict, ticks: int = 600):
@@ -57,6 +61,65 @@ def test_overcooling_stays_within_subcool_allowance():
         reading.humidity_shortfall_pct
         == max(0.0, reading.relative_humidity_pct - reading.target_humidity_pct)
         for reading in snapshot.rooms.values()
+    )
+
+
+@pytest.mark.xfail(
+    reason=(
+        "已知缺陷（尚未修复）：湿度控制处于极限环。实测末段单步温度变化 0.0416 K、"
+        "湿度 1.38 个百分点，3000 tick 后仍不衰减。"
+        "成因不在 _room_humidity_demand 的 headroom 闸门——实测移除该闸门后振荡反而"
+        "加剧（单步 0.0537 K、湿度带宽 12.3 pp，原为 8.5 pp），已回退。"
+        "真正成因是盘管出风含湿量够不到机器露点：物理路径用 coil_leaving_state 得到的"
+        "出风含湿量约 0.0109，而 24℃/55% 需要 0.0102。"
+        "本测试保留为缺陷证据与修复验收条件；修复后去掉 xfail 即可。"
+    ),
+    strict=True,
+)
+def test_humidity_control_settles_instead_of_limit_cycling():
+    """湿度控制必须收敛到不动点，不得持续振荡
+
+    真实缺陷：四层样例在自动调节下持续振荡，室温与湿度都不平息，
+    3000 tick 后振幅仍不衰减（见 xfail 理由中的实测数据）。
+
+    本测试用与稳态收敛判据**无关**的方式复核：末段窗口内每步变化都必须足够小。
+    它同时是这条缺陷的**验收条件**——修复后应当直接通过。
+    """
+    layout = build_project_layout(
+        SystemEvaluateRequest(**deepcopy(FOUR_FLOOR_FCU_FRESH_AIR_SAMPLE))
+    ).layout
+    session = SimulationSession(
+        layout,
+        SimulationConfig(
+            mode=SimulationMode.COOLING,
+            step_seconds=300.0,
+            target_temp_c=24.0,
+            target_humidity_pct=55.0,
+            outdoor_humidity_pct=70.0,
+            automatic_control=True,
+        ),
+    )
+
+    # 先跑足够长，越过暂态
+    for _ in range(1200):
+        session.step()
+
+    # 再记录末段轨迹，检查是否真正停住
+    temperatures: list[float] = []
+    humidities: list[float] = []
+    for _ in range(200):
+        snapshot = session.step()
+        temperatures.append(snapshot.rooms[ROOM_ID].temperature_c)
+        humidities.append(snapshot.rooms[ROOM_ID].relative_humidity_pct)
+
+    max_step_t = max(abs(b - a) for a, b in itertools.pairwise(temperatures))
+    max_step_rh = max(abs(b - a) for a, b in itertools.pairwise(humidities))
+
+    assert max_step_t <= 0.01, (
+        f"末段仍有 {max_step_t:.4f} K 的单步温度变化，湿度控制未收敛（疑似极限环）"
+    )
+    assert max_step_rh <= 0.05, (
+        f"末段仍有 {max_step_rh:.4f} 个百分点的单步湿度变化，湿度控制未收敛"
     )
 
 

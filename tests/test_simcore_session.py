@@ -1009,6 +1009,82 @@ class TestSteady:
         assert result.converged is False
         assert result.ticks == 2
 
+    def test_converged_result_survives_further_integration(self):
+        """声称收敛的结果必须是真不动点：继续积分不得漂移
+
+        原判据只看**单步**漂移 ≤ tolerance。若系统处于极限环，每步变化在
+        每个周期内两次穿过零——也就是在每个折返点都会满足该判据，于是
+        `converged=True` 会在振荡的折返点被误报。实测在四层样例上，被判定
+        收敛的点继续积分后漂移达 3.34 K，远超声称的 0.0098 K。
+
+        本测试用**独立于判据本身**的方式复核：回到收敛点后继续推进若干 tick，
+        看温度是否留在容差带内。
+
+        注意：`solve_steady` 会把 `fixed_hour_of_day=None` 替换成设计时刻
+        （见 steady.py 的 `DESIGN_HOUR_OF_DAY`），复现时必须用同一份冻结配置，
+        否则气象按日周期变化，算的根本不是同一个不动点。
+        """
+        frozen = replace(DEMO_CONFIG, fixed_hour_of_day=DESIGN_HOUR_OF_DAY)
+        result = solve_steady(build_layout(), frozen)
+        assert result.converged is True
+
+        reported = result.snapshot.rooms[ROOM_ID].temperature_c
+        session = SimulationSession(build_layout(), frozen)
+        for _ in range(result.ticks):
+            session.step()
+
+        # 收敛点必须可精确复现，否则"继续积分"验证的就不是同一个点
+        assert session.snapshot.rooms[ROOM_ID].temperature_c == pytest.approx(reported)
+
+        # 继续积分：真不动点应停在原处，极限环折返点则会明显走开
+        session2 = SimulationSession(build_layout(), frozen)
+        for _ in range(result.ticks + 200):
+            session2.step()
+        drifted = abs(session2.snapshot.rooms[ROOM_ID].temperature_c - reported)
+
+        assert drifted <= 0.1, (
+            f"声称收敛的点继续积分后漂移 {drifted:.4f} K，"
+            "说明 converged=True 是在极限环折返点上误报的"
+        )
+
+    def test_oscillating_system_is_not_reported_as_converged(self):
+        """极限环必须报未收敛，而不是在折返点上误报收敛
+
+        真实缺陷案例：四层样例（four_floor_fcu_fresh_air）在自动调节下处于
+        极限环，室温在 ~0.9 K、湿度在 ~9 个百分点间持续振荡，1500 tick 后
+        仍未平息。
+
+        旧判据只看单步漂移 ≤ 0.01 K。振荡时单步变化每周期两次穿过零，因此
+        **每个折返点**都会被判为收敛。实测该样例上 `converged=True` 返回的
+        点继续积分会漂移 3.34 K —— 这个"稳态"根本不是不动点，而稳态结果被
+        设计工况评估、设备选型与教学对比共同依赖。
+
+        本测试断言：对处于极限环的系统，`converged` 必须为 False。
+        """
+        from app.samples import SAMPLES
+        from app.schemas import SystemEvaluateRequest
+        from app.simcore.project import build_runtime_layout
+
+        layout = build_runtime_layout(
+            SystemEvaluateRequest(**SAMPLES["four_floor_fcu_fresh_air"])
+        ).layout
+        result = solve_steady(
+            layout,
+            SimulationConfig(
+                mode=SimulationMode.COOLING,
+                step_seconds=300.0,
+                target_temp_c=24.0,
+                target_humidity_pct=55.0,
+                outdoor_humidity_pct=70.0,
+                automatic_control=True,
+            ),
+        )
+
+        assert result.converged is False, (
+            "极限环系统被判为收敛；"
+            f"ticks={result.ticks} drift={result.final_drift_c:.6f}"
+        )
+
     def test_invalid_limits_rejected(self):
         """非法迭代参数直接报错"""
         with pytest.raises(ValueError):

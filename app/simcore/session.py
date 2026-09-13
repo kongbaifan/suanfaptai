@@ -1913,9 +1913,36 @@ class SimulationSession:
         需求受除湿过冷下限约束：允许把室温压到目标以下
         ``AUTO_DEHUMIDIFICATION_SUBCOOL_C``。制冷除湿在物理上必须让送风低于室内
         露点，房间因此必然被带到目标温度以下；没有这份过冷，盘管在接近目标
-        温度时就转入等湿降温，湿度只升不降。若压到下限仍无法达标
-        （``humidity_shortfall_pct`` 持续为正），说明除湿能力确实不足或分区
-        分配不均，由 ``humidity_target_unreachable`` 告警如实提示。
+        温度时就转入等湿降温，湿度只升不降。
+
+        **过冷下限只做硬边界，不做比例削减**。原先除湿需求还乘过一个
+        ``min(1.0, headroom / AUTO_FULL_DEMAND_C)`` 的比例因子，实测这会把
+        除湿量按"离过冷下限还有多远"线性打折：`complete/office_1` 的湿度偏差
+        对应需求 0.965，室温 23.74℃ 距下限 22.0℃ 尚有 1.74 K 余量，
+        比例因子 1.74/4.0 = 0.436，需求被压到 0.420——与实测水阀开度
+        42% 完全吻合。也就是说房间还有 1.74 K 的合法过冷空间没用，
+        除湿却已经被砍掉一半以上，湿度因此停在 69.5%（目标 55%）。
+
+        比例因子的错误在于把"还能不能再冷"当成了"该不该除湿"。过冷下限是
+        安全边界，越界才需要收敛；未越界时除湿需求应当完整输出。实测去掉
+        比例因子后各房间湿度全面下降（`complete` 69.5→65.7、`multi_floor`
+        70.5→65.9、`multi_zone_all_air` 66.4→64.1），且室温仍稳在过冷下限
+        以内，没有出现振荡。故现在只保留硬截断 ``room_temp_c - floor_c <= 0``。
+
+        **触界后为何仍归零（反直觉但从实测得来）**：曾试过触界后继续输出
+        除湿需求（只降温以外的部分照给），想让它"继续除湿"——实测**反而更差**。
+        因为 `_room_demand` 取 ``max(温度需求, 湿度需求)``，湿度需求一旦不为零
+        就压过温度需求，房间被一路带到 17.8℃（下限 22.0℃），而湿度并**没有**
+        因此达标（`complete/meeting_1` 仍为 95.0% RH）。
+
+        原因是**过冷本身不产生除湿量**：盘管出力由水阀与水温决定，继续拉低
+        室温只是把显热也吃掉，同一含湿量下温度更低反而让相对湿度更高。触界
+        归零正是让温度需求重新接管、把室温钉在下限的作用点。
+
+        因此压到下限仍不达标时（``humidity_shortfall_pct`` 持续为正），结论是
+        **除湿能力确实不足或分区分配不均**——这是真实的选型结论，由
+        ``humidity_target_unreachable`` 如实提示，不靠无界过冷或凭空增加冷量
+        掩盖。
         """
         if self.config.mode is not SimulationMode.COOLING:
             return 0.0
@@ -1931,16 +1958,15 @@ class SimulationSession:
         if error <= AUTO_DEADBAND_RH_PCT:
             return 0.0
         floor_c = self.config.target_temp_c - AUTO_DEHUMIDIFICATION_SUBCOOL_C
-        headroom = room_temp_c - floor_c
-        if headroom <= 0.0:
+        if room_temp_c - floor_c <= 0.0:
             return 0.0
         demand = min(
             1.0,
             (error - AUTO_DEADBAND_RH_PCT)
             / (AUTO_FULL_DEMAND_RH_PCT - AUTO_DEADBAND_RH_PCT),
         )
-        # 越接近除湿过冷下限，可用于除湿的冷量越少
-        return demand * min(1.0, headroom / AUTO_FULL_DEMAND_C)
+        # 过冷下限只作硬边界：未触界就完整输出除湿需求（见上方注释）。
+        return demand
 
     def _mode_interlocked_controls(
         self, controls: Mapping[str, Mapping[str, float]]

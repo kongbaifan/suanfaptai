@@ -20,9 +20,11 @@ from app.simcore.devices import (
 from app.simcore.project import build_project_layout
 from app.simcore.psychrometrics import (
     humidity_ratio_from_rh,
+    rh_from_humidity_ratio,
 )
 from app.simcore.rated import resolve_rated_spec_by_type
 from app.simcore.session import (
+    AUTO_DEADBAND_RH_PCT,
     AUTO_DEHUMIDIFICATION_SUBCOOL_C,
     SimulationConfig,
     SimulationMode,
@@ -298,6 +300,114 @@ def test_unreachable_humidity_target_raises_alarm():
     assert "humidity_target_unreachable" in snapshot.alarms
     # 告警与诊断字段必须一致：确有房间超出目标死区
     assert any(reading.humidity_shortfall_pct > 3.0 for reading in snapshot.rooms.values())
+
+
+def test_humidity_demand_is_not_throttled_by_subcool_headroom():
+    """除湿需求不受"离过冷下限还有多远"的比例削减
+
+    回归防线（此前 `_room_humidity_demand` 的缺陷）：除湿需求曾乘过
+    ``min(1.0, headroom / AUTO_FULL_DEMAND_C)``，把"还能不能再冷"当成了
+    "该不该除湿"。实测 `complete/office_1` 湿度偏差对应需求 0.965，
+    距下限 22.0℃ 尚有 1.74 K 余量，比例因子 0.436 把需求压到 0.420，
+    与实测水阀开度 42% 完全吻合，房间因此停在 69.5%（目标 55%）。
+
+    钉死两条不变量：
+    1. 距下限尚有充裕余量时，需求必须是**完整的比例输出**，不得被打折；
+    2. 需求必须对湿度偏差单调——偏差越大需求越大。
+    """
+    from app.simcore.session import AUTO_FULL_DEMAND_RH_PCT
+
+    layout = build_project_layout(SystemEvaluateRequest(**_basic_sample())).layout
+    session = SimulationSession(
+        layout,
+        SimulationConfig(
+            mode=SimulationMode.COOLING,
+            step_seconds=300.0,
+            target_temp_c=24.0,
+            target_humidity_pct=55.0,
+            automatic_control=True,
+        ),
+    )
+    room_id = layout.rooms[0].room_id
+
+    # 各湿度水平下的需求，室温固定在下限之上 1.74 K（旧缺陷的折扣点）
+    room_temp_c = 24.0 - AUTO_DEHUMIDIFICATION_SUBCOOL_C + 1.74
+    demands = {}
+    for rh_pct in (70.0, 80.0, 90.0):
+        session._room_temps[room_id] = room_temp_c
+        session._room_humidity_pct[room_id] = rh_pct
+        demands[rh_pct] = session._room_humidity_demand(room_id)
+
+    # 1. 折算到目标室温下的等效湿度偏差，反算期望需求
+    for rh_pct, demand in demands.items():
+        ratio = humidity_ratio_from_rh(room_temp_c, rh_pct)
+        equivalent_rh = rh_from_humidity_ratio(24.0, ratio)
+        error = equivalent_rh - 55.0
+        expected = min(
+            1.0,
+            (error - AUTO_DEADBAND_RH_PCT)
+            / (AUTO_FULL_DEMAND_RH_PCT - AUTO_DEADBAND_RH_PCT),
+        )
+        # 不得因 headroom 只有 1.74 K 而被按 1.74/4.0 打折
+        assert demand == pytest.approx(expected, abs=1e-9), (
+            f"RH={rh_pct}% 时需求 {demand:.4f} 与完整比例输出 {expected:.4f} 不符，"
+            "疑似过冷余量比例削减回归"
+        )
+
+    # 2. 对湿度偏差单调不减（高偏差处饱和到 1.0，故是"不减"而非"严格递增"）
+    ordered = [demands[k] for k in sorted(demands)]
+    assert ordered == sorted(ordered), f"除湿需求未随湿度偏差单调不减：{demands}"
+    assert ordered[0] < ordered[-1], f"除湿需求未随湿度偏差增长：{demands}"
+
+
+def test_humidity_demand_stops_at_subcool_floor():
+    """触到过冷下限即归零，把室温交给温度需求接管
+
+    反直觉但经实测确立：若触界后仍输出除湿需求，`_room_demand` 的
+    ``max(温度, 湿度)`` 会让除湿压过温度需求，房间被带到 17.8℃（下限
+    22.0℃），而湿度**并未**达标（`complete/meeting_1` 仍 95.0% RH）。
+    根因是过冷本身不产生除湿量——继续拉低室温只吃掉显热，同一含湿量下
+    温度更低反而相对湿度更高。故下限必须是硬截断。
+    """
+    layout = build_project_layout(SystemEvaluateRequest(**_basic_sample())).layout
+    session = SimulationSession(
+        layout,
+        SimulationConfig(
+            mode=SimulationMode.COOLING,
+            step_seconds=300.0,
+            target_temp_c=24.0,
+            target_humidity_pct=55.0,
+            automatic_control=True,
+        ),
+    )
+    room_id = layout.rooms[0].room_id
+    floor_c = 24.0 - AUTO_DEHUMIDIFICATION_SUBCOOL_C
+
+    # 严重偏湿，但室温已在下限或以下
+    session._room_humidity_pct[room_id] = 95.0
+    for temp_c in (floor_c, floor_c - 1.0, floor_c - 2.1):
+        session._room_temps[room_id] = temp_c
+        assert session._room_humidity_demand(room_id) == 0.0, (
+            f"室温 {temp_c:.2f}℃ 已达/越过过冷下限 {floor_c:.2f}℃，"
+            "除湿需求应归零交由温度需求接管"
+        )
+
+    # 下限之上则恢复输出，且随余量退出而恢复（不做比例削减）
+    session._room_temps[room_id] = floor_c + 0.5
+    assert session._room_humidity_demand(room_id) > 0.0
+
+
+def _basic_sample() -> dict:
+    """一个最小的单房间样例，用于隔离测试除湿需求函数"""
+    sample = deepcopy(FOUR_FLOOR_FCU_FRESH_AIR_SAMPLE)
+    rooms = sample.get("rooms") or []
+    if len(rooms) > 1:
+        keep = rooms[0]["id"]
+        sample["rooms"] = [rooms[0]]
+        for device in sample.get("devices", []):
+            if device.get("type") in {"风机盘管", "组合式空调机组", "新风机组"}:
+                device["room_ids"] = [keep]
+    return sample
 
 
 def test_humidity_shortfall_matches_reading_and_target():

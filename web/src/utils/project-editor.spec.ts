@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEVICE_TYPE_OPTIONS,
+  ROOM_TERMINAL_DEVICE_TYPES,
   addConnection,
   addDevice,
   addPipe,
@@ -153,6 +155,19 @@ describe("project editor helpers", () => {
     expect(terminalDevices(source).map((device) => device.id)).toEqual(["fcu", "ahu", "fau"]);
     expect(isRoomTerminalDevice({ type: "FCU" })).toBe(false);
     expect(isRoomTerminalDevice({ type: "冷却塔" })).toBe(false);
+  });
+
+  it("offers air grilles as addable device types without treating them as room terminals", () => {
+    // 风口必须能在「新增设备」弹窗里选到（此前缺失，用户手搭项目加不了风口）。
+    expect(DEVICE_TYPE_OPTIONS).toContain("送风口");
+    expect(DEVICE_TYPE_OPTIONS).toContain("回风口");
+
+    // 但风口不是房间末端：房间「服务末端」选择器不得出现风口，
+    // 否则后端会以 ROOM_BINDING_UNSUPPORTED_DEVICE 拒绝。
+    expect(isRoomTerminalDevice({ type: "送风口" })).toBe(false);
+    expect(isRoomTerminalDevice({ type: "回风口" })).toBe(false);
+    expect(ROOM_TERMINAL_DEVICE_TYPES).not.toContain("送风口");
+    expect(ROOM_TERMINAL_DEVICE_TYPES).not.toContain("回风口");
   });
 
   it("labels known placement values and preserves unknown values", () => {

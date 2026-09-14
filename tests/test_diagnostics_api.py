@@ -30,6 +30,91 @@ def test_diagnostics_lists_release_resource_checks():
     assert all({"name", "ok", "required", "detail"} <= set(check) for check in body["checks"])
 
 
+def test_live_catalog_check_does_not_pin_the_entry_count():
+    """活目录（equipment_catalog.json）的检查不得钉死条数
+
+    回归背景：该检查曾写死 `expected_counts[equipment_catalog.json] = 53`，
+    而目录从 53 条演进到 551 条，导致 `/api/v1/diagnostics` 的 `status`
+    **长期为 error**。一个永远亮着的红灯会训练使用者忽略 diagnostics，
+    反而掩盖真实故障。
+
+    这里断言三件事：
+    1. 该资源的检查**恰好一条**——历史实现里它同时来自 expected_counts 和
+       活目录检查，会产生两条同名项（一条 FAIL 一条 OK），按名索引的调用方
+       只看到一条，于是「改了等于没改」；
+    2. 这一条通过，且 detail 不含 `expected=`（即没比对固定条数）；
+    3. 总体状态为 ok。
+    """
+    body = client.get("/api/v1/diagnostics").json()
+    name = "content:app/data/equipment_catalog.json"
+
+    matching = [check for check in body["checks"] if check["name"] == name]
+    assert len(matching) == 1, (
+        f"{name} 出现了 {len(matching)} 条同名检查；"
+        "同名重复会让调用方只看到其中一条，掩盖真实结论"
+    )
+
+    check = matching[0]
+    assert check["ok"] is True
+    assert "expected=" not in check["detail"], (
+        f"活目录检查又钉了固定条数：{check['detail']!r}；"
+        "设备目录会持续增删，钉死条数会让 diagnostics 永久报错"
+    )
+    assert body["status"] == "ok", (
+        f"诊断总体状态为 {body['status']}，失败项："
+        f"{[c['name'] for c in body['checks'] if not c['ok']]}"
+    )
+
+
+def test_no_duplicate_check_names_in_diagnostics():
+    """所有诊断检查名必须唯一
+
+    同名会让「按名取检查结果」的调用方静默拿到错误的那条。
+    """
+    body = client.get("/api/v1/diagnostics").json()
+
+    names = [check["name"] for check in body["checks"]]
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    assert not duplicates, f"诊断检查名重复：{duplicates}"
+
+
+def test_json_array_check_distinguishes_pinned_from_live(tmp_path):
+    """`_check_json_array` 的行为：不钉条数 ≠ 不检查
+
+    损坏、非数组、空文件都必须报出来；给定期望条数时才比对条数。
+    """
+    from app import release
+
+    def _probe(content: str, expected: int | None = None) -> object:
+        target = tmp_path / "probe.json"
+        target.write_text(content, encoding="utf-8")
+        return release._check_json_array("probe.json", target, expected_count=expected)
+
+    corrupt = _probe("{not json")
+    assert corrupt.ok is False
+
+    not_a_list = _probe('{"a": 1}')
+    assert not_a_list.ok is False
+    assert "array" in not_a_list.detail
+
+    empty = _probe("[]")
+    assert empty.ok is False
+    assert "empty" in empty.detail
+
+    live = _probe('[{"type": "风机盘管"}]')
+    assert live.ok is True
+    assert "count not pinned" in live.detail
+    assert "expected=" not in live.detail
+
+    pinned_ok = _probe('[{"type": "风机盘管"}]', expected=1)
+    assert pinned_ok.ok is True
+    assert "expected=1" in pinned_ok.detail
+
+    pinned_bad = _probe('[{"type": "风机盘管"}]', expected=427)
+    assert pinned_bad.ok is False
+    assert "expected=427" in pinned_bad.detail
+
+
 def test_static_workbench_bundle_is_present_and_self_consistent():
     """工作台构建产物必须存在，且 index.html 引用的带哈希资源也必须存在
 

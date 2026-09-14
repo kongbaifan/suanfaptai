@@ -169,8 +169,23 @@ def write_health_file(data_dir: Path, payload: dict[str, object]) -> Path:
 
 
 def _validate_json_resources() -> list[DiagnosticCheck]:
+    """校验打包必需的 JSON 资源能被解析，且条数与预期一致。
+
+    这里**只收录条数稳定的资源**。`Assets/.../DeviceLibrary.json` 是随
+    Unity 序列化数据一起冻结的产物，条数固定 427，条数变了就是打包出错，
+    值得报警。
+
+    `app/data/equipment_catalog.json` **不在此列**：它是会持续增删设备类型
+    的活目录（当前 551 条，由 53 条演进而来），写死条数只会随每次改目录
+    过期，让 diagnostics 长期挂一盏红灯——而长期红灯会训练使用者忽略
+    diagnostics，反而掩盖真实故障。该目录的正确性由
+    `app/data/catalog_quality.py` 与 `tests/test_catalog_management.py`
+    按角色必需字段校验，不靠条目计数。
+
+    注意：条数不等于正确性。此检查只做「文件可解析 + 条数未意外漂移」，
+    内容层面的校验见上方目录质量模块。
+    """
     expected_counts = {
-        "app/data/equipment_catalog.json": 53,
         "Assets/StreamingAssets/SoftwareSerializationData/Json/DeviceLibrary.json": 427,
     }
     checks: list[DiagnosticCheck] = []
@@ -178,28 +193,57 @@ def _validate_json_resources() -> list[DiagnosticCheck]:
         path = resource_path(relative)
         if not path.exists():
             continue
-        try:
-            with path.open("r", encoding="utf-8") as file:
-                value = json.load(file)
-            actual_count = len(value) if isinstance(value, list) else -1
-            checks.append(
-                DiagnosticCheck(
-                    f"content:{relative}",
-                    actual_count == expected_count,
-                    True,
-                    f"entries={actual_count}; expected={expected_count}",
-                )
-            )
-        except (OSError, ValueError, json.JSONDecodeError) as error:
-            checks.append(
-                DiagnosticCheck(
-                    f"content:{relative}",
-                    False,
-                    True,
-                    f"{type(error).__name__}: {error}",
-                )
-            )
+        checks.append(_check_json_array(relative, path, expected_count=expected_count))
+
+    # 活目录只校验「可解析且非空」，不钉条数：条数会随设备类型增删合法变化，
+    # 但文件损坏或写空必须报出来。
+    #
+    # 关键：这里用的是**同一个检查名**，因此必须确保上面那份 expected_counts
+    # 里不含该资源，否则会产生两条同名检查、互相矛盾（一条 FAIL 一条 OK），
+    # 而按名索引的调用方只会看到其中一条。见
+    # tests/test_diagnostics_api.py::test_live_catalog_check_does_not_pin_the_entry_count
+    live_catalog = "app/data/equipment_catalog.json"
+    assert live_catalog not in expected_counts, (
+        f"{live_catalog} 同时出现在 expected_counts 与活目录检查中，"
+        "会产生同名重复检查；请二选一"
+    )
+    if resource_path(live_catalog).exists():
+        checks.append(_check_json_array(live_catalog, resource_path(live_catalog)))
     return checks
+
+
+def _check_json_array(
+    relative: str,
+    path: Path,
+    expected_count: int | None = None,
+) -> DiagnosticCheck:
+    """把一份 JSON 资源读成数组并生成检查结果。
+
+    `expected_count` 为 `None` 时只校验「可解析、是数组、非空」——用于会持续
+    增删条目的活目录；给出具体条数时额外比对，用于条数应冻结的打包产物。
+    """
+    name = f"content:{relative}"
+    try:
+        with path.open("r", encoding="utf-8") as file:
+            value = json.load(file)
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        return DiagnosticCheck(name, False, True, f"{type(error).__name__}: {error}")
+
+    if not isinstance(value, list):
+        return DiagnosticCheck(
+            name, False, True, f"expected a JSON array, got {type(value).__name__}"
+        )
+    if not value:
+        return DiagnosticCheck(name, False, True, "entries=0; must not be empty")
+
+    if expected_count is None:
+        return DiagnosticCheck(name, True, True, f"entries={len(value)} (count not pinned)")
+    return DiagnosticCheck(
+        name,
+        len(value) == expected_count,
+        True,
+        f"entries={len(value)}; expected={expected_count}",
+    )
 
 
 def _check_data_dir(data_dir: Path) -> DiagnosticCheck:

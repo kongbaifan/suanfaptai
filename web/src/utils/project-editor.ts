@@ -64,6 +64,8 @@ export const DEVICE_TYPE_OPTIONS = [
   "风机盘管",
   "组合式空调机组",
   "新风机组",
+  "送风口",
+  "回风口",
   "风阀",
   "水阀",
 ] as const;

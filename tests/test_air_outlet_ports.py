@@ -65,7 +65,12 @@ def test_series_devices_declare_exactly_one_port(role: str):
 
 @pytest.mark.parametrize(
     "sample_name",
-    ["four_floor_fcu_fresh_air", "multi_zone_all_air", "ducted_fresh_air"],
+    [
+        "four_floor_fcu_fresh_air",
+        "multi_zone_all_air",
+        "ducted_fresh_air",
+        "three_floor_twelve_room",
+    ],
 )
 def test_wired_samples_have_no_isolated_ports(sample_name: str):
     """接线完整的样例不得出现任何孤立端口
@@ -140,6 +145,7 @@ def test_isolated_port_counts_match_the_measured_baseline():
         "four_floor_fcu_fresh_air": 0,
         "multi_zone_all_air": 0,
         "ducted_fresh_air": 0,
+        "three_floor_twelve_room": 0,
     }
     actual = {}
     for name, sample in SAMPLES.items():

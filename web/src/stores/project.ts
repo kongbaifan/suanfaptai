@@ -28,6 +28,12 @@ export const SAMPLE_OPTIONS = [
     label: "新风机组+送回风管教学样例（未保存）",
     defaultProjectName: "新风机组送回风管教学项目",
   },
+  {
+    name: "three_floor_twelve_room",
+    selectionKey: "sample:three_floor_twelve_room",
+    label: "三层十二房间教学样例（未保存）",
+    defaultProjectName: "三层十二房间教学项目",
+  },
 ] as const;
 
 export type SampleName = (typeof SAMPLE_OPTIONS)[number]["name"];

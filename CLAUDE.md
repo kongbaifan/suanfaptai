@@ -215,12 +215,77 @@ npm run build
 - **风口不是房间末端**：`TERMINAL_ROLES` 只含 `fcu`/`ahu`/`fresh_air_unit`，
   把风口写进房间的 `device_ids` 会得到 `ROOM_BINDING_UNSUPPORTED_DEVICE` **错误**。
   风口只出现在 `connections` 里。`app/samples.py` 的既有样例也如此。
-- **风口会有 `isolated_port` 警告**：`_role_port_entries` 给风口默认两个双向端口，
-  而实际只用到其中一部分，故每个风口报一条。这是既有行为（`tests/test_api.py`
-  也注明"完整系统的 isolated_port 警告反而更多"），不是接线错误。
+- **风口会有 `isolated_port` 警告**：**已修复**（见下节）。历史上
+  `_role_port_entries` 给风口默认两个双向端口，而 `_find_matching_port`
+  永远返回第一个匹配口、不做占用检查，于是端口 0 吃掉全部边、端口 1 永远空置，
+  每个风口白报一条。现已把风口与风阀改为**单端口**。
 - **风管路径枚举以风口为终点**（`network_paths.py` 的 `_path_endpoints`：
   air 的 goal 是 `air_terminal`/`air_accessory`）。因此送回风口成对布置后，
   送风路径止于送风口、回风路径止于回风口，两条都参与风管校核。
+
+### `isolated_port` 降噪：区分「结构性冗余」与「真实漏接」
+
+**结论先行**：`isolated_port` 警告原先混着两类完全不同的问题，导致真信号
+被噪音淹没。修法是让**串联设备只声明一个端口**，而非把警告静音。
+
+#### 根因
+
+`port_graph.py` 的 `_find_matching_port` 永远返回**第一个**介质/方向匹配的口，
+**不做占用检查**：
+
+```python
+for port in ports:
+    if port.medium is not None and port.medium != medium: continue
+    if direction is None: return port
+    elif port.direction == direction or port.direction == "bidirectional": return port
+```
+
+而 `air_outlet` 与 `air_valve` 原先都走 `_role_port_entries` 的**默认分支**，
+各拿到 2 个双向端口。于是端口 0 吃掉全部边、端口 1 永远空置 → 每个风口/风阀
+白报一条 `isolated_port`。
+
+#### 两类孤立端口的判别
+
+判据：**同设备上同介质的其他端口是否在用**。
+
+- 有同类端口在用 → **A 结构性冗余**（设备接过了，空的那个几何上用不到）；
+- 同介质端口**全空** → **B 真实漏接**。
+
+实测（九个内置样例全量）：
+
+| 类别 | 角色构成 | 数量 |
+| --- | --- | --- |
+| A 结构性冗余 | `air_outlet` ×10、`air_valve` ×3、`ahu` ×1 | 14 |
+| B 真实漏接 | `fcu` ×18、`chiller` ×10、`cooling_tower` ×4 | 32 |
+
+`ahu` 那一条是 B 类的边界情形：`air` 样例的 AHU 风侧回风口（port 3）**真的
+没接回风管**，属真实漏接，**保留**。
+
+#### 改法与实测效果
+
+把 `air_outlet` 与 `air_valve` 改为**单端口**（串联在风路/管路里的单个连接点，
+同一个点既进又出）：
+
+| 样例 | `isolated_port` 改前 → 改后 |
+| --- | --- |
+| `four_floor_fcu_fresh_air` | 3 → **0** |
+| `multi_zone_all_air` | 6 → **0** |
+| `ducted_fresh_air` | 4 → **0** |
+| `complete` | 2 → 2（保留：FCU 没接风管） |
+| `air` | 1 → 1（保留：AHU 没接回风） |
+| `bad` | 10 → 10（保留：冷机四个水口全空） |
+| `manifold_fcu` | 6 → 6（保留：冷却水侧完全没接） |
+| `multi_floor` | 8 → 8（保留：冷机冷却水 + FCU 风侧） |
+
+**A 类精确清零，B 类一条未减。** 风口端口 0 现在带 2 条边（进+出）。
+
+回归测试见 `tests/test_air_outlet_ports.py`（9 项），双向钉死：
+「完整样例必须 0 条」与「`bad`/`manifold_fcu` 必须继续报」。
+反向验证：把双端口布局改回去，**9 项中 7 项失败**。
+
+> **注意别再退回默认分支**。给风口 2 个端口看似"更通用"，实则必然产生一条
+> 空置端口。若将来真出现需要多口的风口（如带旁通），应在 `_role_port_entries`
+> 里显式声明并按拓扑使用，而不是靠默认值兜底。
 
 ### 样例：ducted_fresh_air（新风机组 + 送回风口 + 风管）
 

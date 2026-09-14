@@ -57,7 +57,8 @@ def test_system_evaluate_flags_more_issues_for_incomplete_system():
     assert bad_response.status_code == 200
     assert good_response.status_code == 200
     # 空系统缺核心设备，完整系统不该报这三条。评分去掉后按 code 判定，
-    # 不比 issue 总数：完整系统的 isolated_port 警告反而更多。
+    # 不比 issue 总数：两者报出的 issue 集合本就不同（完整系统会报
+    # 水力/风量/参数降级等质量问题，空系统只报缺件）。
     missing_codes = {"NO_DEVICES", "MISSING_COLD_SOURCE", "MISSING_TERMINAL"}
     bad_codes = {issue["code"] for issue in bad_response.json()["issues"]}
     good_codes = {issue["code"] for issue in good_response.json()["issues"]}

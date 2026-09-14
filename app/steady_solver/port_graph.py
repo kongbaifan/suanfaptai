@@ -215,11 +215,20 @@ def _role_port_entries(role: str) -> list[PortLayoutEntry]:
             PortLayoutEntry("supply", "air"),
             PortLayoutEntry("return", "air"),
         ]
+    if role == "air_outlet":
+        # 风口是风管的端点：一端接管、另一端通房间（房间侧不需要管段）。
+        # 拓扑上就是**串联在风路里的单个连接点**，因此只声明 1 个端口。
+        #
+        # 历史上风口走下面的默认分支拿 2 个双向端口，但 `_find_matching_port`
+        # 永远返回第一个匹配口（不做占用检查），于是端口 0 吃掉全部边、
+        # 端口 1 永远空着，每个风口白白报一条 `isolated_port`。
+        # 该警告本意是「接线漏了」，被这类结构性冗余淹没后，真正的漏接
+        # （如 `bad` 样例冷机四个水口全空）就不显眼了。
+        return [PortLayoutEntry("bidirectional", None)]
     if role == "water_valve" or role == "air_valve":
-        return [
-            PortLayoutEntry("bidirectional", None),
-            PortLayoutEntry("bidirectional", None),
-        ]
+        # 阀门同样串联在管路里，是单连接点。理由同风口：默认 2 口会让
+        # 第 2 个口永远空置并触发 `isolated_port`。
+        return [PortLayoutEntry("bidirectional", None)]
     if role == "manifold":
         # 仅主口；分支口由连接布局动态决定（见 _build_manifold_layout）
         return [PortLayoutEntry("bidirectional", None)]

@@ -5432,6 +5432,32 @@
     ]
   },
   {
+    "type": "回风口",
+    "name": "回风口",
+    "aliases": [],
+    "role": "air_terminal",
+    "systems": [
+      "air"
+    ],
+    "brand": "",
+    "series": "",
+    "placement_only": true,
+    "unity_entries": [
+      {
+        "device_id": 12,
+        "model_id": 1,
+        "order": 98,
+        "device_name": "回风口",
+        "position": "吸附天花板",
+        "position_offset": "",
+        "image": "TestPictures/送风口.png",
+        "prefab_path": "Prefabs/FengKou",
+        "type": "回风口",
+        "library": "管道类"
+      }
+    ]
+  },
+  {
     "type": "圆三通",
     "name": "DN15",
     "aliases": [],
@@ -14719,6 +14745,20 @@
     ],
     "brand": "示例品牌",
     "series": "送风口",
+    "recommended_airflow_m3_h": 500.0,
+    "air_pressure_drop_pa": 30.0,
+    "local_resistance_coefficient": 2.5,
+    "name": "*",
+    "aliases": []
+  },
+  {
+    "type": "回风口",
+    "role": "air_terminal",
+    "systems": [
+      "air"
+    ],
+    "brand": "示例品牌",
+    "series": "回风口",
     "recommended_airflow_m3_h": 500.0,
     "air_pressure_drop_pa": 30.0,
     "local_resistance_coefficient": 2.5,

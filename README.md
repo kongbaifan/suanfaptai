@@ -250,9 +250,13 @@ Content-Type: application/json
 ## 示例
 
 内置样例通过 `GET /api/v1/project/sample/{name}` 读取：`complete`、`air`、`bad`、`multi_floor`、
-`four_floor_fcu_fresh_air`。工作台提供 `complete` 和 `four_floor_fcu_fresh_air` 两个未保存样例；后者
-包含负一层机房、地上三层、风机盘管加新风，以及冷冻水、冷却水、热水和空气系统，冷水机组承担制冷，
-屋面空气源热泵承担制热。
+`manifold_fcu`、`manifold_fcu_dual_water`、`four_floor_fcu_fresh_air`、`multi_zone_all_air`、
+`ducted_fresh_air`。工作台提供 `complete`、`four_floor_fcu_fresh_air`、`multi_zone_all_air` 和
+`ducted_fresh_air` 四个未保存样例；`four_floor_fcu_fresh_air` 包含负一层机房、地上三层、风机盘管
+加新风，以及冷冻水、冷却水、热水和空气系统，冷水机组承担制冷，屋面空气源热泵承担制热。
+`ducted_fresh_air` 侧重**风侧拓扑完整性**：新风取风口 → 新风立管 → 新风机组 → 送风立管 →
+各层静压箱 → 送风口 → 回风口 → 回风管 → 风机盘管，送风口与回风口成对出现，风管按最不利
+风路校核静压余量。
 
 四层样例用于教学校核。实际工程通常还需要膨胀补水、水处理、过滤器、平衡与控制阀、冷凝水排放、防火排烟、
 计量和自动控制，不能直接作为施工或采购依据。

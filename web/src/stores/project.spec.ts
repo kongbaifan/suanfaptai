@@ -52,6 +52,7 @@ describe("built-in project samples", () => {
       "sample:complete",
       "sample:four_floor_fcu_fresh_air",
       "sample:multi_zone_all_air",
+      "sample:ducted_fresh_air",
     ]);
     expect(sampleNameForSelection("sample:four_floor_fcu_fresh_air")).toBe(
       "four_floor_fcu_fresh_air",
@@ -59,6 +60,9 @@ describe("built-in project samples", () => {
     expect(sampleNameForSelection("saved-project")).toBeNull();
     expect(sampleNameForSelection("sample:multi_zone_all_air")).toBe(
       "multi_zone_all_air",
+    );
+    expect(sampleNameForSelection("sample:ducted_fresh_air")).toBe(
+      "ducted_fresh_air",
     );
   });
 

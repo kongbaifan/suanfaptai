@@ -23,7 +23,7 @@ class DeviceRole(str, Enum):
     AIR_VALVE = "air_valve"  # 风阀
     FIRE_DAMPER = "fire_damper"  # 防火阀
     MANIFOLD = "manifold"  # 分集水器
-    AIR_OUTLET = "air_outlet"  # 送风口
+    AIR_OUTLET = "air_outlet"  # 风口（送风口/回风口，均为风系统拓扑节点）
 
     # 拓扑连接
     PIPE_STRAIGHT = "pipe_straight"  # 直管（圆/定位圆/定位方/定位铜）
@@ -81,6 +81,7 @@ DEVICE_TYPE_TO_ROLE: dict[str, DeviceRole] = {
     "分水器": DeviceRole.MANIFOLD,
     "集水器": DeviceRole.MANIFOLD,
     "送风口": DeviceRole.AIR_OUTLET,
+    "回风口": DeviceRole.AIR_OUTLET,
 
     # 拓扑
     "圆直管": DeviceRole.PIPE_STRAIGHT,

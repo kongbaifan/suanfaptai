@@ -22,6 +22,12 @@ export const SAMPLE_OPTIONS = [
     label: "多区域全空气冷热教学样例（未保存）",
     defaultProjectName: "多区域全空气教学项目",
   },
+  {
+    name: "ducted_fresh_air",
+    selectionKey: "sample:ducted_fresh_air",
+    label: "新风机组+送回风管教学样例（未保存）",
+    defaultProjectName: "新风机组送回风管教学项目",
+  },
 ] as const;
 
 export type SampleName = (typeof SAMPLE_OPTIONS)[number]["name"];

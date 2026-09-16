@@ -143,7 +143,17 @@ def _check_isolated_ports(graph: PortGraph) -> list[TopologyIssue]:
 def _check_connectivity(graph: PortGraph) -> list[TopologyIssue]:
     """检查介质子图连通性（断路检测）
 
-    如果一个介质子图中有设备但没有边，说明设备间没有连接（孤立设备）
+    判据**按介质分两类**，因为"连通"对水与风的要求本就不同：
+
+    - **水环路**是泵驱动的闭合回路，整个介质子图必须连通；出现多个连通分量
+      就是断路（如两台末端自成一圈、与冷源无连接）。
+    - **空气系统**允许多个**互相独立**的子系统：每层/每个分区一台组合式机组、
+      各带自己的风管，是完全正常的设计。风侧不套用本条规则（理由见下方注释）。
+
+    历史背景：本函数原先把"多个连通分量"一律判为断路，于是多层全空气项目
+    （每层一台 AHU、风管互不相连）必然报 `disconnected_network` error——
+    一条把正确设计钉成错误的规则。回归见
+    `tests/test_steady_solver.py::test_independent_air_systems_are_not_reported_as_disconnected`。
     """
     issues: list[TopologyIssue] = []
 
@@ -161,9 +171,10 @@ def _check_connectivity(graph: PortGraph) -> list[TopologyIssue]:
             ))
             continue
 
-        # BFS 查找连通分量
+        # BFS 查找连通分量（同时记下每个分量包含的端口键，供空气侧判定"一根
+        # 风管都没接"用）。
         visited: set[tuple[str, int]] = set()
-        components: list[set[str]] = []
+        component_keys: list[set[tuple[str, int]]] = []
 
         for port in subgraph.ports:
             key = (port.device_id, port.port_index)
@@ -171,13 +182,13 @@ def _check_connectivity(graph: PortGraph) -> list[TopologyIssue]:
                 continue
 
             # 新连通分量
-            component: set[str] = set()
+            keys: set[tuple[str, int]] = set()
             queue = deque([key])
             visited.add(key)
 
             while queue:
                 current = queue.popleft()
-                component.add(current[0])  # device_id
+                keys.add(current)
 
                 # 遍历当前端口的所有边，找到邻居端口
                 for edge in subgraph.adjacency.get(current, []):
@@ -195,15 +206,26 @@ def _check_connectivity(graph: PortGraph) -> list[TopologyIssue]:
                         visited.add(neighbor_key)
                         queue.append(neighbor_key)
 
-            if component:
-                components.append(component)
+            if keys:
+                component_keys.append(keys)
 
-        # 如果有多个连通分量，说明有断路
-        if len(components) > 1:
+        if medium == "air":
+            # 空气侧**不适用**"多分量即断路"：
+            #   1. 每层/每个分区一台机组、各带自己的风管是正常设计，多层全空气
+            #      建筑必然有多个互不相连的风网子系统；
+            #   2. 真正没接风管的设备**根本不会进入本子图**——
+            #      `port_graph._device_uses_system` 要求设备出现在该介质的连接里
+            #      才会枚举端口；而"某个端口空着"由 `isolated_port`（warning）
+            #      与 `air_tree` 的 `AIR_SOURCE_MISSING`/`AIR_TERMINAL_DISCONNECTED`
+            #      负责。在这里再报一遍只是同一件事的第三次播报。
+            continue
+
+        # 如果有多个连通分量，说明有断路（水环路是泵驱动的闭合回路，必须整体连通）
+        if len(component_keys) > 1:
             issues.append(TopologyIssue(
                 level="error",
                 code="disconnected_network",
-                message=f"{medium} 系统存在 {len(components)} 个独立连通分量（断路）",
+                message=f"{medium} 系统存在 {len(component_keys)} 个独立连通分量（断路）",
                 target=f"{medium}_network",
             ))
 

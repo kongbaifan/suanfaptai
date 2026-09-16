@@ -108,6 +108,9 @@ from app.schemas import (
     SteadyStateSimulationResult,
     SystemEvaluateRequest,
     SystemEvaluateResult,
+    SystemFormCheckResult,
+    SystemGenerateRequest,
+    SystemGenerateResult,
     TeachingComparisonRequest,
     TeachingComparisonResult,
     TeachingScenarioDescriptor,
@@ -118,12 +121,14 @@ from app.schemas import (
 from app.steady_solver.port_graph import query_device_port_layout
 from app.steady_solver.solver import build_steady_network_result
 from app.steady_solver.solver import solve_steady_state as solve_steady_network
+from app.system_builder import SystemGenerationUnavailableError, build_system
 from app.teaching_scenarios import (
     ScenarioNotApplicableError,
     compare_teaching_scenario,
     list_teaching_scenarios,
 )
 from app.validators.system import validate_system
+from app.validators.system_form import check_system_form
 
 logger = logging.getLogger(__name__)
 app = FastAPI(title="HVAC Algorithm Support", version="0.1.0")
@@ -164,6 +169,42 @@ def project_sample(sample_name: str):
 @app.post("/api/v1/project/validate", response_model=ProjectValidationResult)
 def project_validate(request: SystemEvaluateRequest) -> ProjectValidationResult:
     return validate_project_data(request)
+
+
+@app.post("/api/v1/system/form-check", response_model=SystemFormCheckResult)
+def system_form_check(request: SystemEvaluateRequest) -> SystemFormCheckResult:
+    """系统制式自检：按 `system_form` 检查拓扑是否满足该制式的成立条件。
+
+    只读：不修改项目、不创建或推进仿真会话、不写历史。
+    """
+    return check_system_form(request)
+
+
+@app.post(
+    "/api/v1/system/generate",
+    response_model=SystemGenerateResult,
+    responses={
+        422: {
+            "description": (
+                "建筑数据不足（缺房间），或 `system_form` 不是受支持的制式。"
+            )
+        }
+    },
+)
+def system_generate(request: SystemGenerateRequest) -> SystemGenerateResult:
+    """按制式从楼层与房间生成一套完整的系统骨架。
+
+    输入只需要**建筑**（楼层、房间、用途/面积/人数）与制式，输出是可直接
+    `POST /api/v1/projects` 保存、或直接送 `/api/v1/system/evaluate` 评估的完整
+    项目（设备 + 管路 + 连接 + 房间末端绑定），外加逐条生成决策及其依据。
+
+    **只读**：不落盘、不改任何已保存项目、不创建或推进实时会话。要保存请把
+    返回的 `project` 提交给 `POST /api/v1/projects`。
+    """
+    try:
+        return build_system(request)
+    except SystemGenerationUnavailableError as exc:
+        raise HTTPException(status_code=422, detail=exc.detail) from exc
 
 
 @app.get("/api/v1/projects", response_model=list[ProjectSummary])
@@ -923,6 +964,19 @@ def _recommendations_from_issues(issues):
         "incomplete_cooling_water_system": "Add required cooling water system components (cooling tower).",
         "isolated_port": "Connect all device ports to the appropriate water or air system.",
         "conservation_violation": "Fix flow conservation violations - check pipe sizing and pump capacity.",
+        # 制式规则（app/validators/system_form.py）。面向学生的整改方向用中文，
+        # 与该模块的 issue 正文保持一致——学生读的是报告，不是英文键名。
+        "SYSTEM_FORM_UNDECLARED": "为项目声明空调系统制式（风机盘管 + 新风 / 全空气），才能校核制式条件。",
+        "SYSTEM_FORM_TERMINAL_MISSING": "补上本制式要求的房间末端机组（风机盘管 + 新风用风机盘管，全空气用组合式空调机组）。",
+        "SYSTEM_FORM_ROOM_TERMINAL_MISSING": "把本制式的末端机组列进该房间的末端清单，或在房间所在层补装末端。",
+        "SYSTEM_FORM_FRESH_AIR_HANDLER_MISSING": "补上新风处理机组（风机盘管 + 新风用新风机组，全空气用组合式空调机组）。",
+        "SYSTEM_FORM_ROOM_FRESH_AIR_UNCOVERED": "让承担新风的机组也服务这个房间，否则该房间新风按室外状态直注。",
+        "SYSTEM_FORM_FORBIDDEN_TERMINAL": "删掉与本制式不符的末端机组，或把项目制式改成与实际设备一致的形式。",
+        "SYSTEM_FORM_TERMINAL_NOT_WATER_CONNECTED": "把末端机组接进冷冻水环路，否则仿真中不产出冷热量。",
+        "SYSTEM_FORM_FRESH_AIR_HANDLER_NOT_WATER_CONNECTED": "把新风处理机组接进冷冻水环路，否则新风湿负荷会被丢弃。",
+        "SYSTEM_FORM_FRESH_AIR_UNIT_NO_AIR_PATH": "给新风机组接出送风管路，否则处理后的新风送不到房间。",
+        "SYSTEM_FORM_AHU_DUCT_INCOMPLETE": "把组合式机组的送风与回风两侧都接上风管，全空气系统需要送回风成环。",
+        "SYSTEM_FORM_AHU_OUTLET_MISSING": "在组合式机组的风路上补送/回风口（或风阀），让风管真正与房间连通。",
     }
     recommendations = []
     for issue in issues:

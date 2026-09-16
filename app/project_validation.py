@@ -2,6 +2,7 @@ from app.room_bindings import resolve_room_bindings
 from app.schemas import Issue, ProjectValidationResult, SystemEvaluateRequest
 from app.validators.fresh_air import validate_fresh_air_and_terminals
 from app.validators.system import validate_system
+from app.validators.system_form import superseded_issue_codes
 
 
 def validate_project_data(request: SystemEvaluateRequest) -> ProjectValidationResult:
@@ -24,7 +25,14 @@ def validate_project_data(request: SystemEvaluateRequest) -> ProjectValidationRe
 
     issues.extend(resolve_room_bindings(request).issues)
     issues.extend(validate_system(request, required_cooling_kw=0.0))
-    issues.extend(validate_fresh_air_and_terminals(request))
+    # 声明制式后，新风覆盖问题由制式规则以 error 级接管（它知道本制式的新风
+    # 该由哪一族设备承担），通用的房间级 warning 会变成同一件事的第二次播报。
+    superseded = superseded_issue_codes(request.system_form)
+    issues.extend(
+        issue
+        for issue in validate_fresh_air_and_terminals(request)
+        if issue.code not in superseded
+    )
     valid = not any(issue.level == "error" for issue in issues)
     return ProjectValidationResult(valid=valid, normalized=request, issues=_dedupe(issues))
 

@@ -3,6 +3,7 @@ from collections import Counter
 from app.data.equipment import capacity_for_device, role_for_device
 from app.schemas import DeviceInput, Issue, SystemEvaluateRequest
 from app.validators.floors import validate_floors
+from app.validators.system_form import validate_system_form
 from app.validators.topology import validate_topology
 
 
@@ -59,5 +60,10 @@ def validate_system(request: SystemEvaluateRequest, required_cooling_kw: float) 
         issues.append(Issue(level="warning", code="NO_CONNECTIONS", message="No topology connections were provided."))
     else:
         issues.extend(validate_topology(request))
+
+    # 制式校验放在最后：它比对的是"制式要求"与最终拓扑，前面的通用规则若已报出
+    # 结构性错误，制式规则仍会照报，但学生先看到的是更基础的问题。
+    # 未声明制式（`system_form is None`）时本调用返回空列表，行为不变。
+    issues.extend(validate_system_form(request))
 
     return issues

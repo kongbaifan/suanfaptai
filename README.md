@@ -68,6 +68,8 @@ suanfaptaizhichi/
 - `POST /api/v1/projects/{project_id}/evaluate`
 - `GET /api/v1/projects/{project_id}/history`
 - `POST /api/v1/project/validate`
+- `POST /api/v1/system/form-check`
+- `POST /api/v1/system/generate`
 - `GET /api/v1/project/sample/{sample_name}`
 
 **计算与评估**
@@ -132,6 +134,46 @@ suanfaptaizhichi/
 - 水系统闭环：冷冻水/热水末端按额定流量、阀位和直连供回水管的相对阻力分配水量；供水温逐 Tick
   趋近冷热源有效目标，支路回水按最终负荷计算后流量加权混合，水泵、末端与冷热源共用同一守恒结果。
 - 单一状态源：Vue 工作台通过 REST/WS 读写服务端唯一状态，稳态与实时不会算出不一致的结果。
+
+## 系统制式与骨架生成
+
+平台支持两种**项目级**空调系统制式（`SystemEvaluateRequest.system_form`）。制式决定房间
+末端族、新风由谁承担，以及拓扑应当满足的完整性条件：
+
+| 制式 | 房间末端 | 新风承担 | 说明 |
+| --- | --- | --- | --- |
+| `fcu_fresh_air` | 风机盘管（每房间） | **独立新风机组**（每层） | 风机盘管只处理房间回风，新风单独处理 |
+| `all_air` | 组合式空调机组（每分区） | 机组的**混风箱** | 新风与回风混合后过同一副盘管；本版本只做**定风量（CAV）** |
+
+`system_form` 不写（`null`）表示未声明制式，此时只做与制式无关的通用校验——存量项目与
+全部内置样例都未声明，**无需数据迁移**。
+
+**按制式校验**：`POST /api/v1/system/form-check` 比对"制式要求"与"拓扑现状"，报出
+`SYSTEM_FORM_TERMINAL_MISSING`（缺本制式的房间末端）、`SYSTEM_FORM_FRESH_AIR_HANDLER_MISSING`
+（缺新风承担设备）、`SYSTEM_FORM_FORBIDDEN_TERMINAL`（全空气项目里混装风机盘管或独立
+新风机组）、`SYSTEM_FORM_AHU_DUCT_INCOMPLETE`（组合式机组的送风或回风没接出去）等。
+声明制式后，通用的 `fresh_air_no_handler` 警告由制式级 error 接管，同一件事不会报两遍。
+
+**从建筑生成骨架**：`POST /api/v1/system/generate` 只需楼层、房间与制式，就能生成完整的
+设备、管路、连接与房间末端绑定，外加逐条**生成决策及其依据**（参数来自目录额定值、
+规则库还是计算派生）。生成结果是纯函数、确定性的，可直接保存或评估。
+
+```powershell
+$body = @{
+  system_form = "fcu_fresh_air"
+  floors = @(@{ id = "F1"; name = "一层"; level = 1; elevation_m = 0; height_m = 3.9 })
+  rooms  = @(@{ id = "office_1"; floor_id = "F1"; name = "办公区"; area_m2 = 180; people = 30; purpose = "office" })
+} | ConvertTo-Json -Depth 10
+Invoke-RestMethod -Uri http://127.0.0.1:8010/api/v1/system/generate `
+  -Method Post -ContentType "application/json" -Body $body
+```
+
+生成结果的 issue 集合是**对应手写样例的真子集**：剩余 warning（`HYDRAULIC_IMBALANCE`、
+`AIR_TREE_UNSUPPORTED`、`SIM_DEGRADED_PARAMETERS` 等）都是平台既有基线行为，手写样例同样报。
+
+**能力边界**：全空气只做定风量，目录里没有变风量末端，房间级风量不可调；冷冻水只有单一
+全局供水温度，因此不能建模真正的温湿度独立控制；生成的是教学骨架，不含补水定压、水处理、
+平衡阀、防火排烟与自动控制。详见 [`docs/接口文档.md`](docs/接口文档.md)。
 
 ## 实时仿真行为
 

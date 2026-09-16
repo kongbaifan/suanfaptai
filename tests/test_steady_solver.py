@@ -185,6 +185,71 @@ def test_validate_topology_disconnected(disconnected_system):
     assert len(disconnected_issues) > 0
 
 
+def _two_independent_air_systems() -> SystemEvaluateRequest:
+    """两层各一台组合式机组、各自带风管，两组风管互不相连"""
+    return SystemEvaluateRequest(
+        floors=[
+            FloorInput(id="F1", name="一层", level=1),
+            FloorInput(id="F2", name="二层", level=2),
+        ],
+        devices=[
+            DeviceInput(id="ahu1", type="组合式空调机组", floor_id="F1"),
+            DeviceInput(id="outlet1", type="送风口", floor_id="F1"),
+            DeviceInput(id="ahu2", type="组合式空调机组", floor_id="F2"),
+            DeviceInput(id="outlet2", type="送风口", floor_id="F2"),
+        ],
+        pipes=[
+            PipeInput(id="duct1", system="air", floor_id="F1"),
+            PipeInput(id="duct2", system="air", floor_id="F2"),
+        ],
+        connections=[
+            ConnectionInput(from_id="ahu1", to_id="duct1", system="air"),
+            ConnectionInput(from_id="duct1", to_id="outlet1", system="air"),
+            ConnectionInput(from_id="ahu2", to_id="duct2", system="air"),
+            ConnectionInput(from_id="duct2", to_id="outlet2", system="air"),
+        ],
+    )
+
+
+def test_independent_air_systems_are_not_reported_as_disconnected():
+    """空气系统允许多个互相独立的子系统
+
+    每层/每个分区一台组合式机组、各带自己的风管，是完全正常的设计——多层
+    全空气建筑必然如此。历史实现把"多个连通分量"一律判为断路，于是任何
+    多层全空气项目都会报 `disconnected_network` error，把正确设计钉成错误。
+    """
+    graph = build_port_graph(_two_independent_air_systems())
+    codes = {issue.code for issue in validate_topology(graph)}
+
+    assert "disconnected_network" not in codes
+
+
+def test_unconnected_air_device_is_reported_by_isolated_port_not_as_disconnected():
+    """反向验证：没接风管的设备仍要被报出，只是走 `isolated_port` 而不是断路
+
+    放宽空气侧的判据不等于把真信号丢掉。没接风管的设备**根本不会进入空气子图**
+    （`port_graph._device_uses_system` 要求设备出现在该介质的连接里才枚举端口），
+    所以它的信号由 `isolated_port`（warning）与 `air_tree` 的
+    `AIR_SOURCE_MISSING`/`AIR_TERMINAL_DISCONNECTED` 承担；
+    再报一条 `disconnected_network` 只是同一件事的重复播报。
+    """
+    request = _two_independent_air_systems()
+    # 摘掉二层那条风路：ahu2 与 duct2/outlet2 之间不再有空气连接。
+    request.connections = [
+        connection
+        for connection in request.connections
+        if connection.from_id != "duct2" and connection.to_id != "duct2"
+    ]
+    graph = build_port_graph(request)
+    issues = validate_topology(graph)
+    codes = {issue.code for issue in issues}
+
+    assert "disconnected_network" not in codes
+    # ahu2 没接风管：它的水侧也没接，故四个端口全空 → isolated_port 必须报出来。
+    isolated = {issue.target for issue in issues if issue.code == "isolated_port"}
+    assert "ahu2" in isolated
+
+
 def test_validate_topology_supply_return_reversed(supply_return_reversed_system):
     """测试供回接反检测"""
     graph = build_port_graph(supply_return_reversed_system)

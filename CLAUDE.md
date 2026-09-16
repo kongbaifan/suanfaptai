@@ -627,6 +627,92 @@ SimulationConfig(mode=COOLING, step_seconds=300, target_temp_c=24,
 湿度。必须用长窗口加稳健统计（均值、带宽、单步最大变化）。本会话两次得出
 错误结论（"湿度已修复"、"盘管实出 0 kW 是回归"）都是因为只读了一个时刻。
 
+## 系统制式与骨架生成（两族系统搭建）
+
+平台支持两种**项目级**空调系统制式（`SystemEvaluateRequest.system_form`），决定房间末端族、
+新风由谁承担、以及拓扑要满足的完整性条件：
+
+| 制式 | 房间末端 | 新风承担 | 不允许出现的末端族 |
+| --- | --- | --- | --- |
+| `fcu_fresh_air` | `DeviceRole.FCU` | `DeviceRole.FRESH_AIR_UNIT` | 组合式空调机组 |
+| `all_air` | `DeviceRole.AHU` | `DeviceRole.AHU`（混风箱） | 风机盘管、独立新风机组 |
+
+`system_form` 不写（`null`）= 未声明制式，只做制式无关的通用校验。存量项目与全部内置样例
+都未声明，**无需数据迁移**。
+
+### 相关模块与入口
+
+| 文件 | 职责 |
+| --- | --- |
+| `app/validators/system_form.py` | 按制式校验（11 条规则）；`check_system_form` 是自检入口 |
+| `app/system_builder.py` | 从楼层/房间生成设备-管路-连接骨架（纯函数、确定性） |
+| `app/equipment_selection.py` | `select_equipment` / `derive_requirements` 是生成器复用的选型内核 |
+| `POST /api/v1/system/form-check` | 制式自检（只读） |
+| `POST /api/v1/system/generate` | 生成骨架（只读，不落盘） |
+| `tests/test_system_form_rules.py` / `test_system_builder.py` | 24 + 32 项回归 |
+
+### 必须知情的坑（都是踩过的）
+
+1. **`app/steady_solver/__init__.py` 会 import solver**，solver 经 calculators 反过来 import
+   validators。因此 `validators/system_form.py` 判断端口图时必须**在函数内延迟导入**
+   `build_port_graph`，顶层导入会形成包级循环。
+2. **`room_ids_by_device` 是"设备 → 房间"的倒置表**（`resolve_room_bindings` 的返回）。
+   要按房间查末端必须再倒置一次；直接按房间 id 索引会静默拿到空列表。
+3. **风管尺寸不会被自动反算**（与水管不同）。缺尺寸报 `AIR_DUCT_SIZE_MISSING` 并连带
+   `FAN_PRESSURE_LOW`；缺 `flow_m3_h` 会让 `air_tree` 退到均分兜底
+   （`AIR_LEAF_DEMAND_FALLBACK`）并让送/回风总量对不上（`AIR_SUPPLY_RETURN_MISMATCH`）。
+4. **`循环泵` 在目录里没有 `*` 回退行**。留下 `name=None` 会报 `UNKNOWN_DEVICE_CATALOG`
+   并跳过系统兼容性检查；风口/风阀有回退行，可以不写型号。
+5. **全空气制式下不允许独立新风机组**不是形式洁癖：`session._fresh_air_handlers` 里新风
+   机组优先级高于组合式机组，混进来会让组合式机组拿不到新风量、混风箱退化成全回风，
+   项目实际变成混合制式。
+6. **`SYSTEM_FORM_AHU_DUCT_INCOMPLETE` 必须用端口图判断**，不能用节点连通性——送回风两侧
+   会被并成一张图，只接送风管、回风悬空的机组也能"连通"。
+7. **`air` 样例声明 `all_air` 会报 `AHU_DUCT_INCOMPLETE`，这是真实缺陷不是误报**：该样例只有
+   一条空气连接（`ahu_1 -> duct_1`），回风侧悬空且没有任何风口。测试里已用注释钉住。
+8. **风管型风机盘管是本平台的正常接法**（`ducted_fresh_air` 的回风管就接进风机盘管）。
+   我曾写过一条"风机盘管不该接风管"的规则，在三个正规样例上全部误报后删掉了——
+   这是 `isolated_port` 那一课的同类错误：**总是误报的规则比没有规则更糟**。
+9. **制式的向后兼容是硬约束**：未声明制式时 `validate_system_form` 必须返回空列表，
+   `test_undeclared_form_does_not_change_project_validation` 逐样例钉死了这一点。
+10. **生成结果的 issue 集合是手写样例的真子集**
+    （`test_generated_issues_are_a_subset_of_sample_issues`）。剩余 warning 全是平台基线
+    行为，不是生成器引入的。改生成器时若出现样例没有的 warning，那就是真缺陷。
+11. **风机盘管按室内侧负荷选，这条口径曾名不副实**：`_group_project` 交给选型器的
+    是含新风的总负荷，所以第一版实际按总负荷选（一栋楼选出 19 台小风盘）。现由
+    `_indoor_requirements` **按负荷比例缩放**选型需求（冷冻水流量与送风量都对负荷
+    一次齐次，缩放是精确的，不引入新常数），并经 `select_equipment(requirements=...)`
+    传入。回归用"未知用途 + 可调新风量"的建筑把两者解耦后钉死：
+    新风量翻六倍，风机盘管选型必须一点不变，而新风机组必须变。
+12. **空气侧不套用"多分量即断路"**（`steady_solver/topology_validator.py`
+    的 `_check_connectivity`）。水环路是泵驱动的闭合回路、必须整体连通；空气系统
+    允许多个互相独立的子系统——每层一台机组各带风管是正常设计，**多层全空气建筑
+    必然如此**。旧规则把"多个连通分量"一律判为 error，等于把正确设计钉成错误
+    （实测：两层全空气建筑评估报 `disconnected_network`）。真正没接风管的设备
+    根本不会进入空气子图，其信号由 `isolated_port` 与 `air_tree` 承担。
+
+### 生成器的选型口径（两族刚好相反）
+
+- **风机盘管**按该层**室内侧**负荷选（总负荷扣除 `components_kw` 的 `fresh_air_cooling` +
+  `latent_cooling`）；
+- **新风机组**按该层**卫生新风量**选（人数 × 每人新风量），与冷负荷无关；
+- **组合式机组**按该分区**全部**负荷选（含新风，混风箱承担新风）。
+
+**冷冻水泵两步定选**：扬程需求来自管网阻力，而环路要先有泵才闭合——先用占位泵接成闭合
+回路，再按生成出的管网定选。冷却水泵与热水泵按各自环路的目录声明流量（冷机
+`cooling_flow_m3_h`、热源 `flow_m3_h`）与该环路最不利路径扬程匹配：
+`calculate_hydraulic_network` 的 `required_pump_head_m` **只统计冷冻水闭合回路**，
+冷却水/热水侧要自己从 `paths` 里按系统取最大值。
+
+### 能力边界（不得宣称超出）
+
+- **全空气只做定风量（CAV）**：目录里没有变风量末端（`airflow_min/max_m3_h` 零行），
+  房间级风量不可调，只有机组级风机转速调节。
+- **不支持真正的温湿度独立控制**（冷冻水只有单一全局供水温度，见上文既有边界）。
+- **生成的是教学骨架**：不含补水定压、水处理、平衡阀、防火排烟与自动控制；管长是估算值
+  （立管取标高跨度、水平管取楼层面积平方根），实际深化时应替换。生成结果的全部参数来源
+  逐条记在响应的 `decisions` 里（`source` ∈ catalog/rules/calculated/default）。
+
 ## 参考资源
 
 - GB 50189：公共建筑节能设计标准

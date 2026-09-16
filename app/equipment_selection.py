@@ -29,6 +29,7 @@ from app.schemas import (
     SelectionRuleRange,
     SelectionStatus,
     SelectionTargetRole,
+    SystemEvaluateRequest,
 )
 
 _EPSILON = 1e-9
@@ -94,17 +95,93 @@ class SelectionRequirementsUnavailableError(ValueError):
         }
 
 
+@dataclass(frozen=True, slots=True)
+class SelectionOutcome:
+    """一次教学选型的完整结果（与项目存储无关）。
+
+    `best` 是骨架生成器的入口：生成器要的是"该用哪个型号、要几台"，
+    而不是排好序的完整候选表给人看。
+    """
+
+    target_role: SelectionTargetRole
+    status: SelectionStatus
+    requirements: SelectionRequirements
+    applied_rules: SelectionAppliedRules
+    candidates: tuple[SelectionCandidate, ...]
+
+    @property
+    def best(self) -> SelectionCandidate | None:
+        """排名最靠前的**合格**候选；没有合格候选时返回 None。"""
+        return next((item for item in self.candidates if item.eligible), None)
+
+
 def recommend_equipment(
     project_id: str, target_role: SelectionTargetRole
 ) -> SelectionRecommendationResult:
     record = get_project(project_id)
     requirements = _derive_requirements(record)
-    _require_available(record, target_role, requirements)
+    require_available(record.project, target_role, requirements)
+    outcome = _rank_candidates(target_role, requirements, load_equipment_catalog())
+    return SelectionRecommendationResult(
+        project_id=project_id,
+        target_role=target_role,
+        status=outcome.status,
+        requirements=_rounded_requirements(requirements),
+        applied_rules=outcome.applied_rules,
+        candidates=list(outcome.candidates),
+    )
+
+
+def select_equipment(
+    project: SystemEvaluateRequest,
+    target_role: SelectionTargetRole,
+    *,
+    catalog: list[dict[str, Any]] | None = None,
+    requirements: SelectionRequirements | None = None,
+) -> SelectionOutcome:
+    """在**内存项目**上做教学选型：纯函数，不读项目存储、不写盘、不改状态。
+
+    与 `recommend_equipment` 共用同一套需求派生与候选评价，唯一的区别是项目
+    来源：`recommend_equipment` 按 `project_id` 从存储读，本函数直接吃一个
+    `SystemEvaluateRequest`。
+
+    这条无存储入口是骨架生成器必需的：生成器要**先**拿到型号才能装配设备与
+    管路，走 `recommend_equipment` 会要求"先落盘一个还没有设备的空项目"再回头
+    改，既多一次写盘也让生成不再是一个纯函数。
+
+    `requirements` 允许调用方**显式给出**选型需求，跳过从项目派生。生成器需要
+    这条口子：制式要求把新风负荷从房间末端的需求里剔除（风机盘管不承担新风），
+    而"剔除哪一部分负荷"不是从项目本身能派生的信息。不传则按项目派生，行为
+    与 `recommend_equipment` 完全一致。
+
+    `catalog` 可复用已加载的设备目录：生成器要连续给 4~5 个角色选型，不传
+    就会把 345 KB 的目录重复读解析同样多的次数。
+
+    需求缺失（无房间，或负荷/流量/扬程不可派生）时抛
+    `SelectionRequirementsUnavailableError`，与 `recommend_equipment` 一致。
+    """
+    resolved = (
+        requirements if requirements is not None else derive_requirements(project)
+    )
+    if requirements is None:
+        require_available(project, target_role, resolved)
+    return _rank_candidates(
+        target_role,
+        resolved,
+        load_equipment_catalog() if catalog is None else catalog,
+    )
+
+
+def _rank_candidates(
+    target_role: SelectionTargetRole,
+    requirements: SelectionRequirements,
+    catalog: list[dict[str, Any]],
+) -> SelectionOutcome:
+    """过滤目录候选、逐条评价、排序，返回结构化结果。"""
     rules = _selection_rules()
-    catalog = deepcopy(load_equipment_catalog())
     rows = [
         row
-        for row in catalog
+        for row in deepcopy(catalog)
         if row.get("role") == target_role
         and _catalog_text(row.get("name")) not in {"", "*"}
         and not row.get("configurable_series")
@@ -115,9 +192,10 @@ def recommend_equipment(
         _evaluate_candidate(row, target_role, requirements, rules) for row in rows
     ]
     ranked.sort(key=_ranking_key)
-    candidates = []
-    for rank, item in enumerate(ranked, start=1):
-        candidates.append(item.candidate.model_copy(update={"rank": rank}))
+    candidates = tuple(
+        item.candidate.model_copy(update={"rank": rank})
+        for rank, item in enumerate(ranked, start=1)
+    )
 
     status: SelectionStatus
     if not candidates:
@@ -127,18 +205,22 @@ def recommend_equipment(
     else:
         status = "no_eligible_candidates"
 
-    return SelectionRecommendationResult(
-        project_id=project_id,
+    return SelectionOutcome(
         target_role=target_role,
         status=status,
-        requirements=_rounded_requirements(requirements),
+        requirements=requirements,
         applied_rules=rules.response(),
         candidates=candidates,
     )
 
 
-def _derive_requirements(record: ProjectRecord) -> SelectionRequirements:
-    project = record.project.model_copy(deep=True)
+def derive_requirements(project: SystemEvaluateRequest) -> SelectionRequirements:
+    """从内存项目派生选型需求（纯函数）。
+
+    需求全部由现有计算器给出，不接受调用方直接提交负荷/流量/扬程：
+    冷热负荷用 `calculate_load`、冷冻水流量与扬程用
+    `calculate_hydraulic_network`、送风量用 `calculate_air`。
+    """
     load = calculate_load(
         LoadRequest(
             rooms=[room.model_copy(deep=True) for room in project.rooms],
@@ -176,12 +258,21 @@ def _derive_requirements(record: ProjectRecord) -> SelectionRequirements:
     )
 
 
-def _require_available(
-    record: ProjectRecord,
+def _derive_requirements(record: ProjectRecord) -> SelectionRequirements:
+    """存储入口的薄包装：从项目记录取 `project` 再派生需求。
+
+    保留这个私有名字与签名是有意的：`recommend_equipment` 依赖它，既有测试也
+    monkeypatch 它来固定需求值。
+    """
+    return derive_requirements(record.project)
+
+
+def require_available(
+    project: SystemEvaluateRequest,
     target_role: SelectionTargetRole,
     requirements: SelectionRequirements,
 ) -> None:
-    if not record.project.rooms:
+    if not project.rooms:
         raise SelectionRequirementsUnavailableError(target_role, ["rooms"])
 
     required_fields = {

@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -170,6 +171,20 @@ class ConnectionInput(BaseModel):
     system: Literal["chilled_water", "cooling_water", "hot_water", "air"]
 
 
+class SystemForm(str, Enum):
+    """空调系统制式（空调系统形式）。
+
+    制式是**项目级**声明：一个项目只采用一种制式，它决定末端设备族、
+    新风由谁承担、以及拓扑应当满足的完整性条件。
+
+    未声明（`None`）是合法状态，表示"只做通用校验"——存量项目与全部内置
+    样例都未声明制式，行为与引入本字段之前完全一致。
+    """
+
+    FCU_FRESH_AIR = "fcu_fresh_air"  # 风机盘管 + 独立新风机组（温湿分控样板）
+    ALL_AIR = "all_air"  # 全空气（组合式空调机组 + 风管树，本版本只做定风量）
+
+
 class SystemEvaluateRequest(BaseModel):
     floors: list[FloorInput] = []
     rooms: list[RoomInput] = []
@@ -179,6 +194,8 @@ class SystemEvaluateRequest(BaseModel):
     simultaneity_factor: float = Field(default=0.9, gt=0, le=1.0)
     safety_factor: float = Field(default=1.1, gt=0)
     design_options: dict[str, Any] = {}
+    # 制式声明。默认 None = 未声明，只做制式无关的通用校验。
+    system_form: SystemForm | None = None
 
 
 class TopologyPath(BaseModel):
@@ -868,6 +885,77 @@ class ProjectValidationResult(BaseModel):
     normalized: SystemEvaluateRequest
     issues: list[Issue]
     schema_version: str = "1.0"
+
+
+class SystemFormCheckResult(BaseModel):
+    """制式自检结果。
+
+    与 `ProjectValidationResult` 的分工：后者回答"这份项目数据格式对不对、
+    水风系统自不自洽"，制式无关；本模型只回答"声明的系统制式在这个拓扑上
+    成立吗"。两者都要看，制式自检不重复通用校验的内容。
+    """
+
+    system_form: SystemForm | None
+    declared: bool
+    compliant: bool
+    issues: list[Issue]
+
+
+class SystemGenerateOptions(BaseModel):
+    """骨架生成的可调参数。全部有默认值，缺省即按规则库/计算器取值。"""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    # 是否同时生成热水环路与热源。`calculate_load` 会算出供暖负荷，没有热源时
+    # 稳态容量平衡会如实报 energy_balance_violation（制热侧缺口）；内置样例都配了
+    # 空气源热泵与热水环路，故默认开启。关掉它可用于只讲夏季工况的课堂。
+    include_heating: bool = True
+
+
+class GenerationDecision(BaseModel):
+    """一条生成决策及其依据。
+
+    "可解释性"是项目的既有纪律：每个结论都要说清是**目录额定值**、**规则库**
+    还是**计算派生**得来的，不能是凭空写的数。
+    """
+
+    target: str
+    choice: str
+    reason: str
+    source: Literal["catalog", "rules", "calculated", "default"]
+
+
+class SystemGenerateRequest(BaseModel):
+    """骨架生成请求：给建筑（楼层 + 房间）与制式，换回一套完整拓扑。
+
+    `system_form` 在这里是**必填**——没有制式就不知道该生成哪一族系统。
+    这与 `SystemEvaluateRequest.system_form` 可选（默认未声明）不同：评估可以
+    离开制式独立进行，生成不行。
+    """
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    floors: list[FloorInput] = []
+    rooms: list[RoomInput] = []
+    system_form: SystemForm
+    simultaneity_factor: float = Field(default=0.9, gt=0, le=1.0)
+    safety_factor: float = Field(default=1.1, gt=0)
+    design_options: dict[str, Any] = {}
+    options: SystemGenerateOptions = SystemGenerateOptions()
+
+
+class SystemGenerateResult(BaseModel):
+    """生成结果：一套可直接保存/评估的完整项目 + 决策记录 + 自检问题。
+
+    `project` 已经过 `validate_project_data` 与制式自检；`issues` 是它们报出的
+    问题。`degraded=True` 表示生成过程中有降级（例如某条需求在目录里没有合格
+    型号，只能退到最大可用型号），此时 `issues` 里必有对应的 warning。
+    """
+
+    project: SystemEvaluateRequest
+    decisions: list[GenerationDecision]
+    issues: list[Issue]
+    degraded: bool
 
 
 class CatalogImportRequest(BaseModel):

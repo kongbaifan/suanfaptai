@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import RuntimeView from "./RuntimeView.vue";
 import { useProjectStore } from "@/stores/project";
 import { useRealtimeStore } from "@/stores/realtime";
+import { useUiStore } from "@/stores/ui";
 import type { RealtimeControlsResult, RealtimePipeStatesResult, RealtimeState } from "@/types";
 
 const pipes: RealtimePipeStatesResult = {
@@ -601,6 +602,92 @@ describe("runtime workspace navigation", () => {
     expect(wrapper.get(".runtime-hero-actions").isVisible()).toBe(true);
     await wrapper.get(".runtime-hero-actions .button.primary").trigger("click");
     expect(start).toHaveBeenCalledWith(expect.objectContaining({ mode: "cooling", target_temp_c: 26 }));
+    wrapper.unmount();
+  });
+});
+
+/** 后端已经在 alarms 里给出诊断；界面必须把它翻译成"为什么全是 0"并指路。 */
+function withAlarms(realtime: ReturnType<typeof useRealtimeStore>, codes: string[]) {
+  realtime.running = true;
+  realtime.current = {
+    ...structuredClone(state),
+    alarms: codes.map((code) => ({ level: "warning" as const, code, message: `${code} message`, target: "room-1" })),
+  };
+}
+
+describe("runtime zero-output diagnosis", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("explains that the run cannot produce anything when no room is bound", async () => {
+    const { wrapper, realtime } = await mountView();
+    withAlarms(realtime, ["ROOM_BINDING_NO_DEVICE", "ROOM_BINDING_DEVICE_UNCLAIMED", "SIM_NO_CHILLED_FLOW"]);
+    await flushPromises();
+
+    const banner = wrapper.get(".runtime-diagnosis");
+    expect(banner.text()).toContain("仿真跑不出任何冷热量");
+    expect(banner.text()).toContain("设备读数全是 0");
+    // 必须点名这是配置问题，并给出整改方向，而不是让学生自己猜
+    expect(banner.text()).toContain("配置问题");
+    expect(banner.text()).toContain("房间与末端");
+    expect(banner.text()).toContain("去结构建模补末端");
+    wrapper.unmount();
+  });
+
+  it("stays visible on every workspace tab, not only the overview", async () => {
+    const { wrapper, realtime } = await mountView();
+    withAlarms(realtime, ["ROOM_BINDING_NO_DEVICE", "SIM_NO_CHILLED_FLOW"]);
+    await flushPromises();
+
+    await wrapper.get("#runtime-tab-devices").trigger("click");
+    expect(wrapper.find(".runtime-diagnosis").exists()).toBe(true);
+    await wrapper.get("#runtime-tab-pipes").trigger("click");
+    expect(wrapper.find(".runtime-diagnosis").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("navigates to the building editor from the banner", async () => {
+    const { wrapper, realtime } = await mountView();
+    withAlarms(realtime, ["ROOM_BINDING_NO_DEVICE", "SIM_NO_CHILLED_FLOW"]);
+    await flushPromises();
+
+    const ui = useUiStore();
+    await wrapper.get(".runtime-diagnosis .button").trigger("click");
+    expect(ui.view).toBe("building");
+    wrapper.unmount();
+  });
+
+  it("downgrades to a partial warning when the run still produces cooling", async () => {
+    const { wrapper, realtime } = await mountView();
+    // 有房间没末端，但冷冻水有流量——仿真有产出，只是这些房间没人管
+    withAlarms(realtime, ["ROOM_BINDING_NO_DEVICE"]);
+    await flushPromises();
+
+    const banner = wrapper.get(".runtime-diagnosis");
+    expect(banner.classes()).toContain("partial");
+    expect(banner.text()).toContain("个房间没有末端服务");
+    expect(banner.text()).not.toContain("全是 0");
+    wrapper.unmount();
+  });
+
+  it("shows nothing when there are no binding alarms", async () => {
+    const { wrapper, realtime } = await mountView();
+    withAlarms(realtime, ["SIM_DEGRADED_PARAMETERS"]);
+    await flushPromises();
+    expect(wrapper.find(".runtime-diagnosis").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("shows nothing before the simulation is started", async () => {
+    const { wrapper, realtime } = await mountView();
+    realtime.running = false;
+    realtime.current = {
+      ...structuredClone(state),
+      alarms: [{ level: "warning", code: "ROOM_BINDING_NO_DEVICE", message: "x", target: "room-1" }],
+    };
+    await flushPromises();
+    expect(wrapper.find(".runtime-diagnosis").exists()).toBe(false);
     wrapper.unmount();
   });
 });

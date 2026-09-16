@@ -67,7 +67,7 @@ from app.realtime import (
     update_realtime_state,
 )
 from app.reporting import build_report
-from app.room_bindings import ProjectRoomBindingError
+from app.room_bindings import ProjectRoomBindingError, resolve_room_bindings
 from app.samples import SAMPLES
 from app.schemas import (
     AirNetworkResult,
@@ -866,6 +866,11 @@ def _evaluate(request: SystemEvaluateRequest) -> SystemEvaluateResult:
     if steady_solver_result is not None:
         issues.extend(steady_solver_result.issues or [])
 
+    # 房间绑定问题（房间没有末端服务 / 末端没有任何房间认领）原先只出现在
+    # `/api/v1/project/validate`，评估路径里完全没有——于是"设计校核"看不到它们。
+    # 后果很实在：一个没有任何房间认领末端的项目，实时仿真会全程输出 0，
+    # 而校核页一个字都不提。绑定是仿真的入口条件，评估必须报出来。
+    issues.extend(resolve_room_bindings(request).issues)
     issues.extend(validate_system(request, required_cooling_kw))
     topology = analyze_topology(request, _flow_map_for_topology(request, load_result))
     issues.extend(topology.issues)

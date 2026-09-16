@@ -713,6 +713,47 @@ SimulationConfig(mode=COOLING, step_seconds=300, target_temp_c=24,
   （立管取标高跨度、水平管取楼层面积平方根），实际深化时应替换。生成结果的全部参数来源
   逐条记在响应的 `decisions` 里（`source` ∈ catalog/rules/calculated/default）。
 
+## 排障：设备读数全是 0
+
+**症状**：启动实时仿真后，冷机、水泵、末端的 `cooling_kw` / `flow_m3_h` /
+`water_flow_m3_h` / `airflow_m3_h` 全是 0（冷却水泵与冷却塔可能仍有额定流量——
+冷却水环路在自己打循环，只是没有热量要带走）。
+
+**先查这一条**：`RoomInput.device_ids` 是否为空。绑定的权威方向是**房间 → 设备**，
+`resolve_room_bindings` 把它倒置成 `room_ids_by_device` 给仿真核用。只要没有任何
+房间认领末端：
+
+    device.effective_room_ids == ()  →  _terminal_room_weights 返回 ()
+                                     →  _allocate_room_deliveries 跳过该末端
+                                     →  末端不分配风量/水量，不出冷量
+                                     →  冷冻水流量 0，冷机无负荷
+
+这不是模型或计算错误，是**配置问题**：系统里没有东西可算。
+
+**平台会怎么报**（三处，都是 warning，`valid` 仍为 true）：
+
+| 位置 | 表现 |
+| --- | --- |
+| `/api/v1/project/validate` | `ROOM_BINDING_NO_DEVICE` ×房间数、`ROOM_BINDING_DEVICE_UNCLAIMED` ×末端数 |
+| `/api/v1/system/evaluate` | 同上（2026-09 之前这里**不报**，已在 `_evaluate` 补上——绑定是仿真的入口条件） |
+| 实时 `alarms` | 同上 + `SIM_NO_CHILLED_FLOW`（判据见 `session._alarms`：冷冻水流量 ≤0 且有装机容量） |
+
+`start_simulation` **只对绑定 error 抛 422**，warning 一律放行——这是有意的
+（容错不拦截），所以启动不会失败，界面必须自己把原因说清楚。
+
+**界面**：`RuntimeView.vue` 有两个诊断横幅，固定在标签页之上、每个标签都可见
+（症状在"设备"页，解释必须在同一屏）：
+
+- `.runtime-diagnosis`（红）：`ROOM_BINDING_NO_DEVICE` 且 `SIM_NO_CHILLED_FLOW` →
+  "仿真跑不出任何冷热量，所以设备读数全是 0"，并说明是配置问题、给出整改入口；
+- `.runtime-diagnosis.partial`（黄）：只有绑定告警、但系统仍有产出 →
+  "N 个房间没有末端服务"。
+
+两个横幅都要求 `realtime.running`：停止后不再显示（停止态的告警仍留在"需要关注"列表里）。
+
+**排查时注意**：`uvicorn` 若没带 `--reload`，改完后端代码必须重启进程才生效；
+而 `app/static` 是每次请求读盘，前端重新构建**无需**重启即可看到。
+
 ## 参考资源
 
 - GB 50189：公共建筑节能设计标准

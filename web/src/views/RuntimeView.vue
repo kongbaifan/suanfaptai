@@ -3,10 +3,12 @@ import { computed, nextTick, ref, watch } from "vue";
 import {
   CircleStop,
   ChevronRight,
+  Network,
   Play,
   RefreshCw,
   RotateCcw,
   Save,
+  TriangleAlert,
 } from "lucide-vue-next";
 import StatusBadge from "@/components/StatusBadge.vue";
 import { useProjectStore } from "@/stores/project";
@@ -15,6 +17,7 @@ import {
   defaultSimulationConfig,
   useRealtimeStore,
 } from "@/stores/realtime";
+import { useUiStore } from "@/stores/ui";
 import type {
   DeviceInput,
   RealtimeDeviceState,
@@ -34,6 +37,7 @@ import {
 
 const project = useProjectStore();
 const realtime = useRealtimeStore();
+const ui = useUiStore();
 const selectedId = ref<string | null>(null);
 const typeFilter = ref("all");
 const statusFilter = ref("all");
@@ -319,6 +323,38 @@ const RATED_SOURCE_LABELS: Record<string, string> = {
   builtin_fallback: "内置兜底",
 };
 const summary = computed(() => realtime.current?.summary ?? {});
+/**
+ * 为什么设备读数全是 0 —— 直接复用后端已经给出的告警，不在这里另算一套判据。
+ *
+ * `ROOM_BINDING_NO_DEVICE`：房间没有末端服务（后端逐房间报）。
+ * `SIM_NO_CHILLED_FLOW`：冷冻水流量为 0（末端没有需求时的必然结果）。
+ * 两者同时成立，就说明这一轮仿真不可能产出任何冷热量——界面必须说清楚，
+ * 而不是让学生对着一排 0 自己猜。
+ */
+const alarms = computed(() => realtime.current?.alarms ?? []);
+const unservedRoomAlarms = computed(() =>
+  alarms.value.filter((issue) => issue.code === "ROOM_BINDING_NO_DEVICE"),
+);
+const unclaimedTerminalAlarms = computed(() =>
+  alarms.value.filter((issue) => issue.code === "ROOM_BINDING_DEVICE_UNCLAIMED"),
+);
+const noChilledFlow = computed(() =>
+  alarms.value.some((issue) => issue.code === "SIM_NO_CHILLED_FLOW"),
+);
+/** 完全跑不出东西：有房间没末端，且冷冻水确实为 0。 */
+const idleBecauseUnbound = computed(
+  () => realtime.running && unservedRoomAlarms.value.length > 0 && noChilledFlow.value,
+);
+/** 只是部分房间没末端：仿真有产出，但这些房间不会被供冷/供热。 */
+const partlyUnbound = computed(
+  () =>
+    realtime.running &&
+    unservedRoomAlarms.value.length > 0 &&
+    !idleBecauseUnbound.value,
+);
+function goBuilding() {
+  ui.navigate("building");
+}
 /** 热泵卡双工况判定：运行模式（制冷时换向供冷）。 */
 const summaryMode = computed(() => String(summary.value.mode ?? "cooling"));
 const temperature = computed(() => firstNumeric(summary.value, ["average_room_temp_c", "room_temp_c", "supply_temp_c"]));
@@ -520,6 +556,36 @@ watch([selectedId, () => realtime.controls], () => {
     <div v-if="project.usingSample" class="warning-banner">当前是未保存样例。先保存为项目，才能启动仿真和 WebSocket。</div>
     <div v-if="realtime.error" class="error-banner">{{ realtime.error }}</div>
 
+    <section v-if="idleBecauseUnbound" class="runtime-diagnosis" role="alert">
+      <TriangleAlert />
+      <div>
+        <strong>仿真跑不出任何冷热量，所以设备读数全是 0</strong>
+        <p>
+          <b>{{ unservedRoomAlarms.length }}</b> 个房间没有任何末端设备为它服务，
+          <template v-if="unclaimedTerminalAlarms.length">另有 <b>{{ unclaimedTerminalAlarms.length }}</b> 台末端没有被任何房间认领，</template>
+          末端因此不分配水量、也不出冷量，冷冻水流量为 0——冷机、水泵、末端自然全是 0。
+          这是<strong>配置问题，不是模型或计算错误</strong>。
+        </p>
+        <p class="runtime-diagnosis-fix">
+          整改：到「结构建模 → 房间与末端」，给每个房间选上服务它的末端（通常选本层的风机盘管组；
+          若该层有独立新风机组，一并选上）。
+        </p>
+        <button class="button primary" type="button" @click="goBuilding"><Network />去结构建模补末端</button>
+      </div>
+    </section>
+
+    <section v-else-if="partlyUnbound" class="runtime-diagnosis partial" role="status">
+      <TriangleAlert />
+      <div>
+        <strong>{{ unservedRoomAlarms.length }} 个房间没有末端服务</strong>
+        <p>
+          这些房间不会得到冷热量：它们的负荷算进了系统，却没有设备为它们出力。
+          <template v-if="unclaimedTerminalAlarms.length">同时有 {{ unclaimedTerminalAlarms.length }} 台末端没有被任何房间认领。</template>
+        </p>
+        <button class="button secondary" type="button" @click="goBuilding"><Network />去结构建模补末端</button>
+      </div>
+    </section>
+
     <section class="runtime-summary-strip live-metrics">
       <article class="metric-cell"><span>室内温度</span><strong>{{ valueWithUnit(temperature, "°C") }}</strong><small>目标 {{ valueWithUnit(configDraft.target_temp_c, "°C") }}</small></article>
       <article class="metric-cell"><span>室内湿度</span><strong>{{ valueWithUnit(humidity, "%", 1) }}</strong><small>目标 {{ valueWithUnit(configDraft.target_humidity_pct, "%", 0) }}</small></article>
@@ -626,6 +692,19 @@ watch([selectedId, () => realtime.controls], () => {
 .runtime-view .device-card .status-badge.is-ok { color: #207858; background: #eaf5ef; }
 .runtime-view .device-card .status-badge.is-error { color: var(--red); background: #fff0ef; }
 .runtime-view .humidity-diagnosis { margin-bottom: 16px; border: 1px solid #eed9b5; border-radius: 9px; }
+/* 「为什么全是 0」横幅：红色为"完全没产出"，黄色为"部分房间没末端"。
+   位置固定在标签页之上，任何标签下都看得见——症状（设备读数）与解释必须同屏。 */
+.runtime-diagnosis { display: flex; align-items: flex-start; gap: 12px; margin: 0 clamp(20px, 3vw, 44px) 16px; padding: 18px 20px; background: #fff5f4; border: 1px solid #f0bdb6; border-left: 4px solid var(--red); border-radius: 10px; }
+.runtime-diagnosis > svg { flex: none; width: 20px; height: 20px; margin-top: 2px; color: var(--red); }
+.runtime-diagnosis > div { display: grid; gap: 8px; }
+.runtime-diagnosis strong { color: #8d2b20; font-size: 15px; }
+.runtime-diagnosis p { max-width: 980px; color: #5c4a48; font-size: 13px; line-height: 1.85; }
+.runtime-diagnosis p b { color: #8d2b20; }
+.runtime-diagnosis .runtime-diagnosis-fix { color: #4a5a52; }
+.runtime-diagnosis .button { justify-self: start; margin-top: 2px; }
+.runtime-diagnosis.partial { background: #fffbf2; border-color: #eed9b5; border-left-color: #c98a1c; }
+.runtime-diagnosis.partial > svg { color: #b17a1d; }
+.runtime-diagnosis.partial strong { color: #7d5a14; }
 .runtime-hero-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .runtime-summary-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); background: var(--surface); border-bottom: 1px solid var(--line); }
 .runtime-summary-strip article { min-height: 112px; display: grid; align-content: center; gap: 5px; padding: 20px 22px; border-right: 1px solid var(--line); }

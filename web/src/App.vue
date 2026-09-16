@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";
-import { BookOpen, Building2, ChevronDown, ClipboardCheck, Gauge, History, LifeBuoy, Menu, Network, PlayCircle, Save, X } from "lucide-vue-next";
+import { BookOpen, Building2, Calculator, ChevronDown, ClipboardCheck, Gauge, History, LifeBuoy, Menu, Network, PlayCircle, Save, X } from "lucide-vue-next";
 import StatusBadge from "@/components/StatusBadge.vue";
 import ProjectManager from "@/components/ProjectManager.vue";
 import { useDiagnosticsStore } from "@/stores/diagnostics";
@@ -13,6 +13,7 @@ import CatalogView from "@/views/CatalogView.vue";
 import DiagnosticsView from "@/views/DiagnosticsView.vue";
 import EvaluationView from "@/views/EvaluationView.vue";
 import HistoryView from "@/views/HistoryView.vue";
+import LoadView from "@/views/LoadView.vue";
 import OverviewView from "@/views/OverviewView.vue";
 import ResourcesView from "@/views/ResourcesView.vue";
 import RuntimeView from "@/views/RuntimeView.vue";
@@ -24,7 +25,7 @@ const diagnostics = useDiagnosticsStore();
 const ui = useUiStore();
 const managerOpen = ref(false);
 
-const views: Record<ViewName, Component> = { overview: OverviewView, building: BuildingView, evaluation: EvaluationView, runtime: RuntimeView, history: HistoryView, catalog: CatalogView, diagnostics: DiagnosticsView, resources: ResourcesView };
+const views: Record<ViewName, Component> = { overview: OverviewView, building: BuildingView, load: LoadView, evaluation: EvaluationView, runtime: RuntimeView, history: HistoryView, catalog: CatalogView, diagnostics: DiagnosticsView, resources: ResourcesView };
 const activeView = computed(() => views[ui.view]);
 const navGroups = [
   { label: "项目工作区", items: [
@@ -32,6 +33,7 @@ const navGroups = [
     { id: "building" as const, label: "结构建模", hint: "楼层与管网", icon: Network },
   ] },
   { label: "实验流程", items: [
+    { id: "load" as const, label: "负荷计算", hint: "分项与指标", icon: Calculator },
     { id: "evaluation" as const, label: "设计校核", hint: "负荷与系统", icon: ClipboardCheck },
     { id: "runtime" as const, label: "实时实验", hint: "运行与控制", icon: PlayCircle },
     { id: "history" as const, label: "实验复盘", hint: "趋势与记录", icon: History },
@@ -43,7 +45,8 @@ const navGroups = [
 ] as const;
 const viewMeta: Record<ViewName, { label: string; trail: string }> = {
   overview: { label: "项目总览", trail: "项目工作区" }, building: { label: "结构建模", trail: "项目工作区" },
-  evaluation: { label: "设计校核", trail: "实验流程" }, runtime: { label: "实时实验", trail: "实验流程" },
+  load: { label: "负荷计算", trail: "实验流程" }, evaluation: { label: "设计校核", trail: "实验流程" },
+  runtime: { label: "实时实验", trail: "实验流程" },
   history: { label: "实验复盘", trail: "实验流程" }, resources: { label: "设备与教学", trail: "资料与工具" },
   catalog: { label: "参数目录", trail: "资料与工具" }, diagnostics: { label: "服务状态", trail: "资料与工具" },
 };

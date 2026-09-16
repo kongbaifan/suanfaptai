@@ -245,11 +245,13 @@ describe("BuildingView floor navigation", () => {
     expect(wrapper.text()).toContain("UNKNOWN_ROOM_FLOOR");
   });
 
-  it("offers no editing for an unsaved sample", async () => {
+  it("shows a read-only structure preview for an unsaved sample", async () => {
     const { wrapper } = await mountWith(projectData(), true);
 
-    expect(wrapper.find(".builder-layout").exists()).toBe(false);
+    expect(wrapper.find(".builder-layout").exists()).toBe(true);
     expect(wrapper.text()).toContain("样例项目不能直接编辑");
+    expect(wrapper.find('.builder-fields').attributes("disabled")).toBeDefined();
+    expect(wrapper.find('input[aria-label="r_office 名称"]').element.matches(':disabled')).toBe(true);
   });
 
   it("surfaces the backend save error", async () => {

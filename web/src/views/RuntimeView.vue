@@ -1,16 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import {
-  Activity,
   CircleStop,
-  Droplets,
-  Gauge,
+  ChevronRight,
   Play,
   RefreshCw,
   RotateCcw,
   Save,
-  Thermometer,
-  Waves,
 } from "lucide-vue-next";
 import StatusBadge from "@/components/StatusBadge.vue";
 import { useProjectStore } from "@/stores/project";
@@ -49,6 +45,43 @@ const applyAllHumidity = ref(55);
 const configSaved = ref(false);
 const initialSaved = ref(false);
 const controlsSaved = ref(false);
+const activeTab = ref<"overview" | "devices" | "pipes" | "conditions">("overview");
+const runtimeTabs = [
+  { id: "overview" as const, label: "运行总览" },
+  { id: "devices" as const, label: "设备与控制" },
+  { id: "pipes" as const, label: "管网读数" },
+  { id: "conditions" as const, label: "实验条件" },
+];
+const modeLabels: Record<string, string> = { cooling: "制冷", heating: "制热", ventilation: "通风", standby: "待机", fault: "故障" };
+const socketLabels: Record<string, string> = { connected: "数据已连接", connecting: "正在连接", reconnecting: "正在重连", disconnected: "未连接" };
+const deviceStatusLabels: Record<string, string> = { running: "运行中", stopped: "已停止", alarm: "告警", offline: "离线" };
+const roomStates = computed(() => realtime.rooms?.rooms ?? []);
+const runtimeAvailable = computed(() => Boolean(project.projectId && !project.usingSample));
+const connectionTone = computed(() => realtime.socketState === "connected" ? "ok" : realtime.running ? "warn" : "muted");
+const modeLabel = computed(() => modeLabels[realtime.running ? summaryMode.value : configDraft.value.mode] ?? "--");
+
+function deviation(value: number, target: number, unit: string) {
+  if (!Number.isFinite(value) || !Number.isFinite(target)) return "--";
+  const difference = value - target;
+  return `${difference > 0 ? "+" : ""}${difference.toFixed(1)}${unit}`;
+}
+
+async function onTabKeydown(event: KeyboardEvent, index: number) {
+  let next = index;
+  if (event.key === "ArrowRight") next = (index + 1) % runtimeTabs.length;
+  else if (event.key === "ArrowLeft") next = (index - 1 + runtimeTabs.length) % runtimeTabs.length;
+  else if (event.key === "Home") next = 0;
+  else if (event.key === "End") next = runtimeTabs.length - 1;
+  else return;
+  event.preventDefault();
+  activeTab.value = runtimeTabs[next].id;
+  await nextTick();
+  document.getElementById(`runtime-tab-${activeTab.value}`)?.focus();
+}
+
+function selectDevice(deviceId: string) {
+  selectedId.value = deviceId;
+}
 
 const deviceTypes = computed(() => [...new Set((project.project?.devices ?? []).map((item) => item.type))]);
 const devices = computed(() => (project.project?.devices ?? []).filter((device) => {
@@ -290,13 +323,12 @@ const summary = computed(() => realtime.current?.summary ?? {});
 const summaryMode = computed(() => String(summary.value.mode ?? "cooling"));
 const temperature = computed(() => firstNumeric(summary.value, ["average_room_temp_c", "room_temp_c", "supply_temp_c"]));
 const humidity = computed(() => firstNumeric(summary.value, ["average_room_humidity_pct"]));
-/** 湿度超出目标且持续存在的房间：除湿能力不足，目标在当前配置下不可达。 */
+/** 后端报告的湿度偏差房间；页面只提示偏差，不据此推导设备原因。 */
 const humidityUnreachableRooms = computed(() =>
   (realtime.rooms?.rooms ?? []).filter(
     (room) => (room.humidity_shortfall_pct ?? 0) > 3.0,
   ),
 );
-const humidityTarget = computed(() => configDraft.value.target_humidity_pct);
 const pressure = computed(() => firstNumeric(summary.value, ["pressure_pa", "total_pressure_pa", "pump_pressure_pa"]));
 const flow = computed(() => firstNumeric(summary.value, ["total_flow_m3_h", "flow_m3_h", "chilled_water_flow_m3_h"]));
 const load = computed(() => firstNumeric(
@@ -464,190 +496,183 @@ watch([selectedId, () => realtime.controls], () => {
 </script>
 
 <template>
-  <div class="view-stack">
-    <section class="view-heading action-heading">
-      <div><p class="eyebrow">REALTIME RUNTIME</p><h1>实时运行</h1><p>仿真控制、设备变量与当前告警</p></div>
-      <div class="toolbar">
-        <StatusBadge :tone="realtime.socketState === 'connected' ? 'ok' : 'warn'" :label="realtime.socketState" />
-        <button class="icon-button" title="刷新运行数据" @click="realtime.syncRuntimeState"><RefreshCw /></button>
+  <div class="view-stack runtime-view">
+    <section class="view-heading action-heading runtime-hero">
+      <div>
+        <p class="eyebrow">REALTIME RUNTIME</p>
+        <h1>实时运行</h1>
+        <p>先确认运行状态，再查看房间温湿度与设备数据。</p>
+      </div>
+      <div class="runtime-hero-status">
+        <div class="runtime-status-line">
+          <StatusBadge :tone="realtime.running ? 'ok' : 'muted'" :label="realtime.running ? '仿真运行中' : '仿真已停止'" />
+          <StatusBadge :tone="connectionTone" :label="socketLabels[realtime.socketState] ?? realtime.socketState" />
+        </div>
+        <div class="runtime-mode">当前模式：<strong>{{ modeLabel }}</strong><span v-if="realtime.current?.updated_at"> · {{ dateTime(realtime.current.updated_at) }}</span></div>
+        <div class="runtime-hero-actions">
+          <button class="button primary" :disabled="!runtimeAvailable || realtime.running || realtime.configSaving || !configValid" @click="startSimulation"><Play />启动仿真</button>
+          <button class="button danger" :disabled="!runtimeAvailable || !realtime.running" @click="realtime.stop"><CircleStop />停止仿真</button>
+          <button class="button secondary" :disabled="realtime.state === 'loading'" @click="realtime.syncRuntimeState"><RefreshCw />刷新数据</button>
+        </div>
       </div>
     </section>
 
-    <div v-if="project.usingSample" class="warning-banner">当前是未保存样例。先在顶部保存为项目，才能启动仿真和 WebSocket。</div>
+    <div v-if="project.usingSample" class="warning-banner">当前是未保存样例。先保存为项目，才能启动仿真和 WebSocket。</div>
     <div v-if="realtime.error" class="error-banner">{{ realtime.error }}</div>
 
-    <section class="metric-grid live-metrics">
-      <article class="metric-cell"><Thermometer /><span>室内温度</span><strong>{{ valueWithUnit(temperature, "°C") }}</strong></article>
-      <article class="metric-cell"><Droplets /><span>室内湿度</span><strong>{{ valueWithUnit(humidity, "%", 1) }}</strong></article>
-      <article class="metric-cell"><Gauge /><span>系统压力</span><strong>{{ valueWithUnit(pressure, "Pa", 0) }}</strong></article>
-      <article class="metric-cell"><Waves /><span>循环流量</span><strong>{{ valueWithUnit(flow, "m³/h") }}</strong></article>
-      <article class="metric-cell"><Activity /><span>系统负荷</span><strong>{{ valueWithUnit(load, "kW") }}</strong></article>
+    <section class="runtime-summary-strip live-metrics">
+      <article class="metric-cell"><span>室内温度</span><strong>{{ valueWithUnit(temperature, "°C") }}</strong><small>目标 {{ valueWithUnit(configDraft.target_temp_c, "°C") }}</small></article>
+      <article class="metric-cell"><span>室内湿度</span><strong>{{ valueWithUnit(humidity, "%", 1) }}</strong><small>目标 {{ valueWithUnit(configDraft.target_humidity_pct, "%", 0) }}</small></article>
+      <article><span>房间读数</span><strong>{{ roomStates.length || "--" }} 间</strong><small>{{ realtime.running ? "仿真正在更新" : "显示最近状态" }}</small></article>
+      <article><span>系统负荷</span><strong>{{ valueWithUnit(load, "kW") }}</strong><small>循环流量 {{ valueWithUnit(flow, "m³/h") }}</small></article>
+      <article><span>实时告警</span><strong :class="{ 'runtime-danger-number': (realtime.current?.alarms.length ?? 0) > 0 }">{{ realtime.current?.alarms.length ?? 0 }}</strong><small>{{ pressure == null ? "压力数据待上报" : valueWithUnit(pressure, "Pa", 0) }}</small></article>
     </section>
 
-    <div v-if="humidityUnreachableRooms.length" class="warning-banner humidity-diagnosis">
-      湿度目标 {{ humidityTarget }}% 当前不可达（{{ humidityUnreachableRooms.length }} 个房间超标）：
-      盘管除湿能力不足以处理人员散湿与新风湿负荷，继续降温只会让相对湿度更高。
-      需配置再热盘管或独立新风除湿机组。
-      <span class="humidity-diagnosis-rooms">{{ humidityUnreachableRooms.map((room) => `${room.name} ${room.relative_humidity_pct}%`).join("、") }}</span>
+    <nav class="workspace-tabs" role="tablist" aria-label="实时运行工作区">
+      <button v-for="(tab, index) in runtimeTabs" :id="`runtime-tab-${tab.id}`" :key="tab.id" role="tab" type="button" :aria-selected="activeTab === tab.id" :aria-controls="`runtime-panel-${tab.id}`" :tabindex="activeTab === tab.id ? 0 : -1" :class="{ active: activeTab === tab.id }" @click="activeTab = tab.id" @keydown="onTabKeydown($event, index)">{{ tab.label }}<span v-if="tab.id === 'overview' && (realtime.current?.alarms.length ?? 0) > 0" class="tab-count">{{ realtime.current?.alarms.length }}</span></button>
+    </nav>
+
+    <div v-show="activeTab === 'overview'" id="runtime-panel-overview" class="runtime-tab-panel" role="tabpanel" aria-labelledby="runtime-tab-overview" tabindex="0">
+      <section class="band-section runtime-alert-section">
+        <div class="section-title"><div><p class="eyebrow">ATTENTION</p><h2>需要关注</h2></div><span>{{ realtime.current?.alarms.length ?? 0 }} 条告警</span></div>
+        <div v-if="realtime.current?.alarms.length" class="issue-list"><article v-for="issue in realtime.current.alarms" :key="`${issue.code}-${issue.target}`" class="issue-row" :class="`issue-${issue.level}`"><StatusBadge :tone="issue.level === 'error' ? 'error' : 'warn'" :label="issue.code" /><div><strong>{{ issue.message }}</strong><small>{{ issue.target || '系统' }}</small></div></article></div>
+        <div v-else class="empty-state" :class="{ good: realtime.running }">{{ realtime.running ? '当前没有实时告警。' : '仿真已停止，暂无实时告警。' }}</div>
+      </section>
+
+      <section class="band-section runtime-room-section">
+        <div class="section-title"><div><p class="eyebrow">ROOM COMFORT</p><h2>房间温湿度</h2></div><span>{{ roomStates.length }} 个房间</span></div>
+        <div v-if="realtime.running && humidityUnreachableRooms.length" class="warning-banner humidity-diagnosis">
+          {{ humidityUnreachableRooms.length }} 个房间的后端湿度偏差记录超过 3 个百分点。请结合当前边界条件与运行过程检查目标偏差；这些仿真读数不能单独确定设备原因。
+          <span class="humidity-diagnosis-rooms">{{ humidityUnreachableRooms.map((room) => `${room.name} ${room.relative_humidity_pct}%`).join("、") }}</span>
+        </div>
+        <div v-if="roomStates.length" class="room-comfort-grid">
+          <article v-for="room in roomStates" :key="room.room_id" class="room-comfort-card">
+            <div class="room-comfort-head"><div><strong>{{ room.name }}</strong><small>{{ room.floor_name || room.floor_id }}</small></div><StatusBadge :tone="realtime.running ? 'ok' : 'muted'" :label="realtime.running ? '实时读数' : '最近状态'" /></div>
+            <div class="room-comfort-values"><div><span>温度</span><strong>{{ finite(room.temperature_c, 1) }}°C</strong><small>目标 {{ finite(room.target_temp_c, 1) }}°C · {{ deviation(room.temperature_c, room.target_temp_c, "°C") }}</small></div><div><span>湿度</span><strong>{{ finite(room.relative_humidity_pct, 1) }}%</strong><small>目标 {{ finite(room.target_humidity_pct, 0) }}% · {{ deviation(room.relative_humidity_pct, room.target_humidity_pct, " 个百分点") }}</small></div></div>
+
+          </article>
+        </div>
+        <div v-else class="empty-state">当前尚无房间读数。保存包含房间的项目并启动仿真后，这里显示温湿度和目标偏差。</div>
+      </section>
+
+      <section class="band-section equipment-overview">
+        <div class="section-title"><div><p class="eyebrow">EQUIPMENT OVERVIEW</p><h2>设备运行概览</h2></div><div class="title-actions"><span>{{ deviceCards.length }} 台可展示设备</span><button class="button ghost" type="button" @click="activeTab = 'devices'">查看设备控制 <ChevronRight /></button></div></div>
+        <div v-if="deviceCards.length" class="device-card-grid">
+          <button v-for="card in deviceCards" :key="card.device.id" type="button" class="device-card" :class="{ selected: selectedId === card.device.id }" @click="selectDevice(card.device.id); activeTab = 'devices'">
+            <span class="device-card-header"><span class="device-card-title"><strong>{{ card.device.name || card.device.id }}</strong><small>{{ card.label }} · {{ card.device.type }}</small></span><StatusBadge :tone="card.state?.status === 'running' ? 'ok' : card.state?.status === 'alarm' ? 'error' : 'muted'" :label="deviceStatusLabels[card.state?.status ?? ''] || card.state?.status || '无实时数据'" /></span>
+            <span class="device-card-meta"><span>{{ card.device.floor_id || '未分配楼层' }}</span><time>{{ dateTime(card.state?.timestamp) }}</time></span>
+            <span class="device-card-group runtime-values"><strong>实时读数</strong><span v-for="field in card.runtime" :key="`runtime-${field.label}`" class="device-card-row"><span>{{ field.label }}</span><span>{{ field.value }}<small v-if="field.unit && field.value !== '--'">{{ field.unit }}</small></span></span></span>
+            <span class="device-card-group device-rated-summary"><strong>额定参数</strong><span v-for="field in card.rated" :key="`rated-${field.label}`" class="device-card-row"><span>{{ field.label }}</span><span>{{ field.value }}<small v-if="field.unit && field.value !== '--'">{{ field.unit }}</small></span></span></span>
+          </button>
+        </div>
+        <div v-else class="empty-state">当前项目没有可展示的动态设备。</div>
+      </section>
     </div>
 
-    <section class="band-section equipment-overview">
-      <div class="section-title">
-        <div><p class="eyebrow">EQUIPMENT OVERVIEW</p><h2>设备数据展示</h2></div>
-        <span>{{ deviceCards.length }} 台设备</span>
-      </div>
-      <div v-if="deviceCards.length" class="device-card-grid">
-        <button
-          v-for="card in deviceCards"
-          :key="card.device.id"
-          type="button"
-          class="device-card"
-          :class="{ selected: selectedId === card.device.id }"
-          @click="selectedId = card.device.id"
-        >
-          <span class="device-card-header">
-            <span class="device-card-title"><strong>{{ card.device.name || card.device.id }}</strong><small>{{ card.label }} · {{ card.device.type }}</small></span>
-            <StatusBadge :tone="card.state?.status === 'running' ? 'ok' : card.state?.status === 'alarm' ? 'error' : 'muted'" :label="card.state?.status || '无实时数据'" />
-          </span>
-          <span class="device-card-meta"><span>{{ card.device.floor_id || '未分配楼层' }}</span><time>{{ dateTime(card.state?.timestamp) }}</time></span>
-          <span class="device-card-group">
-            <strong>设备参数</strong>
-            <span v-for="field in card.rated" :key="`rated-${field.label}`" class="device-card-row"><span>{{ field.label }}</span><span>{{ field.value }}<small v-if="field.unit && field.value !== '--'">{{ field.unit }}</small></span></span>
-          </span>
-          <span class="device-card-group runtime-values">
-            <strong>运行数据</strong>
-            <span v-for="field in card.runtime" :key="`runtime-${field.label}`" class="device-card-row"><span>{{ field.label }}</span><span>{{ field.value }}<small v-if="field.unit && field.value !== '--'">{{ field.unit }}</small></span></span>
-          </span>
-        </button>
-      </div>
-      <div v-else class="empty-state">当前项目没有可展示的动态设备。</div>
-    </section>
-
-    <section class="band-section simulation-band">
-      <div class="section-title">
-        <div><p class="eyebrow">BOUNDARY & SYSTEM</p><h2>边界与系统条件</h2></div>
-        <div class="title-actions">
-          <StatusBadge :tone="realtime.running ? 'ok' : 'muted'" :label="realtime.running ? '运行中' : '已停止'" />
-          <StatusBadge v-if="configSaved" tone="ok" label="已保存" />
-        </div>
-      </div>
-      <div class="control-grid runtime-config-grid">
-        <label>模式<select v-model="configDraft.mode" :disabled="realtime.running"><option value="cooling">制冷</option><option value="heating">制热</option><option value="ventilation">通风</option><option value="standby">待机</option><option value="fault">故障</option></select></label>
-        <label>目标温度（°C）<input v-model.number="configDraft.target_temp_c" type="number" min="10" max="40" step="0.5" /></label>
-        <label>目标湿度（%）<input v-model.number="configDraft.target_humidity_pct" type="number" min="30" max="80" step="1" /></label>
-        <label>室外干球（°C）<input v-model.number="configDraft.outdoor_base_temp_c" type="number" step="0.5" /></label>
-        <label>室外相对湿度（%）<input v-model.number="configDraft.outdoor_relative_humidity_pct" type="number" min="5" max="99" step="1" /></label>
-        <label>刷新间隔（秒）<input v-model.number="configDraft.interval_seconds" type="number" min="0.2" step="0.2" /></label>
-        <label>故障注入<select v-model="configDraft.fault_mode"><option value="none">无</option><option value="chiller_capacity_low">冷机容量不足</option><option value="pump_low_flow">水泵低流量</option><option value="terminal_capacity_low">末端容量不足</option></select></label>
-      </div>
-      <div class="runtime-command-row">
-        <button class="button secondary" :disabled="project.usingSample || realtime.configSaving || !configValid" @click="saveBoundaryConfig"><Save />{{ realtime.configSaving ? '保存中' : '保存条件' }}</button>
-        <button class="button primary" :disabled="project.usingSample || realtime.running || realtime.configSaving || !configValid" @click="startSimulation"><Play />启动</button>
-        <button class="button danger" :disabled="project.usingSample || !realtime.running" @click="realtime.stop"><CircleStop />停止</button>
-      </div>
-    </section>
-
-    <section class="band-section initial-state-band">
-      <div class="section-title">
-        <div><p class="eyebrow">INITIAL STATE</p><h2>初始状态</h2></div>
-        <StatusBadge v-if="initialSaved" tone="ok" label="已保存" />
-      </div>
-      <fieldset :disabled="realtime.running || project.usingSample" class="initial-state-fieldset">
-        <div class="apply-all-row">
-          <label>全部温度（°C）<input v-model.number="applyAllTemperature" type="number" min="10" max="40" step="0.5" /></label>
-          <label>全部湿度（%）<input v-model.number="applyAllHumidity" type="number" min="10" max="95" step="1" /></label>
-          <button class="button secondary" type="button" @click="applyToAllRooms">应用到全部房间</button>
-        </div>
-        <div class="table-wrap runtime-room-table"><table><thead><tr><th>房间</th><th>楼层</th><th>初始温度（°C）</th><th>初始湿度（%）</th><th>当前温度（°C）</th><th>当前湿度（%）</th></tr></thead><tbody>
-          <tr v-for="(condition, index) in initialDraft" :key="condition.room_id"><td><strong>{{ realtime.rooms?.rooms[index]?.name || condition.room_id }}</strong><small>{{ condition.room_id }}</small></td><td>{{ realtime.rooms?.rooms[index]?.floor_name || '--' }}</td><td><input v-model.number="condition.temperature_c" type="number" min="10" max="40" step="0.5" /></td><td><input v-model.number="condition.relative_humidity_pct" type="number" min="10" max="95" step="1" /></td><td>{{ runtimeFinite('temperature_c', realtime.rooms?.rooms[index]?.temperature_c) }}</td><td>{{ runtimeFinite('relative_humidity_pct', realtime.rooms?.rooms[index]?.relative_humidity_pct) }}</td></tr>
-        </tbody></table></div>
-        <div v-if="!initialDraft.length" class="empty-state">当前项目没有房间。</div>
-        <div class="runtime-command-row"><button class="button secondary" :disabled="realtime.configSaving || !initialValid || !initialDraft.length" @click="saveInitialConditions"><Save />{{ realtime.configSaving ? '保存中' : '保存初始状态' }}</button></div>
-      </fieldset>
-    </section>
-
-    <section class="runtime-layout">
-      <div class="band-section device-browser">
-        <div class="section-title"><div><p class="eyebrow">DEVICES</p><h2>设备状态</h2></div><div class="title-actions"><span>{{ devices.length }} 台</span><button class="button ghost" :disabled="realtime.controlsResetting" @click="resetAllControls"><RotateCcw />全部恢复自动</button></div></div>
-        <div class="filter-row"><select v-model="typeFilter" aria-label="设备类型"><option value="all">全部类型</option><option v-for="type in deviceTypes" :key="type" :value="type">{{ type }}</option></select><select v-model="statusFilter" aria-label="设备状态"><option value="all">全部状态</option><option value="running">运行</option><option value="stopped">停止</option><option value="alarm">告警</option><option value="offline">离线</option></select></div>
-        <div class="table-wrap"><table class="device-table"><thead><tr><th>设备</th><th>楼层</th><th>状态</th><th>更新时间</th></tr></thead><tbody>
-          <tr v-for="device in devices" :key="device.id" :class="{ selected: selectedId === device.id }" @click="selectedId = device.id"><td><strong>{{ device.name || device.id }}</strong><small>{{ device.type }} · {{ device.id }}</small></td><td>{{ device.floor_id || '--' }}</td><td><StatusBadge :tone="realtime.current?.devices[device.id]?.status === 'running' ? 'ok' : realtime.current?.devices[device.id]?.status === 'alarm' ? 'error' : 'muted'" :label="realtime.current?.devices[device.id]?.status || '无数据'" /></td><td>{{ dateTime(realtime.current?.devices[device.id]?.timestamp) }}</td></tr>
-        </tbody></table></div>
-      </div>
+    <div v-show="activeTab === 'devices'" id="runtime-panel-devices" class="runtime-tab-panel runtime-device-workspace" role="tabpanel" aria-labelledby="runtime-tab-devices" tabindex="0">
+      <section class="band-section device-browser">
+        <div class="section-title"><div><p class="eyebrow">DEVICES</p><h2>设备与控制</h2><p class="editor-note">选择设备查看读数和可用控制项，保存后以系统接受的数值为准。</p></div><div class="title-actions"><span>{{ devices.length }} 台</span><button class="button ghost" :disabled="realtime.controlsResetting" @click="resetAllControls"><RotateCcw />全部恢复自动</button></div></div>
+        <div class="filter-row"><select v-model="typeFilter" aria-label="设备类型"><option value="all">全部类型</option><option v-for="type in deviceTypes" :key="type" :value="type">{{ type }}</option></select><select v-model="statusFilter" aria-label="设备状态"><option value="all">全部状态</option><option value="running">运行中</option><option value="stopped">已停止</option><option value="alarm">告警</option><option value="offline">离线</option></select></div>
+        <div class="table-wrap"><table class="device-table"><thead><tr><th>设备</th><th>楼层</th><th>状态</th><th>更新时间</th></tr></thead><tbody><tr v-for="device in devices" :key="device.id" :class="{ selected: selectedId === device.id }" @click="selectDevice(device.id)"><td><strong>{{ device.name || device.id }}</strong><small>{{ device.type }} · {{ device.id }}</small></td><td>{{ device.floor_id || '--' }}</td><td><StatusBadge :tone="realtime.current?.devices[device.id]?.status === 'running' ? 'ok' : realtime.current?.devices[device.id]?.status === 'alarm' ? 'error' : 'muted'" :label="deviceStatusLabels[realtime.current?.devices[device.id]?.status ?? ''] || realtime.current?.devices[device.id]?.status || '无数据'" /></td><td>{{ dateTime(realtime.current?.devices[device.id]?.timestamp) }}</td></tr></tbody></table></div>
+      </section>
 
       <aside class="band-section property-panel">
         <div class="section-title"><div><p class="eyebrow">PROPERTIES</p><h2>设备属性</h2></div></div>
         <div v-if="selectedDevice" class="property-content">
           <div class="device-identity"><strong>{{ selectedDevice.name || selectedDevice.id }}</strong><span>{{ selectedDevice.type }} · {{ selectedDevice.id }}</span></div>
-          <div class="property-group device-controls"><div class="property-heading"><h3>设备控制</h3><StatusBadge v-if="selectedControls" :tone="selectedControls.control_source === 'manual_override' ? 'warn' : 'ok'" :label="selectedControls.control_source" /></div>
-            <div v-if="selectedControls && Object.keys(selectedControls.controls).length" class="control-list">
-              <label v-for="(control, name) in selectedControls.controls" :key="name" class="device-control-row">
-                <span>{{ control.label }}<small v-if="control.unit">{{ control.unit }}</small></span>
-                <input v-if="control.kind === 'switch'" v-model="controlDraft[name]" class="switch-input" type="checkbox" :true-value="control.max" :false-value="control.min" />
-                <span v-else class="numeric-control"><input v-model.number="controlDraft[name]" type="range" :min="control.min" :max="control.max" :step="control.step" /><input v-model.number="controlDraft[name]" type="number" :min="control.min" :max="control.max" :step="control.step" /></span>
-              </label>
-              <div class="device-control-actions"><button class="button secondary" :disabled="realtime.controlSavingDevice === selectedId || !controlValid" @click="saveDeviceControls"><Save />{{ realtime.controlSavingDevice === selectedId ? '保存中' : '保存控制' }}</button><button class="icon-button" title="恢复此设备自动控制" :disabled="realtime.controlsResetting" @click="resetSelectedControls"><RotateCcw /></button><StatusBadge v-if="controlsSaved" tone="ok" label="已接受" /></div>
-            </div>
+          <div class="property-group device-controls"><div class="property-heading"><h3>设备控制</h3><StatusBadge v-if="selectedControls" :tone="selectedControls.control_source === 'manual_override' ? 'warn' : 'ok'" :label="selectedControls.control_source === 'manual_override' ? '手动覆盖' : '自动控制'" /></div>
+            <div v-if="selectedControls && Object.keys(selectedControls.controls).length" class="control-list"><label v-for="(control, name) in selectedControls.controls" :key="name" class="device-control-row"><span>{{ control.label }}<small v-if="control.unit">{{ control.unit }}</small></span><input v-if="control.kind === 'switch'" v-model="controlDraft[name]" class="switch-input" type="checkbox" :true-value="control.max" :false-value="control.min" /><span v-else class="numeric-control"><input v-model.number="controlDraft[name]" type="range" :min="control.min" :max="control.max" :step="control.step" /><input v-model.number="controlDraft[name]" type="number" :min="control.min" :max="control.max" :step="control.step" /></span></label><div class="device-control-actions"><button class="button secondary" :disabled="realtime.controlSavingDevice === selectedId || !controlValid" @click="saveDeviceControls"><Save />{{ realtime.controlSavingDevice === selectedId ? '保存中' : '保存控制' }}</button><button class="icon-button" title="恢复此设备自动控制" :disabled="realtime.controlsResetting" @click="resetSelectedControls"><RotateCcw /></button><StatusBadge v-if="controlsSaved" tone="ok" label="已接受" /></div></div>
             <div v-else class="empty-state">该设备没有可用控制项。</div>
           </div>
           <div class="property-group"><h3>设计属性</h3><dl><template v-for="(value, key) in selectedDevice" :key="key"><dt>{{ designParamLabel(key) }}</dt><dd>{{ designValueText(String(key), value) }}</dd></template></dl></div>
-          <div class="property-group">
-            <div class="property-heading"><h3>额定参数</h3><StatusBadge v-if="selectedRated" :tone="selectedRated.source === 'catalog' ? 'ok' : 'warn'" :label="RATED_SOURCE_LABELS[selectedRated.source] ?? selectedRated.source" /></div>
-            <dl v-if="selectedRated"><template v-for="(value, key) in selectedRated.values" :key="key"><dt>{{ key }}</dt><dd>{{ ratedValueText(value) }}</dd></template></dl>
-            <div v-else class="empty-state">额定参数不可用。</div>
-          </div>
-          <div class="property-group"><h3>运行变量</h3><dl v-if="selectedState && Object.keys(selectedState.values).length"><template v-for="(value, key) in selectedState.values" :key="key"><dt>{{ paramLabel(key, String(selectedState.values.role ?? '')) }}</dt><dd>{{ typeof value === 'number' ? runtimeFinite(String(key), value) : value ?? '--' }}</dd></template></dl>
-            <div v-else class="diagnostic-empty"><StatusBadge tone="warn" label="未启动" /><strong>尚无运行变量</strong><p>该项目的实时仿真尚未启动或已停止。启动仿真后设备会开始上报运行值。</p></div>
-          </div>
+          <div class="property-group"><div class="property-heading"><h3>额定参数</h3><StatusBadge v-if="selectedRated" :tone="selectedRated.source === 'catalog' ? 'ok' : 'warn'" :label="RATED_SOURCE_LABELS[selectedRated.source] ?? selectedRated.source" /></div><dl v-if="selectedRated"><template v-for="(value, key) in selectedRated.values" :key="key"><dt>{{ key }}</dt><dd>{{ ratedValueText(value) }}</dd></template></dl><div v-else class="empty-state">额定参数不可用。</div></div>
+          <div class="property-group"><h3>运行变量</h3><dl v-if="selectedState && Object.keys(selectedState.values).length"><template v-for="(value, key) in selectedState.values" :key="key"><dt>{{ paramLabel(key, String(selectedState.values.role ?? '')) }}</dt><dd>{{ typeof value === 'number' ? runtimeFinite(String(key), value) : value ?? '--' }}</dd></template></dl><div v-else class="diagnostic-empty"><StatusBadge tone="warn" label="未启动" /><strong>尚无运行变量</strong><p>启动仿真后设备会开始上报运行值。</p></div></div>
         </div>
         <div v-else class="empty-state">从设备列表选择一台设备查看属性。</div>
       </aside>
-    </section>
+    </div>
 
-    <section class="band-section">
-      <div class="section-title">
-        <div><p class="eyebrow">PIPES</p><h2>管段读数</h2></div>
-        <div class="title-actions">
-          <span>{{ flowingPipeCount }} / {{ realtime.pipes?.pipes.length ?? 0 }} 有流量</span>
-        </div>
-      </div>
-      <div v-if="realtime.pipes?.pipes.length" class="pipe-content">
-        <div class="pipe-total-row">
-          <span v-for="(value, system) in realtime.pipes.total_flow_by_system_m3_h" :key="system" class="pipe-total">
-            <small>{{ pipeSystemLabel(String(system)) }}</small>
-            <strong>{{ finite(value, 3) }} m³/h</strong>
-          </span>
-        </div>
-        <div class="filter-row">
-          <select v-model="pipeSystemFilter" aria-label="管段系统">
-            <option value="all">全部系统</option>
-            <option v-for="system in pipeSystems" :key="system" :value="system">{{ pipeSystemLabel(system) }}</option>
-          </select>
-        </div>
-        <div class="table-wrap"><table><thead><tr><th>管段</th><th>系统</th><th>楼层</th><th>管径 (mm)</th><th>流量 (m³/h)</th><th>流速 (m/s)</th><th>压降 (Pa)</th><th>服务末端</th></tr></thead><tbody>
-          <tr v-for="pipe in pipes" :key="pipe.pipe_id" :class="{ 'pipe-hot': pipe.pipe_id === realtime.pipes.most_loaded_pipe_id }">
-            <td><strong>{{ pipe.pipe_id }}</strong><small>{{ pipeTypeLabel(pipe.pipe_type) }}</small></td>
-            <td>{{ pipeSystemLabel(pipe.system) }}</td>
-            <td>{{ pipe.floor_id || '--' }}</td>
-            <td>{{ pipe.diameter_mm === null ? '--' : finite(pipe.diameter_mm, 0) }}</td>
-            <td>{{ finite(pipe.flow_m3_h, 3) }}</td>
-            <td><StatusBadge :tone="velocityTone(pipe)" :label="finite(pipe.velocity_m_s, 3)" /><small v-if="velocityHint(pipe)">{{ velocityHint(pipe) }}</small></td>
-            <td>{{ finite(pipe.pressure_drop_pa, 1) }}</td>
-            <td>{{ pipe.served_terminal_ids.join('、') || '--' }}</td>
-          </tr>
-        </tbody></table></div>
-        <p class="table-note">
-          流量由末端实时水量沿项目连接方向累加，流速与压降按流量反算，不求解压力平衡。管径过小形成的
-          压力壁垒不会体现为流量重分配，只表现为该管流速偏高。设计校核请用评估页的水力计算。
-        </p>
-      </div>
-      <div v-else class="empty-state">当前项目没有水管，或管段读数尚未加载。</div>
-    </section>
+    <div v-show="activeTab === 'pipes'" id="runtime-panel-pipes" class="runtime-tab-panel" role="tabpanel" aria-labelledby="runtime-tab-pipes" tabindex="0">
+      <section class="band-section"><div class="section-title"><div><p class="eyebrow">PIPES</p><h2>管网实时读数</h2><p class="editor-note">流量来自末端实时水量累加；设计校核请使用“系统评估”。</p></div><div class="title-actions"><span>{{ flowingPipeCount }} / {{ realtime.pipes?.pipes.length ?? 0 }} 有流量</span></div></div><div v-if="realtime.pipes?.pipes.length" class="pipe-content"><div class="pipe-total-row"><span v-for="(value, system) in realtime.pipes.total_flow_by_system_m3_h" :key="system" class="pipe-total"><small>{{ pipeSystemLabel(String(system)) }}</small><strong>{{ finite(value, 3) }} m³/h</strong></span></div><div class="filter-row"><select v-model="pipeSystemFilter" aria-label="管段系统"><option value="all">全部系统</option><option v-for="system in pipeSystems" :key="system" :value="system">{{ pipeSystemLabel(system) }}</option></select></div><div class="table-wrap"><table><thead><tr><th>管段</th><th>系统</th><th>楼层</th><th>管径（mm）</th><th>流量（m³/h）</th><th>流速（m/s）</th><th>压降（Pa）</th><th>服务末端</th></tr></thead><tbody><tr v-for="pipe in pipes" :key="pipe.pipe_id" :class="{ 'pipe-hot': pipe.pipe_id === realtime.pipes.most_loaded_pipe_id }"><td><strong>{{ pipe.pipe_id }}</strong><small>{{ pipeTypeLabel(pipe.pipe_type) }}</small></td><td>{{ pipeSystemLabel(pipe.system) }}</td><td>{{ pipe.floor_id || '--' }}</td><td>{{ pipe.diameter_mm === null ? '--' : finite(pipe.diameter_mm, 0) }}</td><td>{{ finite(pipe.flow_m3_h, 3) }}</td><td><StatusBadge :tone="velocityTone(pipe)" :label="finite(pipe.velocity_m_s, 3)" /><small v-if="velocityHint(pipe)">{{ velocityHint(pipe) }}</small></td><td>{{ finite(pipe.pressure_drop_pa, 1) }}</td><td>{{ pipe.served_terminal_ids.join('、') || '--' }}</td></tr></tbody></table></div><p class="table-note">教学模型边界：实时流量按连接累加，不求解压力平衡。流速与压降为派生读数；设计判断请结合系统评估中的水力校核。</p></div><div v-else class="empty-state">当前项目没有水管，或管段读数尚未加载。</div></section>
+    </div>
 
-    <section class="band-section">
-      <div class="section-title"><h2>实时告警</h2><span>{{ realtime.current?.alarms.length ?? 0 }} 条</span></div>
-      <div v-if="realtime.current?.alarms.length" class="issue-list"><article v-for="issue in realtime.current.alarms" :key="`${issue.code}-${issue.target}`" class="issue-row" :class="`issue-${issue.level}`"><StatusBadge :tone="issue.level === 'error' ? 'error' : 'warn'" :label="issue.code" /><div><strong>{{ issue.message }}</strong><small>{{ issue.target || '系统' }}</small></div></article></div>
-      <div v-else class="empty-state good">当前没有实时告警。</div>
-    </section>
+    <div v-show="activeTab === 'conditions'" id="runtime-panel-conditions" class="runtime-tab-panel" role="tabpanel" aria-labelledby="runtime-tab-conditions" tabindex="0">
+      <section class="band-section simulation-band"><div class="section-title"><div><p class="eyebrow">BOUNDARY & SYSTEM</p><h2>实验条件与边界</h2><p class="editor-note">运行中锁定模式；调整后保存条件再启动下一轮仿真。</p></div><div class="title-actions"><StatusBadge :tone="realtime.running ? 'ok' : 'muted'" :label="realtime.running ? '运行中' : '已停止'" /><StatusBadge v-if="configSaved" tone="ok" label="已保存" /></div></div><div class="control-grid runtime-config-grid"><label>模式<select v-model="configDraft.mode" :disabled="realtime.running"><option value="cooling">制冷</option><option value="heating">制热</option><option value="ventilation">通风</option><option value="standby">待机</option><option value="fault">故障</option></select></label><label>目标温度（°C）<input v-model.number="configDraft.target_temp_c" type="number" min="10" max="40" step="0.5" /></label><label>目标湿度（%）<input v-model.number="configDraft.target_humidity_pct" type="number" min="30" max="80" step="1" /></label><label>室外干球（°C）<input v-model.number="configDraft.outdoor_base_temp_c" type="number" step="0.5" /></label><label>室外相对湿度（%）<input v-model.number="configDraft.outdoor_relative_humidity_pct" type="number" min="5" max="99" step="1" /></label><label>刷新间隔（秒）<input v-model.number="configDraft.interval_seconds" type="number" min="0.2" step="0.2" /></label><label>故障注入<select v-model="configDraft.fault_mode"><option value="none">无</option><option value="chiller_capacity_low">冷机容量不足</option><option value="pump_low_flow">水泵低流量</option><option value="terminal_capacity_low">末端容量不足</option></select></label></div><div class="runtime-command-row"><button class="button secondary" :disabled="project.usingSample || realtime.configSaving || !configValid" @click="saveBoundaryConfig"><Save />{{ realtime.configSaving ? '保存中' : '保存条件' }}</button><button class="button primary" :disabled="project.usingSample || realtime.running || realtime.configSaving || !configValid" @click="startSimulation"><Play />启动</button><button class="button danger" :disabled="project.usingSample || !realtime.running" @click="realtime.stop"><CircleStop />停止</button></div></section>
+      <section class="band-section initial-state-band"><div class="section-title"><div><p class="eyebrow">INITIAL STATE</p><h2>房间初始状态</h2><p class="editor-note">批量设置或逐房间设置仿真起点。</p></div><StatusBadge v-if="initialSaved" tone="ok" label="已保存" /></div><fieldset :disabled="realtime.running || project.usingSample" class="initial-state-fieldset"><div class="apply-all-row"><label>全部温度（°C）<input v-model.number="applyAllTemperature" type="number" min="10" max="40" step="0.5" /></label><label>全部湿度（%）<input v-model.number="applyAllHumidity" type="number" min="10" max="95" step="1" /></label><button class="button secondary" type="button" @click="applyToAllRooms">应用到全部房间</button></div><div class="table-wrap runtime-room-table"><table><thead><tr><th>房间</th><th>楼层</th><th>初始温度（°C）</th><th>初始湿度（%）</th><th>当前温度（°C）</th><th>当前湿度（%）</th></tr></thead><tbody><tr v-for="(condition, index) in initialDraft" :key="condition.room_id"><td><strong>{{ realtime.rooms?.rooms[index]?.name || condition.room_id }}</strong><small>{{ condition.room_id }}</small></td><td>{{ realtime.rooms?.rooms[index]?.floor_name || '--' }}</td><td><input v-model.number="condition.temperature_c" type="number" min="10" max="40" step="0.5" /></td><td><input v-model.number="condition.relative_humidity_pct" type="number" min="10" max="95" step="1" /></td><td>{{ runtimeFinite('temperature_c', realtime.rooms?.rooms[index]?.temperature_c) }}</td><td>{{ runtimeFinite('relative_humidity_pct', realtime.rooms?.rooms[index]?.relative_humidity_pct) }}</td></tr></tbody></table></div><div v-if="!initialDraft.length" class="empty-state">当前项目没有房间。</div><div class="runtime-command-row"><button class="button secondary" :disabled="realtime.configSaving || !initialValid || !initialDraft.length" @click="saveInitialConditions"><Save />{{ realtime.configSaving ? '保存中' : '保存初始状态' }}</button></div></fieldset></section>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.runtime-hero { align-items: flex-start; }
+.runtime-hero-status { min-width: min(480px, 42vw); display: grid; gap: 10px; justify-items: end; }
+.runtime-status-line { display: flex; align-items: center; gap: 8px; }
+.runtime-mode { color: var(--muted); font-size: 12px; }
+.runtime-device-workspace { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(340px, 1fr); align-items: start; gap: 20px; padding: 24px clamp(20px, 3vw, 44px); }
+.runtime-device-workspace > .band-section { min-width: 0; margin: 0; padding: 22px; border: 1px solid var(--line); border-radius: 14px; }
+.runtime-device-workspace .property-panel { position: sticky; top: 132px; }
+.runtime-device-workspace .device-table { min-width: 530px; }
+.runtime-view .device-card { color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: none; }
+.runtime-view .device-card:hover, .runtime-view .device-card.selected { border-color: var(--teal); box-shadow: 0 4px 18px rgba(30, 60, 90, .06); }
+.runtime-view .device-card-header { background: var(--surface-soft); border-bottom: 1px solid var(--line); }
+.runtime-view .device-card-title strong { color: var(--ink); }
+.runtime-view .device-card-title small, .runtime-view .device-card-meta, .runtime-view .device-card-row > span:first-child, .runtime-view .device-card-row small { color: var(--muted); }
+.runtime-view .device-card-meta, .runtime-view .device-card-group + .device-card-group { border-color: var(--line); }
+.runtime-view .device-card-row { border-color: var(--line); }
+.runtime-view .device-card-row > span:last-child, .runtime-view .device-card-group > strong { color: var(--teal); }
+.runtime-view .device-rated-summary { background: var(--surface-soft); }
+.runtime-view .device-rated-summary .device-card-row > span:last-child { color: var(--muted); font-size: 12px; font-weight: 500; }
+.runtime-view .device-card .status-badge.is-muted { color: var(--muted); background: #e9eef4; }
+.runtime-view .device-card .status-badge.is-ok { color: #207858; background: #eaf5ef; }
+.runtime-view .device-card .status-badge.is-error { color: var(--red); background: #fff0ef; }
+.runtime-view .humidity-diagnosis { margin-bottom: 16px; border: 1px solid #eed9b5; border-radius: 9px; }
+.runtime-hero-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.runtime-summary-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); background: var(--surface); border-bottom: 1px solid var(--line); }
+.runtime-summary-strip article { min-height: 112px; display: grid; align-content: center; gap: 5px; padding: 20px 22px; border-right: 1px solid var(--line); }
+.runtime-summary-strip article:last-child { border-right: 0; }
+.runtime-summary-strip span, .runtime-summary-strip small { color: var(--muted); font-size: 11px; }
+.runtime-summary-strip strong { font-size: 22px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.runtime-summary-strip .runtime-danger-number { color: var(--red); }
+.workspace-tabs { position: sticky; top: 72px; z-index: 8; }
+.tab-count { display: inline-grid; min-width: 18px; height: 18px; place-items: center; margin-left: 6px; padding: 0 4px; color: #fff; background: var(--red); border-radius: 999px; font-size: 10px; }
+.runtime-alert-section { padding-top: 22px; }
+.room-comfort-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.room-comfort-card { display: grid; gap: 15px; padding: 15px; background: #fff; border: 1px solid var(--line); border-radius: 10px; }
+.room-comfort-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.room-comfort-head > div { display: grid; gap: 4px; min-width: 0; }
+.room-comfort-head strong { overflow-wrap: anywhere; }
+.room-comfort-head small { color: var(--muted); font-size: 11px; }
+.room-comfort-values { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.room-comfort-values > div { display: grid; gap: 4px; padding: 10px; background: var(--surface-soft); border-radius: 7px; }
+.room-comfort-values span, .room-comfort-values small { color: var(--muted); font-size: 10px; }
+.room-comfort-values strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.runtime-view .property-panel { border-top: 1px solid var(--line); border-left: 0; }
+.runtime-view .device-browser { border-bottom: 1px solid var(--line); }
+.runtime-view .runtime-command-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.runtime-view .runtime-hero-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.runtime-view .editor-note { margin-top: 5px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+@media (max-width: 1000px) {
+  .runtime-device-workspace { grid-template-columns: 1fr; }
+  .runtime-device-workspace .property-panel { position: static; }
+  .runtime-hero-status { min-width: 360px; }
+  .runtime-summary-strip { grid-template-columns: repeat(3, 1fr); }
+  .runtime-summary-strip article:nth-child(3) { border-right: 0; }
+  .runtime-summary-strip article:nth-child(-n+3) { border-bottom: 1px solid var(--line); }
+}
+@media (max-width: 820px) {
+  .runtime-hero { align-items: stretch; }
+  .runtime-hero-status { min-width: 0; justify-items: stretch; }
+  .runtime-status-line { justify-content: flex-start; }
+  .workspace-tabs { top: 64px; overflow-x: auto; padding-left: 18px; padding-right: 18px; }
+  .workspace-tabs button { flex: 0 0 auto; }
+}
+@media (max-width: 540px) {
+  .runtime-summary-strip { grid-template-columns: 1fr 1fr; }
+  .runtime-summary-strip article:nth-child(2n) { border-right: 0; }
+  .runtime-summary-strip article:nth-child(-n+4) { border-bottom: 1px solid var(--line); }
+  .runtime-summary-strip article:last-child { grid-column: 1 / -1; border-right: 0; }
+  .room-comfort-grid { grid-template-columns: 1fr; }
+  .runtime-hero-actions { justify-content: stretch; flex-wrap: wrap; }
+  .runtime-hero-actions .button { flex: 1 1 140px; }
+}
+</style>

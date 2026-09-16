@@ -13,6 +13,8 @@ import {
 } from "lucide-vue-next";
 import { api } from "@/api/client";
 import { useProjectStore } from "@/stores/project";
+import { useRealtimeStore } from "@/stores/realtime";
+import { useUiStore } from "@/stores/ui";
 import { finite } from "@/utils/format";
 import {
   DEVICE_LOCATION_OPTIONS,
@@ -58,6 +60,10 @@ import type {
 } from "@/types";
 
 const project = useProjectStore();
+const realtime = useRealtimeStore();
+const ui = useUiStore();
+const activeSection = ref("rooms");
+const sections = [{ id: "rooms", label: "房间与末端" }, { id: "devices", label: "设备清单" }, { id: "network", label: "管网与连接" }];
 
 // All edits happen on a local, plain-data draft. The store remains the
 // server-confirmed source of truth until the user presses 保存结构.
@@ -88,10 +94,11 @@ const terminalDeviceList = computed(() => (draft.value ? terminalDevices(draft.v
 const pipes = computed(() => draft.value?.pipes ?? []);
 const connections = computed(() => draft.value?.connections ?? []);
 const nodeOptions = computed(() => (draft.value ? editorNodeOptions(draft.value) : []));
-const editable = computed(() => !project.usingSample && draft.value !== null);
+const editable = computed(() => !project.usingSample && !realtime.running && draft.value !== null);
 const dirty = computed(
   () => draft.value !== null && JSON.stringify(draft.value) !== JSON.stringify(project.project),
 );
+watch(dirty, (value) => { ui.buildingDirty = value; }, { immediate: true });
 const roomCount = computed(() => draft.value?.rooms.length ?? 0);
 const totalArea = computed(() =>
   (draft.value?.rooms ?? []).reduce(
@@ -231,6 +238,7 @@ watch(
   () => project.selectionKey,
   () => {
     activeFloorId.value = "";
+    activeSection.value = "rooms";
     expandedDeviceIds.value = new Set();
     expandedPipeIds.value = new Set();
     resetDraft();
@@ -443,14 +451,15 @@ async function save() {
 </script>
 
 <template>
-  <div class="view-stack building-editor">
+  <div class="view-stack building-editor" :class="{ 'is-readonly': project.usingSample }">
     <section class="view-heading action-heading">
       <div>
         <p class="eyebrow">CLASSROOM SYSTEM BUILDER</p>
-        <h1>建筑结构</h1>
+        <h1>结构建模</h1>
         <p>按楼层搭建房间、设备、管路和连接，保存后重新运行评估或仿真</p>
       </div>
       <div class="toolbar">
+        <span v-if="dirty" class="draft-indicator">有未保存修改</span>
         <button class="button secondary" :disabled="!editable" @click="onAddFloor"><Plus />新增楼层</button>
         <button class="button secondary" :disabled="project.saving || !dirty" @click="resetDraft"><RotateCcw />还原</button>
         <button class="button primary" :disabled="project.saving || !canSave" @click="save">
@@ -459,8 +468,9 @@ async function save() {
       </div>
     </section>
 
-    <div v-if="project.usingSample" class="empty-state">样例项目不能直接编辑，先保存为项目再改结构。</div>
-    <div v-else-if="!draft" class="empty-state">尚未选择项目。</div>
+    <div v-if="project.usingSample" class="notice-banner">样例项目不能直接编辑，先保存为项目再改结构。当前显示只读预览，方便在保存前理解楼层、房间和管网关系。</div>
+    <div v-if="realtime.running" class="warning-banner">仿真正在运行，停止仿真后可编辑项目结构。</div>
+    <div v-if="!draft" class="empty-state">尚未选择项目。</div>
 
     <template v-else>
       <section class="metric-grid" aria-label="结构摘要">
@@ -507,7 +517,7 @@ async function save() {
             <span class="floor-nav-name">立管 / 全楼共用</span>
             <span class="floor-nav-meta">{{ riserPipes.length }} 根 · 贯穿多层</span>
           </button>
-          <div v-if="tree.orphans.length" class="orphan-block">
+          <fieldset v-if="tree.orphans.length" class="orphan-block" :disabled="!editable">
             <p class="table-note">下列房间的楼层不存在，评估会报 UNKNOWN_ROOM_FLOOR。请为其选择楼层。</p>
             <div v-for="item in tree.orphans" :key="item.key" class="tree-room orphan-room">
               <strong>{{ item.room.name }}</strong>
@@ -521,11 +531,11 @@ async function save() {
               </label>
               <button class="icon-button danger" :aria-label="`删除房间 ${item.room.name}`" @click="onRemoveRoom(item.key, item.room.name)"><Trash2 /></button>
             </div>
-          </div>
+          </fieldset>
         </aside>
 
         <!-- 右侧：立管视图（跨层输配） -->
-        <div v-if="isRiserView" class="floor-detail">
+        <fieldset v-if="isRiserView" class="floor-detail builder-fields" :disabled="!editable">
           <section class="band-section floor-head">
             <div class="section-title floor-head-title">
               <div>
@@ -613,10 +623,12 @@ async function save() {
               </table>
             </div>
           </section>
-        </div>
+        </fieldset>
 
         <!-- 右侧：选中楼层详情 -->
         <div v-if="activeNode && !isRiserView" class="floor-detail">
+          <nav class="workspace-tabs builder-tabs" role="tablist" aria-label="楼层内容"><button v-for="section in sections" :key="section.id" type="button" role="tab" :aria-selected="activeSection === section.id" @click="activeSection = section.id">{{ section.label }}</button></nav>
+          <fieldset class="builder-fields" :disabled="!editable">
           <section class="band-section floor-head">
             <div class="section-title floor-head-title">
               <div>
@@ -627,13 +639,13 @@ async function save() {
               <div class="toolbar">
                 <input class="floor-name-input" :value="activeNode.floor.name ?? ''" :aria-label="`${activeNode.floor.id} 楼层名称`" placeholder="楼层名称" @input="onRenameFloor(activeNode.floor.id, inputText($event))" />
                 <button class="button secondary" @click="onAddRoom(activeNode.floor.id)"><Plus />房间</button>
-                <button class="icon-button danger" :aria-label="`删除 ${activeNode.floor.name || activeNode.floor.id}`" @click="onRemoveFloor(activeNode.floor.id, activeNode.floor.name || activeNode.floor.id)"><Trash2 /></button>
+                <button class="icon-button danger" :disabled="!editable" :aria-label="`删除 ${activeNode.floor.name || activeNode.floor.id}`" @click="onRemoveFloor(activeNode.floor.id, activeNode.floor.name || activeNode.floor.id)"><Trash2 /></button>
               </div>
             </div>
           </section>
 
           <!-- 房间卡片网格 -->
-          <section class="band-section" aria-labelledby="floor-rooms-title">
+          <section v-show="activeSection === 'rooms'" class="band-section" aria-labelledby="floor-rooms-title">
             <div class="section-title"><div><p class="eyebrow">ROOMS</p><h2 id="floor-rooms-title">房间</h2></div><Network /></div>
             <div v-if="!activeNode.rooms.length" class="empty-state">该层还没有房间，点上方「房间」新增。</div>
             <div v-else class="room-grid">
@@ -680,7 +692,7 @@ async function save() {
           </section>
 
           <!-- 本层设备（紧凑列表 + 行内详情） -->
-          <section class="band-section" aria-labelledby="floor-devices-title">
+          <section v-show="activeSection === 'devices'" class="band-section" aria-labelledby="floor-devices-title">
             <div class="section-title">
               <div><p class="eyebrow">EQUIPMENT</p><h2 id="floor-devices-title">设备（{{ floorDevices.length }}）</h2><p class="editor-note">额定值可留空由后端解析；房间「服务末端」只从 FCU、AHU 和新风机组中选择。</p></div>
               <button class="button secondary" :disabled="project.saving" @click="openDeviceModal"><Plus />新增设备</button>
@@ -726,7 +738,7 @@ async function save() {
           </section>
 
           <!-- 本层管路（5 列 + 行内详情） -->
-          <section class="band-section" aria-labelledby="floor-pipes-title">
+          <section v-show="activeSection === 'network'" class="band-section" aria-labelledby="floor-pipes-title">
             <div class="section-title">
               <div><p class="eyebrow">NETWORK SEGMENTS</p><h2 id="floor-pipes-title">管段（{{ floorPipes.length }}）</h2><p class="editor-note">水管填管径，空气管填宽×高（详情里）；尺寸最终由后端校验。</p></div>
               <button class="button secondary" :disabled="project.saving" @click="onAddPipe"><Plus />新增管路</button>
@@ -773,7 +785,7 @@ async function save() {
           </section>
 
           <!-- 本层连接（分组下拉） -->
-          <section class="band-section" aria-labelledby="floor-connections-title">
+          <section v-show="activeSection === 'network'" class="band-section" aria-labelledby="floor-connections-title">
             <div class="section-title">
               <div><p class="eyebrow">TOPOLOGY</p><h2 id="floor-connections-title">连接（{{ floorConnections.length }} / {{ connections.length }}）</h2><p class="editor-note">只显示与本层相关的连接；下拉按楼层分组，无需记 ID。</p></div>
               <button class="button secondary" :disabled="project.saving" @click="onAddConnection"><Plus />新增连接</button>
@@ -804,6 +816,7 @@ async function save() {
               </table>
             </div>
           </section>
+          </fieldset>
         </div>
       </div>
 
@@ -852,6 +865,11 @@ async function save() {
 </template>
 
 <style scoped>
+.builder-fields { min-width: 0; border: 0; padding: 0; margin: 0; }
+.builder-fields:disabled input, .builder-fields:disabled select { opacity: 1; background: var(--surface-soft); color: var(--ink); }
+.builder-fields:disabled button { opacity: .4; }
+.builder-tabs { padding: 12px 18px; }
+.draft-indicator { font-size: 12px; color: #9a661c; }
 .building-editor .editor-note { margin-top: 5px; color: var(--muted); font-size: 11px; font-weight: 500; line-height: 1.5; }
 .building-editor .editor-validation { padding: 14px 18px; color: #7d3d32; background: #fff3ed; border-bottom: 1px solid #e9c2b4; font-size: 12px; }
 .building-editor .editor-validation ul { margin: 8px 0 0 18px; display: grid; gap: 4px; }
@@ -866,7 +884,7 @@ async function save() {
 
 /* 双栏布局 */
 .building-editor .builder-layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); align-items: start; }
-.floor-nav { display: grid; gap: 6px; position: sticky; top: 12px; }
+.floor-nav { display: grid; gap: 6px; position: sticky; top: 90px; }
 .floor-nav-item { display: grid; gap: 4px; padding: 12px 14px; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; transition: border-color .15s ease, background .15s ease; }
 .floor-nav-item:hover { border-color: #9dc3c6; }
 .floor-nav-item.active { border-color: var(--teal); background: #e8f4f2; box-shadow: inset 3px 0 0 var(--teal); }

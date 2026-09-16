@@ -174,6 +174,7 @@ async function mountView() {
 }
 
 async function selectDevice(wrapper: VueWrapper, deviceId: string) {
+  await wrapper.get("#runtime-tab-devices").trigger("click");
   const row = wrapper.findAll(".device-table tbody tr")
     .find((item) => item.text().includes(deviceId));
   expect(row, `device row ${deviceId}`).toBeTruthy();
@@ -352,6 +353,7 @@ describe("runtime device controls", () => {
 
   it("disables saving and shows progress text while requests are in flight", async () => {
     const { wrapper, realtime } = await mountView();
+    await wrapper.get("#runtime-tab-conditions").trigger("click");
     realtime.$patch({ configSaving: true });
     await flushPromises();
 
@@ -413,6 +415,7 @@ describe("runtime device controls", () => {
     expect(humidityCell, "室内湿度指标卡片").toBeTruthy();
     expect(humidityCell!.text()).toContain("58.7");
 
+    await wrapper.get("#runtime-tab-conditions").trigger("click");
     const roomRow = wrapper.find(".runtime-room-table tbody tr");
     expect(roomRow.exists()).toBe(true);
     // 末列为实测湿度，输入框里的初始湿度不参与该断言
@@ -423,6 +426,7 @@ describe("runtime device controls", () => {
 
   it("blocks saving when target humidity is not a number", async () => {
     const { wrapper } = await mountView();
+    await wrapper.get("#runtime-tab-conditions").trigger("click");
     const input = wrapper.findAll(".runtime-config-grid input")
       .find((item) => item.attributes("max") === "80");
     expect(input, "目标湿度输入框").toBeTruthy();
@@ -445,6 +449,7 @@ describe("runtime pipe readings", () => {
 
   it("renders every pipe with system totals and marks the fastest one", async () => {
     const { wrapper, realtime } = await mountView();
+    await wrapper.get("#runtime-tab-pipes").trigger("click");
     realtime.pipes = structuredClone(pipes);
     await flushPromises();
 
@@ -466,6 +471,7 @@ describe("runtime pipe readings", () => {
 
   it("flags over-limit velocity but leaves low-flow and zero-flow pipes unjudged", async () => {
     const { wrapper, realtime } = await mountView();
+    await wrapper.get("#runtime-tab-pipes").trigger("click");
     realtime.pipes = structuredClone(pipes);
     await flushPromises();
 
@@ -485,6 +491,7 @@ describe("runtime pipe readings", () => {
 
   it("keeps part-load low velocity unflagged", async () => {
     const { wrapper, realtime } = await mountView();
+    await wrapper.get("#runtime-tab-pipes").trigger("click");
     const partLoad = structuredClone(pipes);
     // 水泵降频后主管流速掉到 0.195，远低于设计下限 0.6，但这是正常的部分负荷
     partLoad.pipes[0].flow_m3_h = 5.525;
@@ -500,6 +507,7 @@ describe("runtime pipe readings", () => {
 
   it("filters by system and states the derived-reading limitation", async () => {
     const { wrapper, realtime } = await mountView();
+    await wrapper.get("#runtime-tab-pipes").trigger("click");
     realtime.pipes = structuredClone(pipes);
     await flushPromises();
 
@@ -517,6 +525,7 @@ describe("runtime pipe readings", () => {
 
   it("shows an empty state when the project has no water pipes", async () => {
     const { wrapper, realtime } = await mountView();
+    await wrapper.get("#runtime-tab-pipes").trigger("click");
     realtime.pipes = {
       project_id: "project-a",
       running: false,
@@ -536,11 +545,13 @@ describe("runtime pipe readings", () => {
 
 
 describe("humidity diagnosis", () => {
-  it("warns when a room cannot reach the humidity target", async () => {
-    const { wrapper } = await mountView();
+  it("shows backend humidity deviation only while the simulation is running", async () => {
+    const { wrapper, realtime } = await mountView();
+    realtime.running = true;
+    await flushPromises();
     expect(wrapper.find(".humidity-diagnosis").exists()).toBe(true);
-    expect(wrapper.find(".humidity-diagnosis").text()).toContain("不可达");
-    expect(wrapper.find(".humidity-diagnosis").text()).toContain("再热");
+    expect(wrapper.find(".humidity-diagnosis").text()).toContain("后端湿度偏差");
+    expect(wrapper.find(".humidity-diagnosis").text()).toContain("不能单独确定设备原因");
     wrapper.unmount();
   });
 
@@ -549,6 +560,47 @@ describe("humidity diagnosis", () => {
     for (const room of realtime.rooms?.rooms ?? []) room.humidity_shortfall_pct = 1.0;
     await flushPromises();
     expect(wrapper.find(".humidity-diagnosis").exists()).toBe(false);
+    wrapper.unmount();
+  });
+});
+
+
+describe("runtime workspace navigation", () => {
+  it("opens the overview with room deviations and neutral stopped connection status", async () => {
+    const { wrapper } = await mountView();
+    expect(wrapper.get("#runtime-tab-overview").attributes("aria-selected")).toBe("true");
+    expect(wrapper.get("#runtime-panel-overview").isVisible()).toBe(true);
+    expect(wrapper.get("#runtime-panel-devices").isVisible()).toBe(false);
+    expect(wrapper.get(".room-comfort-card").text()).toContain("办公室");
+    expect(wrapper.get(".room-comfort-card").text()).toContain("+7.5 个百分点");
+    expect(wrapper.get(".runtime-status-line").find(".status-badge.is-warn").exists()).toBe(false);
+    expect(wrapper.find(".humidity-diagnosis").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("当前不可达");
+    wrapper.unmount();
+  });
+
+  it("supports keyboard tab selection and keeps initial-condition edits across tabs", async () => {
+    const { wrapper } = await mountView();
+    await wrapper.get("#runtime-tab-overview").trigger("keydown", { key: "End" });
+    expect(wrapper.get("#runtime-tab-conditions").attributes("aria-selected")).toBe("true");
+    expect(wrapper.get("#runtime-panel-conditions").isVisible()).toBe(true);
+    const targetHumidity = wrapper.findAll(".runtime-config-grid input").find((input) => input.attributes("max") === "80")!;
+    await targetHumidity.setValue("62");
+    await wrapper.get("#runtime-tab-overview").trigger("click");
+    await wrapper.get("#runtime-tab-conditions").trigger("click");
+    expect((targetHumidity.element as HTMLInputElement).value).toBe("62");
+    await wrapper.get("#runtime-tab-conditions").trigger("keydown", { key: "ArrowLeft" });
+    expect(wrapper.get("#runtime-tab-pipes").attributes("aria-selected")).toBe("true");
+    wrapper.unmount();
+  });
+
+  it("keeps the primary simulation controls available on each workspace tab", async () => {
+    const { wrapper, realtime } = await mountView();
+    const start = vi.spyOn(realtime, "start").mockResolvedValue(true);
+    await wrapper.get("#runtime-tab-pipes").trigger("click");
+    expect(wrapper.get(".runtime-hero-actions").isVisible()).toBe(true);
+    await wrapper.get(".runtime-hero-actions .button.primary").trigger("click");
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ mode: "cooling", target_temp_c: 26 }));
     wrapper.unmount();
   });
 });

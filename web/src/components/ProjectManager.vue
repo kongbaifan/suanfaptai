@@ -3,13 +3,17 @@
  * 项目管理面板：替代顶栏那个只能选择、无法维护的下拉框。
  * 提供搜索、重命名、复制、删除，以及从样例/空白新建。
  */
-import { computed, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { Copy, Pencil, Plus, Search, Trash2, X } from "lucide-vue-next";
 import { SAMPLE_OPTIONS, sampleNameForSelection, useProjectStore } from "@/stores/project";
+import { useUiStore } from "@/stores/ui";
 
 const emit = defineEmits<{ (e: "close"): void; (e: "created"): void }>();
 
 const project = useProjectStore();
+const ui = useUiStore();
+const panel = ref<HTMLElement | null>(null);
+const previouslyFocused = document.activeElement as HTMLElement | null;
 const query = ref("");
 const renamingId = ref<string | null>(null);
 const renameDraft = ref("");
@@ -34,14 +38,20 @@ function formatTime(value: string): string {
 }
 
 async function open(projectId: string) {
+  if (project.selectionKey !== projectId && !canLeaveDraft()) return;
   await project.select(projectId);
-  emit("close");
+  if (!project.error) emit("close");
 }
 
 async function openSample(selectionKey: string) {
+  if (project.selectionKey !== selectionKey && !canLeaveDraft()) return;
   const sampleName = sampleNameForSelection(selectionKey);
   if (sampleName) await project.loadSample(sampleName);
-  emit("close");
+  if (!project.error) emit("close");
+}
+
+function canLeaveDraft() {
+  return !ui.buildingDirty || window.confirm("当前有未保存的结构修改。切换项目会放弃这些修改，确定继续？");
 }
 
 function startRename(projectId: string, currentName: string) {
@@ -51,6 +61,7 @@ function startRename(projectId: string, currentName: string) {
 
 async function commitRename() {
   if (!renamingId.value) return;
+  if (renamingId.value === project.projectId && !canLeaveDraft()) return;
   const ok = await project.rename(renamingId.value, renameDraft.value);
   if (ok) {
     notice.value = "已重命名。";
@@ -59,6 +70,7 @@ async function commitRename() {
 }
 
 async function duplicate(projectId: string) {
+  if (!canLeaveDraft()) return;
   const copy = await project.duplicate(projectId);
   if (copy) {
     notice.value = `已复制为「${copy.name}」并切换过去。`;
@@ -67,12 +79,14 @@ async function duplicate(projectId: string) {
 }
 
 async function remove(projectId: string, name: string) {
+  if (projectId === project.projectId && !canLeaveDraft()) return;
   if (!window.confirm(`确定删除项目「${name}」？该操作不可撤销，评估历史一并删除。`)) return;
   const ok = await project.remove(projectId);
   if (ok) notice.value = "已删除。";
 }
 
 async function createBlank() {
+  if (!canLeaveDraft()) return;
   const saved = await project.createBlankProject(newName.value);
   if (saved) {
     newName.value = "";
@@ -80,11 +94,22 @@ async function createBlank() {
     emit("created");
   }
 }
+
+function handleKeys(event: KeyboardEvent) {
+  if (event.key === "Escape") { emit("close"); return; }
+  if (event.key !== "Tab" || !panel.value) return;
+  const items = Array.from(panel.value.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]')).filter((item) => item.getClientRects().length);
+  const first = items[0]; const last = items.at(-1);
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+}
+onMounted(async () => { await nextTick(); panel.value?.querySelector<HTMLInputElement>('input[type="search"]')?.focus(); document.addEventListener("keydown", handleKeys); });
+onBeforeUnmount(() => { document.removeEventListener("keydown", handleKeys); previouslyFocused?.focus(); });
 </script>
 
 <template>
   <div class="pm-backdrop" @click.self="emit('close')">
-    <section class="pm-panel" role="dialog" aria-label="项目管理">
+    <section ref="panel" class="pm-panel" role="dialog" aria-modal="true" aria-label="项目管理">
       <header class="pm-head">
         <div><h2>项目管理</h2><p>共 {{ project.projects.length }} 个项目</p></div>
         <button class="icon-button" type="button" title="关闭" @click="emit('close')"><X /></button>
@@ -92,6 +117,7 @@ async function createBlank() {
 
       <div v-if="notice" class="pm-notice">{{ notice }}</div>
       <div v-if="project.saveError" class="pm-error">{{ project.saveError }}</div>
+      <div v-if="project.error" class="pm-error">{{ project.error }}</div>
 
       <label class="pm-search"><Search /><input v-model="query" type="search" placeholder="搜索项目名称、描述或标签" aria-label="搜索项目" /></label>
 
@@ -142,7 +168,7 @@ async function createBlank() {
 
 <style scoped>
 .pm-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 24px; background: rgba(10, 30, 33, .55); }
-.pm-panel { width: min(680px, 94vw); max-height: 86vh; display: flex; flex-direction: column; background: #fff; border-radius: 8px; box-shadow: 0 24px 60px rgba(0, 0, 0, .28); overflow: hidden; }
+.pm-panel { width: min(740px, 94vw); max-height: 86vh; display: flex; flex-direction: column; background: #fff; border-radius: 16px; box-shadow: 0 24px 60px rgba(20, 44, 76, .24); overflow: hidden; }
 .pm-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; background: var(--teal-dark); color: #fff; }
 .pm-head h2 { margin: 0; font-size: 16px; }
 .pm-head p { margin: 2px 0 0; font-size: 12px; opacity: .8; }

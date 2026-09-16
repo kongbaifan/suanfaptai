@@ -70,6 +70,7 @@ const groupId = ref("all");
 const loading = ref(false);
 const error = ref("");
 const showPlacement = ref(false);
+const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false });
 const syncing = ref(false);
 const syncNotice = ref("");
 
@@ -217,7 +218,7 @@ onMounted(load);
 
 <template>
   <div class="view-stack catalog-view">
-    <section class="view-heading action-heading">
+    <section v-if="!props.embedded" class="view-heading action-heading">
       <div>
         <p class="eyebrow">EQUIPMENT LIBRARY</p>
         <h1>设备参数库</h1>
@@ -239,8 +240,8 @@ onMounted(load);
 
     <section class="band-section catalog-library">
       <div class="section-title">
-        <div><h2>后端设备目录</h2><p class="catalog-section-note">选择型号查看对应的全部额定参数</p></div>
-        <span>{{ visibleCardCount }} / {{ cards.length }} 类</span>
+        <div><h2>设备参数目录</h2><p class="catalog-section-note">选择型号查看对应的额定参数</p></div>
+        <div class="toolbar"><span>{{ visibleCardCount }} / {{ cards.length }} 类</span><button v-if="props.embedded" class="button secondary" type="button" aria-label="刷新设备目录" :disabled="loading" @click="load"><RefreshCw />刷新目录</button><details v-if="props.embedded" class="catalog-maintenance"><summary>目录维护</summary><button class="button secondary" type="button" aria-label="同步 Unity 设备库" :disabled="syncing" @click="syncUnityLibrary">{{ syncing ? '同步中…' : '同步 Unity 设备库' }}</button></details></div>
       </div>
 
       <div class="filter-row search-row catalog-filter-row">

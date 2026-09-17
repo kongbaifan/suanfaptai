@@ -693,7 +693,7 @@ def solve_steady_state(
         allocation.unmet_flow_m3_h = capacity.unmet_flow_m3_h
         allocation.unmet_load_kw = capacity.unmet_load_kw
         allocation.limiting_device_ids = capacity.limiting_device_ids
-        # 降级透明：Hardy-Cross 未收敛时已回退到均分求解器（见
+        # 降级透明：Hardy-Cross 结果数值不可信时已回退到均分求解器（见
         # `hardy_cross.bridge.allocate_flow_hardy_cross`），这里必须显式告知，
         # 否则使用者会以为这份流量是平差结果。
         if getattr(allocation, "degraded_reason", None):
@@ -702,9 +702,10 @@ def solve_steady_state(
                     level="warning",
                     code="HARDY_CROSS_FALLBACK",
                     message=(
-                        f"{medium} 的 Hardy-Cross 平差未收敛，已回退到均分求解器"
-                        f"（{allocation.degraded_reason}）。流量分配仍守恒，"
-                        "但未按管网阻力平差，支路流量仅供教学参考。"
+                        f"{medium} 的 Hardy-Cross 平差结果数值不可信，已回退到按需求"
+                        f"路由的兜底分配器（{allocation.degraded_reason}）。"
+                        "流量守恒仍然成立，但未经管网阻力平差，支路流量仅供教学参考，"
+                        "不能用于阻力平衡或选型结论。"
                     ),
                     target=f"{medium}_network",
                 )

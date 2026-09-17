@@ -178,47 +178,65 @@ class TestHardyCrossBridge:
 class TestHardyCrossResultGuard:
     """Hardy-Cross 结果的数值守卫
 
-    背景：原实现**无条件**采用 Hardy-Cross 的结果。实测一个 12 个并联末端的项目
-    里它不收敛并给出 1e10 m³/h 量级（2 的幂次，典型数值溢出）的守恒残差，
-    评估随即报出 23 条 `conservation_violation` 错误。末端越多越容易触发，
-    而多房间系统正是本平台要支持的场景。
+    背景：原实现**无条件**采用 Hardy-Cross 的结果，而求解核当时用 Jacobi 式
+    更新（把所有回路的修正量一次性叠加），在多回路管网上**几何发散**——实测
+    示例项目冷冻水 max|ΔQ| 从 3.16 涨到 5.5e24，`four_floor_fcu_fresh_air`
+    涨到 6.8e61。发散解直接进入评估结果，报出大量 `conservation_violation`。
+    求解核已改为 Gauss-Seidel（见 `app/hardy_cross/solver.py`），本守卫作为
+    "万一再次数值病态"的兜底。
+
+    **判据是边流量幅值，不是守恒残差**。理由见下条测试。
     """
 
     @staticmethod
-    def _allocation(residual: float) -> FlowAllocation:
+    def _allocation(edge_flow: dict[int, float] | None = None) -> FlowAllocation:
         return FlowAllocation(
             port_flow={},
-            edge_flow={},
-            conservation_residuals={"chw_main_supply": residual},
+            edge_flow=edge_flow if edge_flow is not None else {},
+            conservation_residuals={},
             total_demand=20.0,
         )
 
-    def test_nonphysical_residual_is_rejected(self):
-        """残差比总需求大若干数量级 -> 不可用（实测病态值 1.07e10）"""
-        assert _allocation_is_usable(self._allocation(10_737_418_240.0), 20.0) is False
-        assert _allocation_is_usable(self._allocation(float("inf")), 20.0) is False
+    def test_diverged_edge_flows_are_rejected(self):
+        """边流量超出总需求若干倍 -> 不可用
 
-    def test_physical_residual_is_accepted_even_above_tolerance(self):
-        """只看残差量级，**不看**是否收敛到 0.01 容差
-
-        多支路管网里 50 次迭代后残差仍在容差之上、流量却正确的情形很常见，
-        一并否掉会把更准的平差结果换成均分结果。
+        实测发散值：示例项目冷冻水 4.9e25、热水 1.8e12；
+        `four_floor_fcu_fresh_air` 冷冻水 4.4e10。总需求是已知的唯一物理尺度，
+        干管流量 ≈ 总流量、支管更小，故正常解不会超过总需求太多。
         """
-        assert _allocation_is_usable(self._allocation(0.0), 20.0) is True
-        assert _allocation_is_usable(self._allocation(0.9), 20.0) is True
-        # 边界：残差恰等于总需求仍算可用（上界含等号）
-        assert _allocation_is_usable(self._allocation(20.0), 20.0) is True
+        assert _allocation_is_usable(self._allocation({0: 10_737_418_240.0}), 20.0) is False
+        assert _allocation_is_usable(self._allocation({0: 4.9e25}), 20.0) is False
+        assert _allocation_is_usable(self._allocation({0: 84_090_174_987.0}), 20.0) is False
+        assert _allocation_is_usable(self._allocation({0: float("inf")}), 20.0) is False
+        assert _allocation_is_usable(self._allocation({0: float("nan")}), 20.0) is False
 
-    def test_edge_flow_magnitude_alone_does_not_reject(self):
-        """边流量幅值不参与判据——正规样例就是"残差 0、边流量 8.4e10"
+    def test_residual_alone_cannot_detect_divergence(self):
+        """**守恒残差看不出解已经发散**——这正是旧判据失效的原因
 
-        这条是反向验证：若把边流量幅值也纳入判据，`four_floor_fcu_fresh_air`
-        会被误伤（它的 Hardy-Cross 守恒残差是 0.0000）。边流量的尺度问题另有
-        记录，不在这里掩盖。
+        Hardy-Cross 的回路修正往闭合回路上加减同一个 ΔQ，**按构造保持**各节点
+        净进出流量不变，所以守恒残差恒为双精度舍入噪声（实测相对残差稳定在
+        1e-16 量级）。旧实现按残差判，等于只在边流量炸到 1e17 以上（噪声本身
+        超过上界）时才偶然拦住：实测示例项目热水 1.8e12、`four_floor` 4.4e10
+        这两类**直接放行**，假流量照旧流进评估结果。
+
+        本测试把"残差极小但边流量荒谬"这一形态钉死：必须判为不可用。
         """
-        allocation = self._allocation(0.0)
-        allocation.edge_flow = {0: 84_090_174_987.0}
-        assert _allocation_is_usable(allocation, 20.0) is True
+        allocation = self._allocation({0: 4.9e25})
+        allocation.conservation_residuals = {"chw_main_supply": 1.073741824e10}
+        # 相对残差 ~2.2e-16，完全是浮点噪声，单看它毫无异常
+        assert allocation.conservation_residuals["chw_main_supply"] / 4.9e25 < 1e-15
+        assert _allocation_is_usable(allocation, 20.0) is False
+
+    def test_physical_result_is_accepted(self):
+        """正常解必须通过——实测收敛解 max|边流量|/总需求 ∈ [0.17, 1.15]"""
+        assert _allocation_is_usable(self._allocation({0: 10.255}), 20.510) is True
+        assert _allocation_is_usable(self._allocation({0: 23.6}), 20.510) is True
+        # 环路分配导致的合理余量：约 5 倍总需求仍算可用（上界含等号）
+        assert _allocation_is_usable(self._allocation({0: 102.55}), 20.510) is True
+
+    def test_empty_allocation_is_accepted(self):
+        """无边流量（例如空子图）不应被误判为发散"""
+        assert _allocation_is_usable(self._allocation({}), 20.0) is True
 
 
 class TestHardyCrossFallbackIsTransparent:
@@ -256,9 +274,12 @@ class TestHardyCrossFallbackIsTransparent:
 
         warnings = [i for i in result.issues if i.code == "HARDY_CROSS_FALLBACK"]
         assert warnings, [i.code for i in result.issues]
-        # 教学化措辞：既要说明降级，也要说清结果还能怎么用
-        assert "未收敛" in warnings[0].message
-        assert "均分求解器" in warnings[0].message
+        # 教学化措辞：既要说明降级，也要说清这份流量还能怎么用。
+        # 注意不能写成"守恒"——旧文案说"流量分配仍守恒"，而当时的兜底
+        # （按边数均分）其实**不守恒**，残差 = |入度-出度| × 均分流量。
+        assert "数值不可信" in warnings[0].message
+        assert "按需求" in warnings[0].message
+        assert "不能用于阻力平衡或选型结论" in warnings[0].message
 
 
 class TestHardyCrossAvailabilityIsImportOrderIndependent:

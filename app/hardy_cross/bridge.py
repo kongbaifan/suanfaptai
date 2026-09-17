@@ -17,6 +17,12 @@ from app.hardy_cross import (
 from app.steady_solver.flow_solver import FlowAllocation, allocate_flow
 from app.steady_solver.port_graph import Medium, PortGraph
 
+# 边流量相对总需求的允许倍数。取值依据：干管流量 ≈ 系统总流量，支管只会更小，
+# 因此正常解的 max|边流量| 应在总需求附近。实测 10 个内置样例 + 示例项目在
+# Gauss-Seidel 下的 max|边流量| / 总需求 ∈ [0.17, 1.15]，取 5.0 留足余量，
+# 同时能拦住发散解（实测发散时该比值达 1e9 以上）。
+EDGE_FLOW_LIMIT_FACTOR = 5.0
+
 
 def allocate_flow_hardy_cross(
     graph: PortGraph,
@@ -86,20 +92,26 @@ def allocate_flow_hardy_cross(
         subgraph, hc_model, result, total_demand_m3_h
     )
 
-    # Hardy-Cross 是迭代法，原实现**无条件**采用它的结果，于是数值病态时垃圾值会
-    # 直接进入评估结果：实测一个 12 个并联末端的项目里，守恒残差达到 1e10 m³/h
-    # 量级（2 的幂次，典型数值溢出），评估随即报出 23 条 conservation_violation
-    # 错误。末端越多越容易触发，而多房间系统正是本平台要支持的场景。
+    # Hardy-Cross 是迭代法，原实现**无条件**采用它的结果。现在求解核已改为
+    # Gauss-Seidel（见 `app/hardy_cross/solver.py`），发散问题应已消除；这道判据
+    # 仍然保留，作为"求解核万一再次数值病态"的兜底——宁可用均分结果并显式告知，
+    # 也不让 1e10 量级的垃圾值流进评估结果。
     if not _allocation_is_usable(allocation, total_demand_m3_h):
         fallback = allocate_flow(graph, medium, total_demand_m3_h, terminal_demands)
         fallback.degraded_reason = (
             "hardy_cross_unusable"
             f"(iterations={result.iterations},"
-            f" max_residual={result.max_residual_m3_h:.3f} m3/h)"
+            f" max_residual={result.max_residual_m3_h:.3f} m3/h,"
+            f" max_edge_flow={_max_abs_edge_flow(allocation):.3g} m3/h)"
         )
         return fallback
 
     return allocation
+
+
+def _max_abs_edge_flow(allocation: FlowAllocation) -> float:
+    """结果中最大的边流量绝对值（m³/h）"""
+    return max((abs(value) for value in allocation.edge_flow.values()), default=0.0)
 
 
 def _allocation_is_usable(
@@ -107,22 +119,30 @@ def _allocation_is_usable(
 ) -> bool:
     """Hardy-Cross 的结果在数值上是否可信。
 
-    判据**只看守恒残差**——它正是本函数要拦的那个缺陷的直接信号。上界取
-    `max(1.0, 总需求)`：正常管网里任何单点的守恒残差都不该超过总流量本身。
+    判据**看边流量的幅值**，上界取总需求的若干倍。
 
-    两处刻意不看的东西：
+    为什么**不能**看守恒残差：Hardy-Cross 的回路修正往闭合回路上加减同一个 ΔQ，
+    **按构造保持**各节点的净进出流量不变。所以守恒残差恒等于双精度舍入噪声
+    （实测相对残差稳定在 1e-16 量级），完全看不出解已经发散：
 
-    - **不看迭代是否收敛到容差**：多支路管网里 50 次迭代后回路修正量仍在容差
-      之上、流量却完全正确的情形很常见，一并否掉会把更准的平差结果换成均分结果。
-    - **不看边流量的幅值**：实测正规样例 `four_floor_fcu_fresh_air` 的
-      Hardy-Cross 结果是"守恒残差 0.0000、边流量却到 8.4e10"——边流量存在独立于
-      守恒的尺度问题，拿它当判据会误伤正规样例。该问题另行记录，不在此处掩盖。
+        | 算例 | max\\|边流量\\| | 最大守恒残差 | 相对残差 |
+        | --- | --- | --- | --- |
+        | 示例项目 冷冻水 | 4.9e25 | 1.07e10 | 2.2e-16 |
+        | 示例项目 热水   | 1.8e12 | 3.7e-04 | 2.1e-16 |
+        | `four_floor` 冷冻水 | 4.4e10 | 6.5e-06 | 1.5e-16 |
+
+    旧实现按残差判，等于只在边流量炸到 1e17 以上（噪声本身超过上界）时才偶然
+    拦住，热水侧 1.8e12、`four_floor` 4.4e10 这类**直接放行**。
+
+    边流量的物理尺度是已知的：系统总需求 `total_demand_m3_h` 是唯一合理的量级，
+    任何一条边的流量都不应显著超过它（干管流量 ≈ 总流量，支管只会更小）。
+    故上界取 `max(1.0, 总需求) × EDGE_FLOW_LIMIT_FACTOR`，留出环路分配导致的
+    合理余量。
     """
-    bound = max(1.0, abs(total_demand_m3_h))
-    return all(
-        math.isfinite(residual) and abs(residual) <= bound
-        for residual in allocation.conservation_residuals.values()
-    )
+    if not all(math.isfinite(value) for value in allocation.edge_flow.values()):
+        return False
+    bound = max(1.0, abs(total_demand_m3_h)) * EDGE_FLOW_LIMIT_FACTOR
+    return _max_abs_edge_flow(allocation) <= bound
 
 
 def _allocate_directed_manifold_flow(

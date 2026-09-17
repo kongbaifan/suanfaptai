@@ -304,10 +304,63 @@ def test_conservation_residuals():
     graph = build_port_graph(system)
     allocation = allocate_flow(graph, "chilled_water", 100.0)
 
-    # 检查守恒违反（初始均分流量可能不守恒）
+    # 只给总流量、不给末端需求时只能按边数均分，**不守恒**是已知且有意保留的
+    # 行为（残差 = |入度-出度| × 均分流量）。调用方拿得到需求时请传
+    # terminal_demands，见 `test_demand_routing_is_conservative`。
     violations = check_conservation_tolerance(allocation.conservation_residuals, tolerance=0.01)
-    # 允许有违反（因为是简化算法）
     assert isinstance(violations, list)
+
+
+def test_demand_routing_is_conservative():
+    """给了末端需求就必须严格守恒——兜底方案不得自己制造守恒违反
+
+    回归历史缺陷：`allocate_flow` 原先**完全忽略** `terminal_demands`，把每条边
+    一律设成 `总需求 / 边数`，同时残差又只算 `|Σ入 - Σ出|`、不计外部注入。
+    后果是冷机这类源设备必然报出等于自身流量的残差——示例项目一次性报出 8 条
+    `conservation_violation` **error**，而这 8 条与 Hardy-Cross 毫无关系
+    （把 Hardy-Cross 整个关掉照报），纯属兜底自己制造的假错误。
+    """
+    system = SystemEvaluateRequest(
+        devices=[
+            DeviceInput(id="chiller1", type="冷水机组"),
+            DeviceInput(id="pump1", type="循环泵"),
+            DeviceInput(id="fcu1", type="风机盘管"),
+        ],
+        connections=[
+            ConnectionInput(from_id="chiller1", to_id="pump1", system="chilled_water"),
+            ConnectionInput(from_id="pump1", to_id="fcu1", system="chilled_water"),
+        ],
+    )
+    graph = build_port_graph(system)
+    demands = {"chiller1": 20.0, "fcu1": -20.0}
+    allocation = allocate_flow(graph, "chilled_water", 20.0, demands)
+
+    violations = check_conservation_tolerance(allocation.conservation_residuals, tolerance=0.01)
+    assert violations == [], violations
+    # 残差应在浮点舍入量级，不是"小一点"而已
+    assert max(allocation.conservation_residuals.values()) < 1e-9
+
+
+def test_demand_routing_respects_demand_magnitude():
+    """分配的流量必须反映末端需求，而不是按边数摊平"""
+    system = SystemEvaluateRequest(
+        devices=[
+            DeviceInput(id="chiller1", type="冷水机组"),
+            DeviceInput(id="pump1", type="循环泵"),
+            DeviceInput(id="fcu1", type="风机盘管"),
+        ],
+        connections=[
+            ConnectionInput(from_id="chiller1", to_id="pump1", system="chilled_water"),
+            ConnectionInput(from_id="pump1", to_id="fcu1", system="chilled_water"),
+        ],
+    )
+    graph = build_port_graph(system)
+    allocation = allocate_flow(graph, "chilled_water", 20.0, {"chiller1": 20.0, "fcu1": -20.0})
+
+    # 串联回路里每条边的流量都应是 20，而不是 20/边数
+    magnitudes = [abs(value) for value in allocation.edge_flow.values()]
+    assert magnitudes, "应至少分配一条边"
+    assert max(magnitudes) == pytest.approx(20.0)
 
 
 def test_terminal_demands_are_balanced(simple_chilled_water_system):

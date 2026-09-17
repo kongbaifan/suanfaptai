@@ -3,6 +3,8 @@
 测试回路检测、阻力计算、迭代求解的正确性。
 """
 
+import pytest
+
 from app.hardy_cross.loop_detector import detect_loops
 from app.hardy_cross.models import (
     NetworkModel,
@@ -11,7 +13,12 @@ from app.hardy_cross.models import (
     SolverConfig,
 )
 from app.hardy_cross.resistance import calculate_resistance_coefficient
-from app.hardy_cross.solver import solve_hardy_cross
+from app.hardy_cross.solver import (
+    _apply_corrections,
+    _calculate_loop_correction,
+    _initialize_flows,
+    solve_hardy_cross,
+)
 
 
 class TestLoopDetection:
@@ -260,3 +267,105 @@ class TestHardyCrossSolver:
         flow_BD = abs(result.edge_flows["BD"])
         flow_CD = abs(result.edge_flows["CD"])
         assert abs(flow_BD - flow_CD) < 0.5, "对称网络应有对称解"
+
+
+def _grid_model(w: int, h: int, demand: float = 20.0) -> NetworkModel:
+    """构造 w×h 网格管网，节点 (i,j)，边为相邻格点。
+
+    多回路网格是暴露迭代格式缺陷的标准算例：回路之间大量共享边。
+    """
+    nodes: dict[str, NetworkNode] = {}
+    for i in range(w):
+        for j in range(h):
+            nodes[f"n{i}_{j}"] = NetworkNode(f"n{i}_{j}", "junction", "pass")
+    edges: dict[str, PipeEdge] = {}
+    for i in range(w):
+        for j in range(h):
+            if i + 1 < w:
+                a, b = f"n{i}_{j}", f"n{i + 1}_{j}"
+                edges[a + b] = PipeEdge(a + b, a, b, 100, 10)
+            if j + 1 < h:
+                a, b = f"n{i}_{j}", f"n{i}_{j + 1}"
+                edges[a + b] = PipeEdge(a + b, a, b, 100, 10)
+    # 左上注入、右下流出
+    nodes["n0_0"].external_flow_m3_h = demand
+    nodes[f"n{w - 1}_{h - 1}"].external_flow_m3_h = -demand
+    return NetworkModel(nodes=nodes, edges=edges, loops=[])
+
+
+class TestMultiLoopConvergence:
+    """多回路管网必须收敛——回归 Jacobi 式更新导致的几何发散
+
+    原 `_apply_corrections` 把本轮**所有**回路的修正量先算完、再一次性叠加到边上
+    （Jacobi）。一条边常同时属于多个回路，叠加后互相放大，迭代几何发散。实测：
+    示例项目冷冻水 15 个回路，max|ΔQ| 从 3.16 涨到 5.5e24；正规样例
+    `four_floor_fcu_fresh_air` 6 个回路涨到 6.8e61，结果里的边流量达 4.4e10。
+
+    改为逐回路写回（Gauss-Seidel）后收敛，且收敛到与强阻尼 Jacobi **相同**的解
+    （实测边流量最大差 ~1e-8 m³/h，即机器精度）。
+    """
+
+    @pytest.mark.parametrize("size", [(3, 3), (4, 4), (5, 5), (6, 4)])
+    def test_grid_network_converges(self, size: tuple[int, int]):
+        """多回路网格必须收敛，且流量不得超出总需求的合理量级"""
+        model = _grid_model(*size, demand=20.0)
+        model.loops = detect_loops(model)
+        assert len(model.loops) > 1, "网格应产生多个回路"
+
+        result = solve_hardy_cross(model, SolverConfig(max_iterations=500))
+
+        assert result.converged, (
+            f"{size} 网格未收敛：iterations={result.iterations}, "
+            f"max_residual={result.max_residual_m3_h:.3g}"
+        )
+        worst = max(abs(v) for v in result.edge_flows.values())
+        # 干管流量 ≈ 总流量，任何边都不该超出总需求一个量级
+        assert worst < 20.0 * 5, f"边流量 {worst:.3g} 远超总需求 20 m³/h"
+
+    def test_converged_flows_respect_nodal_continuity(self):
+        """收敛解必须满足节点连续性：Σ入 - Σ出 + 外部注入 = 0"""
+        model = _grid_model(4, 4, demand=20.0)
+        model.loops = detect_loops(model)
+        result = solve_hardy_cross(model, SolverConfig(max_iterations=500))
+        assert result.converged
+
+        inflow: dict[str, float] = {}
+        outflow: dict[str, float] = {}
+        for edge in model.edges.values():
+            flow = result.edge_flows[edge.id]
+            outflow[edge.from_node] = outflow.get(edge.from_node, 0.0) + flow
+            inflow[edge.to_node] = inflow.get(edge.to_node, 0.0) + flow
+
+        worst = 0.0
+        for node_id, node in model.nodes.items():
+            net = (
+                inflow.get(node_id, 0.0)
+                - outflow.get(node_id, 0.0)
+                + node.external_flow_m3_h
+            )
+            worst = max(worst, abs(net))
+        assert worst < 1e-6, f"节点连续性残差 {worst:.3g} 过大"
+
+    def test_jacobi_form_is_documented_as_diverging(self):
+        """Jacobi 形式（`_apply_corrections`）在多回路网格上确实会发散
+
+        这条把"为什么改成 Gauss-Seidel"钉死：保留旧入口是为了兼容，但它不可用于
+        多回路管网。若将来有人把 `solve_hardy_cross` 改回 Jacobi，本测试配合上面的
+        收敛测试会立刻失败。
+        """
+        model = _grid_model(5, 5, demand=20.0)
+        model.loops = detect_loops(model)
+        config = SolverConfig(max_iterations=200, tolerance_m3_h=0.01, initial_flow_m3_h=1.0)
+        _initialize_flows(model, config)
+
+        for _ in range(200):
+            for loop in model.loops:
+                loop.correction_m3_h = _calculate_loop_correction(loop, model, config)
+            _apply_corrections(model)
+
+        worst = max(abs(edge.flow_m3_h) for edge in model.edges.values())
+        # 20 m³/h 的系统炸到 1e6 以上即为发散（真收敛解在 20 附近）
+        assert worst > 1e6, (
+            f"Jacobi 形式未如预期发散（max|Q|={worst:.3g}）；"
+            "若求解格式已变，请一并更新本测试与 solve_hardy_cross 的说明"
+        )

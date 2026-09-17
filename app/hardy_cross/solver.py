@@ -21,6 +21,14 @@ def solve_hardy_cross(model: NetworkModel, config: SolverConfig) -> SolverResult
     修正公式：
     ΔQ = -Σ(ΔP) / Σ(|dΔP/dQ|)
 
+    迭代格式是 **Gauss-Seidel**（逐回路算完立刻写回边流量），不是 Jacobi。
+    这不是性能选择，而是**收敛性的必要条件**：Jacobi 把本轮所有回路的修正量
+    一次性叠加，而本项目实测有 28/128 条边同时属于多个回路（最多一条属于 9 个
+    回路），叠加后互相放大，迭代**几何发散**——实测示例项目冷冻水 15 个回路，
+    max|ΔQ| 从 3.16 涨到 5.5e24；正规样例 `four_floor_fcu_fresh_air` 6 个回路
+    同样涨到 6.8e61。改成逐回路写回后，两者都在 11~33 次迭代内收敛，
+    且收敛到与强阻尼 Jacobi 完全相同的解（边流量最大差 ~1e-8 m³/h，即机器精度）。
+
     Args:
         model: 管网模型
         config: 求解器配置
@@ -35,19 +43,19 @@ def solve_hardy_cross(model: NetworkModel, config: SolverConfig) -> SolverResult
     _initialize_flows(model, config)
 
     # 迭代求解
+    max_correction = 0.0
     for iteration in range(config.max_iterations):
         max_correction = 0.0
 
-        # 1. 对每个回路计算修正量
+        # 逐回路：算出修正量后**立刻**写回边流量，后续回路基于已更新的流量计算。
+        # 这样同一轮内先处理的回路已经改进了解，避免 Jacobi 式过冲发散。
         for loop in model.loops:
             correction = _calculate_loop_correction(loop, model, config)
             loop.correction_m3_h = correction
             max_correction = max(max_correction, abs(correction))
+            _apply_loop_correction(model, loop, correction)
 
-        # 2. 应用修正量到各边
-        _apply_corrections(model)
-
-        # 3. 检查收敛
+        # 检查收敛
         if max_correction < config.tolerance_m3_h:
             return SolverResult(
                 converged=True,
@@ -201,19 +209,30 @@ def _calculate_loop_correction(loop: Loop, model: NetworkModel, config: SolverCo
     return correction
 
 
-def _apply_corrections(model: NetworkModel):
-    """应用回路修正量到各边
+def _apply_loop_correction(model: NetworkModel, loop: Loop, correction: float) -> None:
+    """把单个回路的修正量写回它经过的每条边。
 
-    注意：一条边可能属于多个回路，需要累加所有修正量
+    回路修正只改变**回路内部**的流量分配，不改变各节点的净进出流量，因此
+    节点连续性残差始终保持在浮点舍入量级（实测相对残差 ~1e-16）——这也是
+    为什么"守恒残差"不能用来判断 Hardy-Cross 结果是否可信，详见
+    `app/hardy_cross/bridge.py` 的 `_allocation_is_usable`。
     """
-    # 先清零累积修正量
+    for edge_id, direction in zip(loop.edges, loop.directions):
+        model.edges[edge_id].flow_m3_h += correction * direction
+
+
+def _apply_corrections(model: NetworkModel):
+    """把**全部**回路的修正量一次性写回各边（Jacobi 式）。
+
+    .. deprecated::
+        保留仅为兼容既有测试与外部调用。该格式在多回路管网上会几何发散
+        （见 `solve_hardy_cross` 的说明），新代码请用 `_apply_loop_correction`。
+    """
     edge_corrections: dict[str, float] = {edge_id: 0.0 for edge_id in model.edges}
 
-    # 累加每个回路的修正量
     for loop in model.loops:
         for edge_id, direction in zip(loop.edges, loop.directions):
             edge_corrections[edge_id] += loop.correction_m3_h * direction
 
-    # 应用到边流量
     for edge_id, correction in edge_corrections.items():
         model.edges[edge_id].flow_m3_h += correction

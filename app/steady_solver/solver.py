@@ -3,6 +3,7 @@
 协调端口图构建、拓扑验证、流量分配、水力/风网求解和设备平衡。
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -33,12 +34,46 @@ from .flow_solver import (
 from .port_graph import Medium, PortGraph, build_port_graph
 from .topology_validator import convert_to_schema_issues, validate_topology
 
-# Hardy Cross 求解器集成
-try:
-    from app.hardy_cross.bridge import allocate_flow_hardy_cross
-    HARDY_CROSS_AVAILABLE = True
-except ImportError:
-    HARDY_CROSS_AVAILABLE = False
+logger = logging.getLogger(__name__)
+
+
+def _load_hardy_cross_allocator() -> Any:
+    """延迟导入 Hardy-Cross 流量分配器（不可用则返回 ``None``）。
+
+    **不能在模块顶层导入**。`app.hardy_cross.bridge` 反过来 import
+    `app.steady_solver.flow_solver`，而 `app/steady_solver/__init__.py` 会 import
+    本模块，于是形成 bridge → steady_solver → solver → bridge 的包级循环。若
+    **先**导入 bridge，循环回到本模块时 bridge 只执行到 import 段，
+    `allocate_flow_hardy_cross` 尚未定义，顶层导入抛 ImportError。
+
+    原实现用 `try/except ImportError` 吞掉这个异常，后果是**导入顺序决定算法是否
+    启用**：`import app.hardy_cross.bridge` 之后再导入本模块，
+    `HARDY_CROSS_AVAILABLE` 会静默变成 False，管网平差被无声关掉，结果从"按阻力
+    平差"退化成"均分"，评估结果里没有任何痕迹。改为函数内按需导入后，导入顺序
+    不再影响可用性；确实导入失败时记一条 warning 而不是静默降级。
+    """
+    try:
+        from app.hardy_cross.bridge import allocate_flow_hardy_cross as allocator
+    except ImportError:  # pragma: no cover - 仅在桥接模块真被破坏时触发
+        logger.warning("Hardy-Cross 桥接模块不可导入，稳态求解退回均分分配器")
+        return None
+    return allocator
+
+
+_UNSET = object()
+_hardy_cross_allocator_cache: Any = _UNSET
+
+
+def _hardy_cross_allocator() -> Any:
+    """返回 Hardy-Cross 分配器（不可用时为 ``None``）。
+
+    导入只尝试一次并缓存结果。本函数同时是单元测试的替换接入点——测试直接
+    monkeypatch 本函数即可注入伪造的分配器，无需关心缓存与导入顺序。
+    """
+    global _hardy_cross_allocator_cache
+    if _hardy_cross_allocator_cache is _UNSET:
+        _hardy_cross_allocator_cache = _load_hardy_cross_allocator()
+    return _hardy_cross_allocator_cache
 
 
 SOURCE_ROLES_BY_MEDIUM: dict[str, set[str]] = {
@@ -635,8 +670,12 @@ def solve_steady_state(
             medium,
             capacity.actual_flow_m3_h,
         )
-        if use_hardy_cross and HARDY_CROSS_AVAILABLE and demands:
-            allocation = allocate_flow_hardy_cross(
+        if use_hardy_cross and demands:
+            hardy_cross_allocator = _hardy_cross_allocator()
+        else:
+            hardy_cross_allocator = None
+        if hardy_cross_allocator is not None:
+            allocation = hardy_cross_allocator(
                 port_graph,
                 medium,
                 capacity.actual_flow_m3_h,
@@ -654,6 +693,22 @@ def solve_steady_state(
         allocation.unmet_flow_m3_h = capacity.unmet_flow_m3_h
         allocation.unmet_load_kw = capacity.unmet_load_kw
         allocation.limiting_device_ids = capacity.limiting_device_ids
+        # 降级透明：Hardy-Cross 未收敛时已回退到均分求解器（见
+        # `hardy_cross.bridge.allocate_flow_hardy_cross`），这里必须显式告知，
+        # 否则使用者会以为这份流量是平差结果。
+        if getattr(allocation, "degraded_reason", None):
+            flow_capacity_issues.append(
+                Issue(
+                    level="warning",
+                    code="HARDY_CROSS_FALLBACK",
+                    message=(
+                        f"{medium} 的 Hardy-Cross 平差未收敛，已回退到均分求解器"
+                        f"（{allocation.degraded_reason}）。流量分配仍守恒，"
+                        "但未按管网阻力平差，支路流量仅供教学参考。"
+                    ),
+                    target=f"{medium}_network",
+                )
+            )
         if capacity.unmet_flow_m3_h > 0.001:
             load_detail = (
                 f"，未满足负荷 {capacity.unmet_load_kw:.3f} kW"

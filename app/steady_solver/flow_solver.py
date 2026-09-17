@@ -23,6 +23,9 @@ class FlowAllocation:
     unmet_flow_m3_h: float = 0.0
     unmet_load_kw: float | None = None
     limiting_device_ids: tuple[str, ...] = ()
+    # 求解器降级原因（非 None 表示这份流量来自回退方案，例如 Hardy-Cross 未收敛）。
+    # 按「降级透明」约定，调用方必须把它作为 warning 显式上报，不能静默回退。
+    degraded_reason: str | None = None
 
 
 @dataclass

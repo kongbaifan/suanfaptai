@@ -799,6 +799,74 @@ SimulationConfig(mode=COOLING, step_seconds=300, target_temp_c=24,
 `_cooling_source_shares(chillers, heat_sources)` 把冷负荷按容量分摊给冷机与热源
 （可逆机组），不是重复计算。
 
+## Hardy-Cross 平差的三个坑（都是实测踩出来的）
+
+### 坑一：导入顺序会静默关掉管网平差
+
+`app.hardy_cross.bridge` 反过来 import `app.steady_solver.flow_solver`，而
+`app/steady_solver/__init__.py` 会 import `solver`，于是形成
+**bridge → steady_solver → solver → bridge** 的包级循环。
+
+`solver.py` 原实现把顶层导入包在 `try/except ImportError` 里（注释写的是"可选依赖"），
+后果是**导入顺序决定算法是否启用**：
+
+| 导入顺序 | `HARDY_CROSS_AVAILABLE` |
+| --- | --- |
+| `import app.steady_solver.solver` | `True` |
+| `import app.main` 之后再导入 solver | `True` |
+| **`import app.hardy_cross.bridge` 之后再导入 solver** | **`False`** |
+
+先导入 bridge 时，循环回到 solver，bridge 只执行到 import 段、
+`allocate_flow_hardy_cross` 尚未定义 → 抛 ImportError → 被静默吞掉。
+于是管网平差被无声关闭，流量分配退化成均分，**结果里没有任何痕迹**。
+
+**修法**：改为函数内延迟导入并缓存（`_hardy_cross_allocator()`），导入顺序不再影响
+可用性；真导入失败时记 `logger.warning` 而不是静默降级。单元测试通过 monkeypatch
+`_hardy_cross_allocator` 注入伪造分配器。
+
+> 这是本仓库第三次踩同一个结构（另两次见 `validators/system_form.py` 的
+> `build_port_graph`、以及 `steady_solver/__init__.py` 的 import solver）。
+> **凡是被 `steady_solver` 包内模块反向依赖的包，一律在函数内延迟导入。**
+
+### 坑二：不收敛时垃圾值直接进入评估结果
+
+原实现**无条件**采用 Hardy-Cross 结果。实测一个 12 个并联末端的项目里，守恒残差
+达到 **10,737,418,240 m³/h（10×2³⁰，典型数值溢出）**，热水侧边流量到 **2.68e12**，
+评估随即报出 23 条 `conservation_violation` **错误**——而关掉 Hardy-Cross
+（`use_hardy_cross=False`）时残差最大只有 **0.92 m³/h**。末端越多越容易触发，
+多房间系统正是本平台要支持的主场景。
+
+**修法**：`bridge.py` 转换结果后过一道 `_allocation_is_usable()`，不可用则回退到
+`allocate_flow` 均分求解器，并打 `degraded_reason`；`solver.py` 见到
+`degraded_reason` 就报 `HARDY_CROSS_FALLBACK` warning（降级透明）。
+
+判据**只看守恒残差**，上界取 `max(1.0, 总需求)`。两处刻意不看的东西：
+
+- **不看 `result.converged`**：多支路管网里 50 次迭代后回路修正量仍在 0.01 容差之上、
+  流量却完全正确的情形很常见。按 `converged` 判会把更准的平差结果换成更差的均分结果
+  ——实测这样改会让 4 个 `test_manifold_solver.py` 用例失败，并把
+  `four_floor_fcu_fresh_air` 的冷冻水判成不收敛。
+- **不看边流量幅值**：见坑三。
+
+实测效果（10 个内置样例 + 示例项目，逐条比对 issue 码集合与错误数）：
+**全部 10 个样例与改前逐字节一致**（错误数 0/2/6/12/0/0/0/0/0/0），
+示例项目错误数 **23 → 8**，`conservation_violation` **42 → 8**。
+
+### 坑三：边流量存在独立于守恒的尺度异常（**未修**）
+
+`four_floor_fcu_fresh_air` 的 Hardy-Cross 结果是"**守恒残差 0.0000、边流量最大却到
+84,090,174,987（≈8.4e10）**"。即守恒判据完全看不到这个问题——各节点进出平衡，
+但边的绝对量级荒谬。
+
+因此**不能**把边流量幅值加进 `_allocation_is_usable`：那会误伤这个正规样例。
+`tests/test_hardy_cross_integration.py::test_edge_flow_magnitude_alone_does_not_reject`
+用注释钉住了这一点。
+
+> **该缺陷仍在**。影响面待查：评估输出里的 `steady_network.ports[].flow_m3_h` 与
+> `media.*.edge_flow` 可能带这些荒谬值。根治方向是查 `hardy_cross` 求解核内部
+> 的量纲/初始流量处理，而不是继续在桥接层加过滤。**在修好之前，不要把
+> Hardy-Cross 的边流量当作可用的教学数字展示。**
+
 ## 参考资源
 
 - GB 50189：公共建筑节能设计标准

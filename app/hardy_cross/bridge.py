@@ -3,6 +3,7 @@
 将端口图转换为 Hardy Cross 网络模型，并将求解结果映射回端口图格式。
 """
 
+import math
 from collections import defaultdict, deque
 
 from app.hardy_cross import (
@@ -13,7 +14,7 @@ from app.hardy_cross import (
     detect_loops,
     solve_hardy_cross,
 )
-from app.steady_solver.flow_solver import FlowAllocation
+from app.steady_solver.flow_solver import FlowAllocation, allocate_flow
 from app.steady_solver.port_graph import Medium, PortGraph
 
 
@@ -81,7 +82,47 @@ def allocate_flow_hardy_cross(
     result = solve_hardy_cross(hc_model, config)
 
     # 4. 转换结果回端口图格式
-    return _convert_back_to_flow_allocation(subgraph, hc_model, result, total_demand_m3_h)
+    allocation = _convert_back_to_flow_allocation(
+        subgraph, hc_model, result, total_demand_m3_h
+    )
+
+    # Hardy-Cross 是迭代法，原实现**无条件**采用它的结果，于是数值病态时垃圾值会
+    # 直接进入评估结果：实测一个 12 个并联末端的项目里，守恒残差达到 1e10 m³/h
+    # 量级（2 的幂次，典型数值溢出），评估随即报出 23 条 conservation_violation
+    # 错误。末端越多越容易触发，而多房间系统正是本平台要支持的场景。
+    if not _allocation_is_usable(allocation, total_demand_m3_h):
+        fallback = allocate_flow(graph, medium, total_demand_m3_h, terminal_demands)
+        fallback.degraded_reason = (
+            "hardy_cross_unusable"
+            f"(iterations={result.iterations},"
+            f" max_residual={result.max_residual_m3_h:.3f} m3/h)"
+        )
+        return fallback
+
+    return allocation
+
+
+def _allocation_is_usable(
+    allocation: FlowAllocation, total_demand_m3_h: float
+) -> bool:
+    """Hardy-Cross 的结果在数值上是否可信。
+
+    判据**只看守恒残差**——它正是本函数要拦的那个缺陷的直接信号。上界取
+    `max(1.0, 总需求)`：正常管网里任何单点的守恒残差都不该超过总流量本身。
+
+    两处刻意不看的东西：
+
+    - **不看迭代是否收敛到容差**：多支路管网里 50 次迭代后回路修正量仍在容差
+      之上、流量却完全正确的情形很常见，一并否掉会把更准的平差结果换成均分结果。
+    - **不看边流量的幅值**：实测正规样例 `four_floor_fcu_fresh_air` 的
+      Hardy-Cross 结果是"守恒残差 0.0000、边流量却到 8.4e10"——边流量存在独立于
+      守恒的尺度问题，拿它当判据会误伤正规样例。该问题另行记录，不在此处掩盖。
+    """
+    bound = max(1.0, abs(total_demand_m3_h))
+    return all(
+        math.isfinite(residual) and abs(residual) <= bound
+        for residual in allocation.conservation_residuals.values()
+    )
 
 
 def _allocate_directed_manifold_flow(

@@ -148,8 +148,19 @@ LEGACY_DEVICE_TYPE_ALIASES = {
 
 
 def resolve_device_type(device_type: str | None) -> str:
-    """把历史类型名归一为目录中的现名；未知类型原样返回。"""
-    text = str(device_type or "")
+    """把历史类型名归一为目录中的现名；未知类型原样返回。
+
+    先 `strip()` 再查别名表。设备类型在界面上是**自由文本**输入框（不是下拉），
+    尾随/前导空格是常见输入；目录里没有任何带空格的类型名（已核对全部各行），
+    所以剥离空白只会让 `" 新风机组 "` 这类值与 `"新风机组"` 等价，
+    不会误命中别的类型。
+
+    这一条同时是前端 `canonicalDeviceType` 的对照口径：前端也 trim 后查表。
+    后端是**权威**，前端镜像同一规则，两端对同一输入必须给出同一判定——
+    此前，后端不 trim，于是 `" 一体式新风机组 "` 被前端接受、却被后端拒绝
+    （`ROOM_BINDING_UNSUPPORTED_DEVICE`），与原缺陷同类的假分歧。
+    """
+    text = str(device_type or "").strip()
     return LEGACY_DEVICE_TYPE_ALIASES.get(text, text)
 
 

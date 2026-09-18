@@ -185,6 +185,17 @@ describe("project editor helpers", () => {
     expect(isRoomTerminalDevice({ type: "自定义设备" })).toBe(false);
   });
 
+  it("treats Object.prototype member names as unknown types instead of throwing", () => {
+    // 别名表若用对象字面量实现，`aliases["constructor"]` 会命中原型上的函数，
+    // `?? 兜底` 不生效，返回的不是字符串，调用方 `.toLocaleLowerCase()` 直接抛错
+    // ——整份草稿校验崩掉。设备类型是自由文本，这些值必须走"未知类型"分支。
+    for (const key of ["constructor", "__proto__", "toString", "valueOf", "hasOwnProperty"]) {
+      expect(canonicalDeviceType(key)).toBe(key);
+      expect(() => isRoomTerminalDevice({ type: key })).not.toThrow();
+      expect(isRoomTerminalDevice({ type: key })).toBe(false);
+    }
+  });
+
   it("does not flag a legacy-typed room terminal as a non-terminal binding", () => {
     const source = project({
       rooms: [{ id: "r1", floor_id: "F1", name: "教室", device_ids: ["fau"], area_m2: 50, people: 10 }],

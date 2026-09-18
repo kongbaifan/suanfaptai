@@ -90,14 +90,22 @@ export const ROOM_TERMINAL_DEVICE_TYPES = [
  * 但前端若只认现名，就会把这类设备判成"不是可服务房间的末端设备"而报
  * `EDITOR_NON_TERMINAL_BINDING`——一个前端自造的假错误。
  */
-export const LEGACY_DEVICE_TYPE_ALIASES: Record<string, string> = {
-  一体式新风机组: "新风机组",
-};
+const LEGACY_DEVICE_TYPE_ALIASES = new Map<string, string>([
+  ["一体式新风机组", "新风机组"],
+]);
 
-/** 把历史类型名归一为目录现名；未知类型原样返回（trim 后）。 */
+/**
+ * 把历史类型名归一为目录现名；未知类型原样返回（trim 后）。
+ *
+ * 用 `Map` 而不是对象字面量：对象字面量会继承 `Object.prototype`，于是
+ * `aliases["constructor"]` / `["toString"]` 拿到的是继承来的函数而非 undefined，
+ * `??` 不会兜底，返回值就不是字符串，调用方的 `.toLocaleLowerCase()` 直接抛错。
+ * 设备类型是用户可自由填写的文本，`"constructor"` 这类值必须被当成未知类型拒绝，
+ * 而不是让整个校验抛异常。
+ */
 export function canonicalDeviceType(deviceType: string | null | undefined): string {
   const normalized = text(deviceType);
-  return LEGACY_DEVICE_TYPE_ALIASES[normalized] ?? normalized;
+  return LEGACY_DEVICE_TYPE_ALIASES.get(normalized) ?? normalized;
 }
 
 const NORMALIZED_ROOM_TERMINAL_TYPES = new Set(

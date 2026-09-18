@@ -651,3 +651,119 @@ def test_solver_snapshot_is_independent_of_input_order():
     second = build_steady_network_result(solve_steady_state(reordered, cooling_load_kw=100.0))
 
     assert first.model_dump() == second.model_dump()
+
+
+class TestAirMediumFlows:
+    """`media["air"]` 必须反映真实风量，不能报"全 0 且 converged=True"
+
+    空气**有意**不走端口图流量分配（`SOURCE_ROLES_BY_MEDIUM` 里没有 air——空气
+    没有泵驱动的水力源/汇语义），风量由独立的风网求解器 `solve_air_trees` 按有向
+    树聚合算出，放在 `steady_network.air.ducts[]`。
+
+    但原实现在 `build_steady_network_result` 里为空气也生成了 `media["air"]` 条目，
+    且因 `allocation is None`，所有边流量取 0、`converged` 取 `True`——对外表现为
+    "空气管网已收敛，各管段流量均为 0"。而真实风量就在**同一个响应**里非 0。
+    """
+
+    def _ducted_sample(self) -> SystemEvaluateRequest:
+        from app.samples import DUCTED_FRESH_AIR_SAMPLE
+
+        return SystemEvaluateRequest(**DUCTED_FRESH_AIR_SAMPLE)
+
+    def test_air_duct_edges_carry_the_real_airflow(self):
+        """有 `pipe_id` 的空气边必须等于风网求解器给出的风量"""
+        request = self._ducted_sample()
+        result = build_steady_network_result(
+            solve_steady_state(request, cooling_load_kw=100.0)
+        )
+        air = result.media["air"]
+        assert result.air is not None
+
+        by_duct = {duct.duct_id: duct.airflow_m3_h for duct in result.air.ducts}
+        assert by_duct, "样例应有风管计算结果"
+
+        pipe_edges = [edge for edge in air.edges if edge.pipe_id]
+        assert pipe_edges, "空气子图应有带 pipe_id 的管道边"
+        for edge in pipe_edges:
+            assert edge.flow_m3_h == pytest.approx(by_duct[edge.pipe_id]), (
+                f"{edge.pipe_id} 的风量未投影到 media['air']"
+            )
+        # 反向：不能全是 0（这正是被回归的缺陷）
+        assert any(edge.flow_m3_h > 0 for edge in pipe_edges)
+
+    def test_zero_length_connector_edges_are_left_unfilled(self):
+        """零长度连接边留 0——由相邻管道反解**不成立**，不编造数字
+
+        实测各算例用连续性反解这些边的残差达总风量的 1.0~2.7 倍（空气在设备处
+        有真实引入/引出），故不填。
+        """
+        result = build_steady_network_result(
+            solve_steady_state(self._ducted_sample(), cooling_load_kw=100.0)
+        )
+        connectors = [edge for edge in result.media["air"].edges if not edge.pipe_id]
+        assert connectors, "空气子图应有零长度连接边"
+        assert all(edge.flow_m3_h == 0.0 for edge in connectors)
+
+    def test_air_converged_reflects_the_air_solver_not_a_default(self):
+        """`converged` 必须来自风网求解器，不能因为"没分配"就默认 True
+
+        `ducted_fresh_air` 的风网走的是 `legacy_bounded_fallback`（degraded），
+        因此这里必须是 False——旧实现无条件给 True。
+        """
+        result = build_steady_network_result(
+            solve_steady_state(self._ducted_sample(), cooling_load_kw=100.0)
+        )
+        assert result.air is not None
+        air = result.media["air"]
+
+        assert air.converged == result.air.solver.succeeded
+        assert air.converged is False, (
+            "该样例风网是 legacy 兜底路径（degraded），converged 不应为 True"
+        )
+
+    def test_air_total_matches_the_air_network_result(self):
+        """总量口径取自风网求解器，不是端口图的（空气从未在端口图里分配过）"""
+        result = build_steady_network_result(
+            solve_steady_state(self._ducted_sample(), cooling_load_kw=100.0)
+        )
+        assert result.air is not None
+        assert result.media["air"].total_demand_m3_h == pytest.approx(
+            result.air.total_airflow_m3_h
+        )
+        assert result.media["air"].total_demand_m3_h > 0
+
+    def test_air_medium_is_absent_when_there_is_no_air_network(self):
+        """没有空气管路的项目不应凭空出现 media["air"] 条目"""
+        request = SystemEvaluateRequest(
+            devices=[
+                DeviceInput(id="chiller1", type="冷水机组"),
+                DeviceInput(id="pump1", type="循环泵"),
+                DeviceInput(id="fcu1", type="风机盘管"),
+            ],
+            connections=[
+                ConnectionInput(from_id="chiller1", to_id="pump1", system="chilled_water"),
+                ConnectionInput(from_id="pump1", to_id="fcu1", system="chilled_water"),
+                ConnectionInput(from_id="fcu1", to_id="chiller1", system="chilled_water"),
+            ],
+        )
+        result = build_steady_network_result(
+            solve_steady_state(request, cooling_load_kw=20.0)
+        )
+        assert result.air is None
+        assert "air" not in result.media
+
+    def test_air_duct_ports_expose_the_airflow(self):
+        """风管端口的 flow_m3_h_by_medium 也要带上风量（与水管端口口径一致）"""
+        result = build_steady_network_result(
+            solve_steady_state(self._ducted_sample(), cooling_load_kw=100.0)
+        )
+        by_duct = {duct.duct_id: duct.airflow_m3_h for duct in result.air.ducts}
+        exposed = {
+            port.owner_id: port.flow_m3_h_by_medium["air"]
+            for port in result.ports
+            if "air" in port.flow_m3_h_by_medium
+        }
+        assert exposed, "应有风管端口带上 air 流量"
+        for duct_id, flow in exposed.items():
+            assert flow == pytest.approx(by_duct[duct_id])
+        assert any(flow > 0 for flow in exposed.values())

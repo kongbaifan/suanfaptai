@@ -135,6 +135,19 @@ def build_steady_network_result(result: SteadySolverResult) -> SteadyNetworkResu
         if subgraph is None:
             continue
 
+        if medium == "air" and result.air_results is not None:
+            # 空气不参与端口图流量分配（`solve_steady_state` 只对三种水介质调用
+            # `_allocate`），但风量**确实被算出来了**——在独立的风网求解器里
+            # （`calculators/air_tree.py` 的 `solve_air_trees`，结果在
+            # `steady_network.air.ducts[]`）。这里按 `pipe_id` 把真实风量投影回
+            # 端口图的边，避免 `media["air"]` 报出一份"全 0 且 converged=True"
+            # 的假结果。详见 `_build_air_medium_result` 的说明。
+            air_medium, air_port_flows = _build_air_medium_result(result, subgraph)
+            media[medium] = air_medium
+            for port_key, flow in air_port_flows.items():
+                port_flows.setdefault(port_key, {})[medium] = flow
+            continue
+
         if allocation:
             for port_key, flow in allocation.port_flow.items():
                 port_flows.setdefault(port_key, {})[medium] = flow
@@ -229,6 +242,108 @@ def build_steady_network_result(result: SteadySolverResult) -> SteadyNetworkResu
         summary=result.summary or {},
         issues=result.issues or [],
     )
+
+
+def _build_air_medium_result(
+    result: SteadySolverResult,
+    subgraph: PortGraph,
+) -> tuple[SteadyMediumResult, dict[tuple[str, int], float]]:
+    """把风网求解器的真实风量投影成 `media["air"]` 与端口流量。
+
+    **空气为什么没有走 `_allocate`**：端口图求解器只做水系统平差
+    （`SOURCE_ROLES_BY_MEDIUM` 里没有 air——空气没有"源/汇"这种泵驱动的水力
+    语义），风量由独立的风网求解器 `solve_air_trees` 按有向树聚合算出，结果放在
+    `steady_network.air.ducts[]`。这是**有意分工**，不是遗漏。
+
+    但原实现在这里留了个坑：`media["air"]` 仍会生成条目，且因为 `allocation`
+    为 `None`，所有边流量取 0、`converged` 取 `True`——对外表现为
+    "空气管网已收敛，各管段流量均为 0"。**这是假的**：风量非 0 且就在同一个
+    响应里（`steady_network.air.ducts[]`）。实测 `ducted_fresh_air` 的
+    `media["air"]` 有 32 条边全 0，而 `air.ducts[]` 12 条风管全部非 0
+    （2500 / 5000 / 12240 m³/h…）。
+
+    现按 `pipe_id` 把真实风量投影到对应的管道边与端口。**只填有 `pipe_id` 的
+    边**：那些零长度连接边（设备↔风管）在空气侧承载的是"设备引入/引出风量"，
+    实测由其相邻管道通过连续性反解**不成立**（各算例残差 1.0~2.7 倍总风量），
+    所以宁可留 0 并如实标注，也不编造数字。
+
+    守恒信息用风网求解器自己的节点平衡（`air.solver.max_flow_residual_m3_h`
+    与 `node_balances`），而不是端口图的 `conservation_residuals`——后者对空气
+    根本没有被计算过。
+
+    Returns:
+        (介质结果, 端口流量表)。调用方需先确认 `result.air_results is not None`。
+    """
+    air = result.air_results
+    assert air is not None  # 调用方已保证
+    flow_by_pipe: dict[str, float] = {
+        duct.duct_id: duct.airflow_m3_h for duct in air.ducts
+    }
+
+    edge_rows = [
+        (edge, flow_by_pipe.get(edge.pipe_id or "", 0.0))
+        for edge in subgraph.edges
+    ]
+    edge_rows.sort(
+        key=lambda item: (
+            item[0].pipe_id or "",
+            item[0].from_port.device_id,
+            item[0].from_port.port_index,
+            item[0].to_port.device_id,
+            item[0].to_port.port_index,
+        )
+    )
+    edges = [
+        SteadyEdgeResult(
+            edge_id=f"air:{index}",
+            medium="air",
+            from_owner_id=edge.from_port.device_id,
+            from_port_index=edge.from_port.port_index,
+            to_owner_id=edge.to_port.device_id,
+            to_port_index=edge.to_port.port_index,
+            pipe_id=edge.pipe_id,
+            length_m=edge.length_m,
+            diameter_mm=edge.diameter_mm,
+            flow_m3_h=flow,
+        )
+        for index, (edge, flow) in enumerate(edge_rows)
+    ]
+
+    # 端口流量取流经该端口的流量之和（绝对值），与水管端口口径一致
+    air_port_flows: dict[tuple[str, int], float] = {}
+    for edge, flow in edge_rows:
+        magnitude = abs(flow)
+        if magnitude <= 0:
+            continue
+        for key in (
+            (edge.from_port.device_id, edge.from_port.port_index),
+            (edge.to_port.device_id, edge.to_port.port_index),
+        ):
+            air_port_flows[key] = air_port_flows.get(key, 0.0) + magnitude
+
+    # 守恒口径取风网求解器自己的：端口图的 device 守恒对空气从未计算过。
+    solved = air is not None and air.solver.succeeded
+    max_residual = air.solver.max_flow_residual_m3_h if air is not None else 0.0
+    conservation_residuals = (
+        {
+            balance.node_id: abs(balance.residual_m3_h)
+            for balance in air.node_balances
+        }
+        if air is not None
+        else {}
+    )
+    total_airflow = air.total_airflow_m3_h if air is not None else 0.0
+
+    medium_result = SteadyMediumResult(
+        total_demand_m3_h=total_airflow,
+        actual_flow_m3_h=total_airflow,
+        converged=solved,
+        max_conservation_residual_m3_h=max_residual,
+        conservation_residuals_m3_h=dict(sorted(conservation_residuals.items())),
+        edges=edges,
+        manifolds=[],
+    )
+    return medium_result, air_port_flows
 
 
 def _build_manifold_results(

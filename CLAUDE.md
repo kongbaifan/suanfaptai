@@ -947,12 +947,56 @@ SimulationConfig(mode=COOLING, step_seconds=300, target_temp_c=24,
 > 教学报告也不含边流量，所以这批脏数据没有直接显示在界面上——
 > 但接口返回值是错的，且会经评估历史落盘，不能因为"看不见"就不修。
 
-### 仍存在的观察（未确认是否有害）
+### `media["air"]` 恒为 0 且 converged=True（**已修**）
 
-`solve_steady_state` 的 `_allocate` 只对 `chilled_water` / `cooling_water` /
-`hot_water` 调用，**air 从未分配**，因此 `steady_network.media["air"].edges[].flow_m3_h`
-恒为 0。风网由独立的 `calculate_air_network` 计算，可能是有意分工——**未确认**，
-改动前先查清调用方预期。
+`solve_steady_state` 的 `_allocate` 只对三种水介质调用——空气**有意**不走端口图
+平差（`SOURCE_ROLES_BY_MEDIUM` 里没有 air，空气没有泵驱动的源/汇语义），风量由
+独立的有向树求解器 `solve_air_trees` 算出，结果在 `steady_network.air.ducts[]`。
+这部分是合理分工。
+
+但 `build_steady_network_result` 仍会为空气生成 `media["air"]` 条目，且因
+`allocation is None`，所有边流量取 0、`converged` 抄水介质逻辑恒为 `True`——对外
+宣告"空气管网已收敛、各管段流量均为 0"，而真实风量（`ducted_fresh_air` 达
+31520 m³/h）就在**同一个响应**里。自仓库首次提交起就是这样，无人消费故一直没
+暴露。
+
+**修法**（`_build_air_medium_result`）：按 `pipe_id` 把 `air.ducts[]` 的真实风量
+投影到 `media["air"]` 的管道边与端口；`converged` 改取风网求解器自己的
+`solver.succeeded`（`ducted_fresh_air`/`four_floor`/`three_floor_twelve_room` 因
+风网含环路走 `legacy_bounded_fallback`，故为 False——这是**既有**降级，之前被
+无条件 True 掩盖）；`max_conservation_residual_m3_h` 取 `solver.max_flow_residual_m3_h`。
+零长度连接边（设备↔风管）留 0 且**不编造**：实测由相邻管道反解不成立
+（各算例残差 1.0~2.7 倍总风量），因为空气在终端有真实引入/引出。
+回归见 `tests/test_steady_solver.py::TestAirMediumFlows`。
+
+### 末端"超配"与自动控制律强耦合：单纯正选会**恶化**控温
+
+实测「中央空调示例项目」（12 房间，室内侧负荷 86.7 kW）：风机盘管现装 473 kW
+（每房间 3~4 台 MCW1000V，3.1~9.6 倍室内侧负荷），看似严重超配。但用平台自己的
+选型内核按室内侧负荷正选到额定 1.0x（90 kW）后，制冷稳态**平均温偏从 1.01 K
+恶化到 2.24 K**；扫描裕量给出单调关系（burn-in 4000 tick，目标 24℃）：
+
+| 风盘装机 | 相对室内侧负荷 | 平均温偏 |
+| --- | --- | --- |
+| 90 kW | 1.0x | 2.24 K |
+| 119 kW | 1.35x | 1.47 K |
+| 130 kW | 1.8x | 1.40 K |
+| 151 kW | 2.4x | 1.17 K |
+| 473 kW（现状） | 5.5x | **1.01 K** |
+
+**根因是控制律与选型的耦合**：自动阀位 = `AUTO_MIN_WATER_OUTPUT_PCT(40%)
++ 60% × demand`，而 `demand` 在 `AUTO_DEADBAND_C(0.2K)~AUTO_FULL_DEMAND_C(4.0K)`
+上线性到 1.0——即阀门要开到 100%（末端满出力）需要室温高出目标约 **4.2 K**。
+正选（1.0x）的末端只有在 ~4 K 温偏时才交足额定冷量，于是稳态停在 2 K 温偏；
+而 5.5x 超配的末端在 40% 最小阀位就已够冷，控制器落在舒适区间。降低阀位地板
+到 0% 实测**更差**（2.35 K）——因为地板同时是低需求段的偏置，`valve = floor +
+(100-floor)×demand`，地板越低同一 demand 下阀开度越小。
+
+**结论**：这个项目的"超配"不是可以孤立"修掉"的选型缺陷——它在补偿控制律的比例带
+过宽（4 K）。要真正右配末端，必须同时收窄 `AUTO_FULL_DEMAND_C` 或改用积分/更陡
+的控制律，否则单纯换小末端只会让房间控不到设定值。**冷源侧另属目录下限约束**
+（目录最小冷机 308.3 kW 对设计冷负荷 156.7 kW 已是 1.97x，选型内核也把它排第 1，
+无从改小），与末端问题无关。该项目数据在 `.gitignore` 内，未落任何改动。
 
 ## 参考资源
 

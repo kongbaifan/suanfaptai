@@ -88,7 +88,19 @@ def test_complete_sample_validates_and_evaluates_without_errors():
         "cooling_water",
         "hot_water",
     }
-    assert all(item["converged"] for item in evaluation["steady_network"]["media"].values())
+    # 水侧三种介质必须收敛。**空气单独看**：本样例的风网含环路/汇合，有向树
+    # 求解器无法分类，走 `legacy_bounded_fallback`（`AIR_TREE_UNSUPPORTED`），
+    # 故其 `converged` 为 False。这是**既有**状态，不是本样例的结构错误——
+    # 旧实现给 `media["air"]` 无条件写 `converged=True` 才让它"看起来"通过。
+    # 详见 `tests/test_steady_solver.py::TestAirMediumFlows`。
+    water_media = {
+        medium: item
+        for medium, item in evaluation["steady_network"]["media"].items()
+        if medium != "air"
+    }
+    assert all(item["converged"] for item in water_media.values())
+    assert evaluation["steady_network"]["media"]["air"]["converged"] is False
+    assert evaluation["steady_network"]["air"]["solver"]["degraded"] is True
     equipment = evaluation["steady_network"]["equipment"]
     assert equipment["cooling_balance_residual_kw"] == 0
     assert equipment["heating_balance_residual_kw"] == 0

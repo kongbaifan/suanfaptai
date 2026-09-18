@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
 from app.calculators.load import calculate_load
+from app.data.equipment import resolve_device_type
 from app.room_bindings import (
     raise_for_room_binding_errors,
     resolve_room_bindings,
@@ -26,7 +27,6 @@ from app.simcore.session import DeviceNode, PlantLayout, RoomNode, WaterLoop
 from app.unity_catalog import DeviceRole
 
 THERMAL_MASS_KJ_PER_M2_K = 80.0
-_DEVICE_TYPE_ALIASES = {"冷水机组": "冷源机组", "一体式新风机组": "新风机组"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,7 +75,7 @@ def _build_project_layout(
     """Shared project-to-simcore adapter implementation."""
     rated_by_device = {
         device.id: resolve_rated_spec_by_type(
-            _DEVICE_TYPE_ALIASES.get(device.type, device.type), device.name
+            resolve_device_type(device.type), device.name
         )
         for device in project.devices
     }

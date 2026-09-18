@@ -185,6 +185,16 @@ describe("project editor helpers", () => {
     expect(isRoomTerminalDevice({ type: "自定义设备" })).toBe(false);
   });
 
+  it("aliases the chiller synonym exactly like the backend does", () => {
+    // 「冷水机组」是后端权威表里的同义词（映射到目录现名「冷源机组」）。
+    // 前端漏掉它时，实时页在 rated 尚未加载（role 为空）的那段时间里
+    // cardRole 拿不到 cold_source，冷机卡片会整块消失。
+    expect(canonicalDeviceType("冷水机组")).toBe("冷源机组");
+    expect(canonicalDeviceType(" 冷水机组 ")).toBe("冷源机组");
+    // 冷源不是房间末端，归一后仍必须被拒。
+    expect(isRoomTerminalDevice({ type: "冷水机组" })).toBe(false);
+  });
+
   it("treats Object.prototype member names as unknown types instead of throwing", () => {
     // 别名表若用对象字面量实现，`aliases["constructor"]` 会命中原型上的函数，
     // `?? 兜底` 不生效，返回的不是字符串，调用方 `.toLocaleLowerCase()` 直接抛错

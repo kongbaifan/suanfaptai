@@ -140,10 +140,18 @@ def merge_equipment_catalog(items: list[dict[str, Any]], replace: bool = False) 
     return save_equipment_catalog(list(merged.values()))
 
 
-# 历史类型名 -> 现名。类型改名后，此前保存的项目仍带旧类型名，解析前统一归一，
-# 避免老项目静默退化成内置兜底参数。
+# 历史/同义设备类型名 -> 目录现名。解析前统一归一，避免老项目静默退化成内置兜底参数。
+#
+# 这张表是**唯一权威**：`app/simcore/project.py` 与前端 `canonicalDeviceType` 都必须
+# 与它一致。历史上它曾与 simcore 内部的一张表各存一份，于是「冷水机组」只在
+# simcore 里被认出：`get_device_role("冷水机组")` 为 None、额定参数掉进
+# builtin_fallback（capacity_kw=None），评估报 UNKNOWN_DEVICE_CATALOG。
 LEGACY_DEVICE_TYPE_ALIASES = {
+    # 目录中该机型的类型名是「冷源机组」，「冷水机组」是长期并行的同义写法：
+    # standards.py 的 DEFAULT_DEVICE_CAPACITY_KW、validators/system.py 的冷源判定、
+    # steady_solver/solver.py 的 _steady_solver_role 与既有测试都在用它。
     "一体式新风机组": "新风机组",
+    "冷水机组": "冷源机组",
 }
 
 

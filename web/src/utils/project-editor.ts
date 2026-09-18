@@ -82,16 +82,21 @@ export const ROOM_TERMINAL_DEVICE_TYPES = [
 ] as const;
 
 /**
- * 历史设备类型名 -> 目录现名。**必须与后端 `app/data/equipment.py` 的
- * `LEGACY_DEVICE_TYPE_ALIASES` 保持一致**。
+ * 历史/同义设备类型名 -> 目录现名。**必须与后端 `app/data/equipment.py` 的
+ * `LEGACY_DEVICE_TYPE_ALIASES` 逐条一致**（后端是权威口径）。
  *
  * 类型改名后，此前保存的项目仍带旧类型名（例如内置样例与「中央空调示例项目」
  * 的新风机组仍是 `一体式新风机组`）。后端在解析前统一归一，所以评估一直正常；
  * 但前端若只认现名，就会把这类设备判成"不是可服务房间的末端设备"而报
  * `EDITOR_NON_TERMINAL_BINDING`——一个前端自造的假错误。
+ *
+ * `冷水机组` 是长期并行的同义写法（后端权威表同样收它）。它不进这张表的
+ * 后果与新风机组同款：`cardRole` 在 rated 尚未加载时（`role` 为空）拿不到
+ * `cold_source`，冷机卡片在实时页整块消失。
  */
 const LEGACY_DEVICE_TYPE_ALIASES = new Map<string, string>([
   ["一体式新风机组", "新风机组"],
+  ["冷水机组", "冷源机组"],
 ]);
 
 /**

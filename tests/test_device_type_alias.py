@@ -99,3 +99,84 @@ def test_rated_resolution_accepts_legacy_type_name():
     rated = resolve_rated_spec_by_type("一体式新风机组", "MKS02D4Y/C")
     assert rated.role is DeviceRole.FRESH_AIR_UNIT
     assert rated.capacity_kw == 29.0
+
+
+def test_chiller_synonym_resolves_like_the_canonical_type():
+    """「冷水机组」是长期并行的同义写法，必须与「冷源机组」等价
+
+    此前该同义词只存在于 `app/simcore/project.py` 的内部表里，没有被并进
+    `app/data/equipment.py` 的权威表，于是：
+    - `get_device_role("冷水机组")` -> None（端口布局失去角色）
+    - `find_equipment_spec` -> None，额定参数掉进 builtin_fallback
+      （实测 capacity_kw=None），评估报 `UNKNOWN_DEVICE_CATALOG`。
+    而 simcore 侧靠自己的表仍能识别——同一份输入两套判定。
+    """
+    assert resolve_device_type("冷水机组") == "冷源机组"
+    assert get_device_role("冷水机组") is DeviceRole.CHILLER
+
+    exact = resolve_rated_spec_by_type("冷水机组", "SCWE-90H+B")
+    canonical = resolve_rated_spec_by_type("冷源机组", "SCWE-90H+B")
+    assert exact.origin == "catalog", f"应命中目录，实际 {exact.origin}"
+    assert exact.role is DeviceRole.CHILLER
+    assert exact.capacity_kw == canonical.capacity_kw
+    assert exact.capacity_kw is not None and exact.capacity_kw > 0.0
+
+
+def test_chiller_synonym_does_not_raise_unknown_device_catalog():
+    """接口级：用「冷水机组」不得再报 UNKNOWN_DEVICE_CATALOG
+
+    该告警的语义是"目录里没有这台设备"，而冷源机型在目录里是有的——
+    报出来会让学习者以为型号选错了。
+    """
+    payload = deepcopy(FOUR_FLOOR_FCU_FRESH_AIR_SAMPLE)
+    for device in payload["devices"]:
+        if device["type"] == "冷源机组":
+            device["type"] = "冷水机组"
+
+    body = client.post("/api/v1/system/evaluate", json=payload).json()
+    codes = [issue["code"] for issue in body["issues"]]
+    assert "UNKNOWN_DEVICE_CATALOG" not in codes, (
+        f"「冷水机组」被判为目录缺失：{codes}"
+    )
+    assert "MISSING_COLD_SOURCE" not in codes, (
+        f"「冷水机组」未被认作冷源：{codes}"
+    )
+
+
+def test_alias_table_stays_consistent_with_the_catalog():
+    """别名表不变量：键不得是真实目录类型，值必须是真实目录类型
+
+    键若是目录里已有的类型名，归一就会把一种**真设备**改写成另一种，
+    属静默串型；值若不在目录里，归一后依然解析不到，等于白加一条。
+    两条都断言，防止后续往表里加条目时出错。
+    """
+    import json
+    from pathlib import Path
+
+    from app.data.equipment import LEGACY_DEVICE_TYPE_ALIASES
+
+    catalog_path = (
+        Path(__file__).resolve().parents[1] / "app" / "data" / "equipment_catalog.json"
+    )
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+
+    def _types(node):
+        if isinstance(node, dict):
+            if isinstance(node.get("type"), str):
+                yield node["type"]
+            for value in node.values():
+                yield from _types(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from _types(value)
+
+    known = {name.strip() for name in _types(catalog)}
+    assert LEGACY_DEVICE_TYPE_ALIASES, "别名表不应为空"
+
+    colliding = sorted(k for k in LEGACY_DEVICE_TYPE_ALIASES if k in known)
+    assert not colliding, f"别名键与真实目录类型冲突，会串型：{colliding}"
+
+    orphan = sorted(
+        v for v in set(LEGACY_DEVICE_TYPE_ALIASES.values()) if v not in known
+    )
+    assert not orphan, f"别名值不是目录类型，归一后仍解析不到：{orphan}"

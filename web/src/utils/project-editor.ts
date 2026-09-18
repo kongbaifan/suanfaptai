@@ -81,6 +81,25 @@ export const ROOM_TERMINAL_DEVICE_TYPES = [
   "新风机组",
 ] as const;
 
+/**
+ * 历史设备类型名 -> 目录现名。**必须与后端 `app/data/equipment.py` 的
+ * `LEGACY_DEVICE_TYPE_ALIASES` 保持一致**。
+ *
+ * 类型改名后，此前保存的项目仍带旧类型名（例如内置样例与「中央空调示例项目」
+ * 的新风机组仍是 `一体式新风机组`）。后端在解析前统一归一，所以评估一直正常；
+ * 但前端若只认现名，就会把这类设备判成"不是可服务房间的末端设备"而报
+ * `EDITOR_NON_TERMINAL_BINDING`——一个前端自造的假错误。
+ */
+export const LEGACY_DEVICE_TYPE_ALIASES: Record<string, string> = {
+  一体式新风机组: "新风机组",
+};
+
+/** 把历史类型名归一为目录现名；未知类型原样返回（trim 后）。 */
+export function canonicalDeviceType(deviceType: string | null | undefined): string {
+  const normalized = text(deviceType);
+  return LEGACY_DEVICE_TYPE_ALIASES[normalized] ?? normalized;
+}
+
 const NORMALIZED_ROOM_TERMINAL_TYPES = new Set(
   ROOM_TERMINAL_DEVICE_TYPES.map((type) => type.trim().toLocaleLowerCase()),
 );
@@ -117,7 +136,9 @@ const KNOWN_DEVICE_LOCATIONS: Set<string> = new Set(
 );
 
 export function isRoomTerminalDevice(device: Pick<DeviceInput, "type">): boolean {
-  return NORMALIZED_ROOM_TERMINAL_TYPES.has(text(device.type).toLocaleLowerCase());
+  return NORMALIZED_ROOM_TERMINAL_TYPES.has(
+    canonicalDeviceType(device.type).toLocaleLowerCase(),
+  );
 }
 
 export function terminalDevices(project: ProjectData): DeviceInput[] {

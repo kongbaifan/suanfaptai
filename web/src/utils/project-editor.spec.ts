@@ -5,6 +5,7 @@ import {
   addConnection,
   addDevice,
   addPipe,
+  canonicalDeviceType,
   cloneProjectData,
   deviceLocationLabel,
   editorNodeOptions,
@@ -168,6 +169,30 @@ describe("project editor helpers", () => {
     expect(isRoomTerminalDevice({ type: "回风口" })).toBe(false);
     expect(ROOM_TERMINAL_DEVICE_TYPES).not.toContain("送风口");
     expect(ROOM_TERMINAL_DEVICE_TYPES).not.toContain("回风口");
+  });
+
+  it("accepts legacy device type names that the backend still aliases", () => {
+    // 后端 app/data/equipment.py 的 LEGACY_DEVICE_TYPE_ALIASES 把历史类型名
+    // 「一体式新风机组」归一为「新风机组」。此前保存的项目（含内置样例与
+    // 「中央空调示例项目」）仍带旧名，后端能算，前端只认现名就会报出
+    // 「设备「fau_f1」不是可服务房间的末端设备」这个**前端自造的假错误**。
+    expect(canonicalDeviceType("一体式新风机组")).toBe("新风机组");
+    expect(isRoomTerminalDevice({ type: "一体式新风机组" })).toBe(true);
+    expect(isRoomTerminalDevice({ type: " 一体式新风机组 " })).toBe(true);
+
+    // 未知类型仍必须被拒（不能为了兼容把判据放宽成"什么都收"）。
+    expect(canonicalDeviceType("自定义设备")).toBe("自定义设备");
+    expect(isRoomTerminalDevice({ type: "自定义设备" })).toBe(false);
+  });
+
+  it("does not flag a legacy-typed room terminal as a non-terminal binding", () => {
+    const source = project({
+      rooms: [{ id: "r1", floor_id: "F1", name: "教室", device_ids: ["fau"], area_m2: 50, people: 10 }],
+      devices: [{ id: "fau", type: "一体式新风机组", name: "BYKJD12", quantity: 1 }],
+    });
+
+    const result = validateProjectDraft(source);
+    expect(result.issues.some((issue) => issue.code === "EDITOR_NON_TERMINAL_BINDING")).toBe(false);
   });
 
   it("labels known placement values and preserves unknown values", () => {

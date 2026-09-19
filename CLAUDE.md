@@ -773,6 +773,58 @@ SimulationConfig(mode=COOLING, step_seconds=300, target_temp_c=24,
 冷源机组、冷却塔、循环泵在目录里都**没有 `*` 回退行**，所以这些类型一旦型号写错，
 整台就退到内置常量（循环泵还会报 `UNKNOWN_DEVICE_CATALOG` 并跳过兼容性检查）。
 
+### 型号留空：两条降级链不一致会破坏水力守恒（**已修**）
+
+**结论先行**：端口布局原来按「类型名子串启发式 → 权威角色表」的顺序解析，
+而**型号留空**（UI 明确提供「留空（不指定型号）」选项）时前一步就能给出答案，
+**永远轮不到权威角色表**。启发式有两个偏差，于是留空型号会制造出**假的水力错误**。
+
+`solver._enumerate_device_ports` 的实际顺序（修复前）：
+
+    spec 有角色? -> 用
+    否则: _heuristic_port_entries(type, role_for_device(device))   # ← 留空时在此命中
+          否则: get_device_role(type)                              # ← 权威，但轮不到
+
+`_heuristic_port_entries` 的两个偏差（实测）：
+
+| 类型 | 启发式给出 | 权威角色给出 | 后果 |
+| --- | --- | --- | --- |
+| `空气源热泵`/`水源热泵`/`地源热泵` | `pump`：2 个**无介质双向**口 | `heat_source`：热水供回 2 口 | 热水侧连接无处落地 |
+| `风机盘管` | `fcu`：4 口（**无热水口**） | `fcu`：6 口（含条件性热水口） | 同上 |
+
+根因是 `_heuristic_port_entries` 用**子串**判类型：`"泵" in "空气源热泵"` 为真，
+热泵被判成泵。它接的 `catalog_role` 参数又正是 `role_for_device()`——而该函数在
+`name=None` 时返回 `None`（`_match_catalog_row` 只匹配 `"*"` 行，这些类型没有），
+所以 `if catalog_role == "heat_source"` 这层保护也失效了。
+
+**修法**：把权威角色表 `get_device_role` 提到子串启发式**之前**——角色表是权威口径，
+子串推断只该在没有角色的类型（英文遗留 DTO）上兜底。
+
+**实测效果**（`four_floor_fcu_fresh_air` 清空全部型号）：
+
+| | 修复前 | 修复后 |
+| --- | --- | --- |
+| error 级 issue | **10**（含 8 条 `conservation_violation`） | **4** |
+| `conservation_violation` | **8**（全在 hot_water 支管） | 2（见下） |
+
+型号齐全时各样例的 issue 计数**逐字节不变**（10 个内置样例实测），无回归。
+
+**剩余 2 条不是端口问题**：`hw_supply_riser` / `hw_return_riser` 的守恒违反来自
+**参数降级**——空气源热泵无型号时解析为 `type_default`（947.6 kW / 162.9 m³/h），
+而目录真实型号 `SHAF-80H` 是 264.2 kW / 45.4 m³/h，差 3.6 倍，环路需求与流量不匹配。
+判据：把型号**写错**成不存在的型号得到**完全相同的 2 条**，且端口布局经实测
+有/无型号完全一致。要消除得先解决「无型号类型的参数降级」本身，属独立问题。
+
+回归测试见 `tests/test_port_layout_resolution.py`：
+`test_port_layout_does_not_depend_on_the_model_being_given`（9 类型参数化）、
+`test_blank_model_fcu_keeps_its_hot_water_ports`、
+`test_blank_model_in_heating_loop_keeps_flow_conservation`。
+反向验证：把顺序改回「启发式优先」，**5 项失败**。
+
+> 注意泵类的端口**合法地**是 `(return,None)/(supply,None)`（介质待连接推断），
+> 判「是否退化」要认准 `bidirectional` 这个兜底特征，不能只查 `medium is None`。
+> 我第一版测试就犯了这个错（`循环泵` 误报失败）。
+
 ### 超配末端 + 最小阀位 = 过冷（选型结论，不是控制缺陷）
 
 实测同一项目在修好房间绑定与新风冷冻水之后，稳态（1500 tick，稳定不振荡）：

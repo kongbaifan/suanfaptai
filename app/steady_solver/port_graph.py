@@ -403,22 +403,29 @@ def _enumerate_device_ports(
             for port_index in range(branch_count + 1)
         ]
 
-    # 布局表见 _role_port_entries / _heuristic_port_entries（与目录查询共用）。
-    # 型号没有 Unity 侧别名时按类型名推断；两者都识别不了时，最后按**设备类型**
-    # 解析角色（与 `query_device_port_layout` 共用同一份 get_device_role 映射）。
-    # 缺少最后这层时，组合式空调机组这类"类型可识别、型号无别名"的设备会退化成
-    # 2 个通用双向口，水/风侧连接全部挤在同一端口上，触发流量守恒违反。
+    # 端口布局的**唯一事实来源**是 `_role_port_entries`（按角色）。解析顺序：
+    #   1. Unity 侧型号规格带的角色（型号命中正式条目/别名时可用）；
+    #   2. **权威类型角色表** `get_device_role`（与 `query_device_port_layout` 同源）；
+    #   3. 按类型名的子串启发式（只在类型不在角色表里时才有意义，如英文遗留 DTO）；
+    #   4. 未知设备兜底 2 个通用双向口。
+    #
+    # 第 2 步必须排在第 3 步**之前**。子串启发式有两个已知偏差：
+    # 「空气源热泵/水源热泵/地源热泵」会被 `"泵"` 命中判成 pump（2 个**无介质**口，
+    # 热水侧连接无处落地）；「风机盘管」分支给的布局又**缺少条件性热水口**。
+    # 此前顺序相反，于是**型号留空**（UI 明确提供「留空（不指定型号）」选项）
+    # 的设备会走启发式而非权威角色表——实测风机盘管留空后 hot_water 连接全部
+    # 落空，报出 8 条 error 级 `conservation_violation`。
     if spec is not None and spec.role:
-        entries = _role_port_entries(spec.role)
+        entries = _role_port_entries(_role_value(spec.role))
     else:
-        heuristic = _heuristic_port_entries(device.type, catalog_role)
-        if heuristic is not None:
-            entries = heuristic[1]
+        unity_role = get_device_role(device.type)
+        if unity_role is not None:
+            entries = _role_port_entries(_role_value(unity_role))
         else:
-            unity_role = get_device_role(device.type)
+            heuristic = _heuristic_port_entries(device.type, catalog_role)
             entries = (
-                _role_port_entries(_role_value(unity_role))
-                if unity_role is not None
+                heuristic[1]
+                if heuristic is not None
                 else [
                     # 未知设备，假设2个双向端口
                     PortLayoutEntry("bidirectional", None),

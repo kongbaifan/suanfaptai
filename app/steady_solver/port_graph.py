@@ -194,6 +194,22 @@ def _role_port_entries(role: str) -> list[PortLayoutEntry]:
             PortLayoutEntry("return", "cooling_water"),
             PortLayoutEntry("supply", "cooling_water"),
         ]
+    if role == "heat_source":
+        # 热泵/热源：负荷侧热水供回。源侧（地埋管/地下水/空气）不在本目录建模，
+        # 故只声明这 2 个口——与 `_heuristic_port_entries` 的同名分支必须一致。
+        #
+        # 这个分支**曾经缺失**，热源会落到函数末尾的默认分支拿 2 个无介质双向口。
+        # 之所以长期没暴露：热泵在 `_enumerate_device_ports` 里走的是
+        # `_heuristic_port_entries` 那条兜底路（其 `catalog_role == "heat_source"`
+        # 分支能给出正确布局），而 `query_device_port_layout` 优先用
+        # `get_device_role`、直接调本函数。于是只有
+        # `/api/v1/devices/ports` 受影响：空气源热泵与水源热泵返回无介质通用口。
+        # 修「地源热泵」角色登记时暴露了它——登记后该设备也改走本函数，
+        # 端口从 hot_water 退化成通用口；补上本分支后两条路径一致。
+        return [
+            PortLayoutEntry("return", "hot_water"),
+            PortLayoutEntry("supply", "hot_water"),
+        ]
     if role == "fcu" or role == "ahu":
         # 水侧供回（热水口为条件性）+ 风侧送回
         return [

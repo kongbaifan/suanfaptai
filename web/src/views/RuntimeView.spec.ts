@@ -310,6 +310,56 @@ describe("runtime device controls", () => {
     wrapper.unmount();
   });
 
+  it("shows a heat-pump card for 地源热泵 even before rated data loads", async () => {
+    // 目录/角色表里的类型名是「地源热泵」；「地源热泵机组」只是知识库展示名。
+    // cardRole 原先把「地源热泵」漏在字面量之外，只有 role === "heat_source"
+    // 才救得回来；而 rated 是异步加载的，加载完成前 role 为空。
+    // 结果：老项目（带地源热泵）打开实时页时热泵卡片整块消失。
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const project = useProjectStore();
+    const realtime = useRealtimeStore();
+    project.$patch({
+      active: {
+        project_id: "project-a",
+        name: "测试项目",
+        tags: [],
+        created_at: "",
+        updated_at: "",
+        history_count: 0,
+        project: {
+          floors: [{ id: "F1", name: "一层", level: 1, elevation_m: 0, height_m: 3.5 }],
+          rooms: [],
+          devices: [
+            { id: "gshp_1", type: "地源热泵", name: "SHWE-100H-地埋管", floor_id: "F1", quantity: 1 },
+          ],
+          pipes: [],
+          connections: [],
+          simultaneity_factor: 1,
+          safety_factor: 1,
+          design_options: {},
+        },
+        history: [],
+      },
+      usingSample: false,
+    });
+    realtime.projectId = "project-a";
+    realtime.running = false;
+    // rated 尚未加载：role 拿不到，只能靠类型名判定（这正是原先失效的路径）
+    realtime.rated = null;
+    realtime.current = null;
+
+    const wrapper = mount(RuntimeView, { global: { plugins: [pinia] } });
+    await flushPromises();
+
+    const cards = wrapper.findAll(".device-card");
+    expect(
+      cards.some((card) => card.text().includes("SHWE-100H-地埋管")),
+      "地源热泵卡片不应在 rated 加载前消失",
+    ).toBe(true);
+    wrapper.unmount();
+  });
+
   it("renders switch controls as checkboxes bound to min/max values", async () => {
     const { wrapper, realtime } = await mountView();
     await selectDevice(wrapper, "pump_1");

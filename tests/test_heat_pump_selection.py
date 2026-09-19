@@ -22,7 +22,9 @@ from app.equipment_selection import recommend_equipment
 from app.main import app
 from app.samples import COMPLETE_SYSTEM_SAMPLE
 from app.schemas import DeviceInput, SelectionRequirements, SystemEvaluateRequest
+from app.steady_solver.port_graph import query_device_port_layout
 from app.steady_solver.solver import solve_steady_state
+from app.unity_catalog import DeviceRole, get_device_role
 
 HEAT_PUMP_TYPES = ("空气源热泵", "水源热泵", "地源热泵")
 # 目录对每个热泵型号都必须给出制冷与制热两侧的额定参数，
@@ -382,3 +384,79 @@ def test_catalog_heat_pump_runs_through_existing_hot_water_solver():
     # 热源容量取自目录额定值（SHWE-100H-地埋管 353.5 kW），而非退化估算
     assert result.equipment_balance.heat_source_capacity_kw == pytest.approx(353.5)
     assert result.equipment_balance.heating_balance_residual_kw <= 0.01
+
+
+def test_ground_source_catalog_type_resolves_a_role():
+    """目录类型名「地源热泵」必须能解析出角色
+
+    角色表 `DEVICE_TYPE_TO_ROLE` 原先只登记「地源热泵机组」——那是知识库里的
+    **展示名**（`equipment_knowledge.json` 的 `name` 字段），目录里并没有这个类型行
+    （实测 0 行）。而目录里的真实类型名是「地源热泵」（14 行，见
+    `equipment_knowledge.py` 的 `CATALOG_LINKS` 注释与 UI 的可选类型）。
+
+    后果与 `fau_f1` 那次同款：`get_device_role("地源热泵")` 返回 None，前端
+    `cardRole` 在 rated 尚未加载（role 为空）时拿不到 `heat_source`，
+    实时页热泵卡片整块消失；端口布局也退化成 2 个无介质通用口。
+    """
+    assert get_device_role("地源热泵") is DeviceRole.HEAT_SOURCE
+    # 展示名仍须可解析，避免存量输入失效
+    assert get_device_role("地源热泵机组") is DeviceRole.HEAT_SOURCE
+
+
+def test_every_catalog_type_resolves_a_role():
+    """不变量：目录里每个类型都必须有角色
+
+    这条不变量若被破坏，就是一次静默失效——设备在拓扑/水力/端口分析里
+    「什么角色都不是」，而且不报错（见 CLAUDE.md「设备型号不在目录里」一节）。
+    用目录自身作为判据来源，避免漏登记新类型。
+    """
+    catalog_types = {
+        str(row.get("type"))
+        for row in load_equipment_catalog()
+        if row.get("type")
+    }
+    assert catalog_types, "目录不应为空"
+
+    missing = sorted(t for t in catalog_types if get_device_role(t) is None)
+    assert not missing, (
+        f"以下目录类型在 DEVICE_TYPE_TO_ROLE 里没有角色：{missing}。"
+        "这会让它们静默退化成「未知设备」（端口布局变 2 个通用口）。"
+    )
+
+
+def test_ground_source_pump_gets_hot_water_ports_not_generic_ones():
+    """地源热泵的端口必须是热水侧，而不是 2 个无介质通用口
+
+    走 `query_device_port_layout`（`/api/v1/devices/ports` 的实现）而不是
+    `build_port_graph`：后者对热源走 `_heuristic_port_entries` 兜底，
+    **即使角色没登记也会给出正确布局**，因此钉不住角色登记的回归。
+    前者优先用 `get_device_role` 并直接查 `_role_port_entries`，
+    角色缺失或该表缺 `heat_source` 分支都会退化成 2 个通用口。
+    """
+    layout = query_device_port_layout("地源热泵", "SHWE-100H-地埋管")
+    assert layout is not None, "地源热泵应能解析出端口布局"
+    assert layout.role == "heat_source"
+
+    media = {entry.medium for entry in layout.entries}
+    assert media == {"hot_water"}, (
+        f"地源热泵应给出热水供回端口，实际 {[(e.direction, e.medium) for e in layout.entries]}"
+    )
+    assert all(entry.medium is not None for entry in layout.entries), (
+        "出现了无介质端口，说明走了通用口默认分支"
+    )
+
+
+@pytest.mark.parametrize("device_type", ["空气源热泵", "水源热泵", "地源热泵"])
+def test_every_heat_pump_gets_hot_water_ports_from_the_catalog_query(device_type: str):
+    """所有热泵的端口查询都必须给出热水侧端口
+
+    这条覆盖 `_role_port_entries` 缺 `heat_source` 分支的缺陷：登记了角色的
+    热泵（空气源/水源）会走该表并拿到 2 个无介质通用口，而未登记的地源热泵
+    反而经兜底路径拿到正确的热水口——同一族设备两套结果。
+    """
+    layout = query_device_port_layout(device_type)
+    assert layout is not None
+    assert layout.role == "heat_source"
+    assert {entry.medium for entry in layout.entries} == {"hot_water"}, (
+        f"{device_type} 端口错误：{[(e.direction, e.medium) for e in layout.entries]}"
+    )

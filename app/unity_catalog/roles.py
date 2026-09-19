@@ -63,6 +63,11 @@ DEVICE_TYPE_TO_ROLE: dict[str, DeviceRole] = {
     "冷源机组": DeviceRole.CHILLER,
     "空气源热泵": DeviceRole.HEAT_SOURCE,
     "水源热泵": DeviceRole.HEAT_SOURCE,
+    # 目录里的类型名是「地源热泵」（equipment_catalog.json 14 行），必须用这个名字，
+    # 否则 get_device_role 返回 None、端口布局退化成 2 个无介质通用口。
+    # 「地源热泵机组」是知识库里的**展示名**（equipment_knowledge.json 的 name 字段），
+    # 历史请求/存量项目里出现过。目录没有该类型的行，保留它只为兼容旧输入。
+    "地源热泵": DeviceRole.HEAT_SOURCE,
     "地源热泵机组": DeviceRole.HEAT_SOURCE,
     "循环泵": DeviceRole.PUMP,
     "冷却塔": DeviceRole.COOLING_TOWER,

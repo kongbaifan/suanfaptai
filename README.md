@@ -12,7 +12,7 @@
 ## 快速开始
 
 ```powershell
-cd "E:\xiangmu\JiZhongKongTiao\中央空调搭建（可编辑）\suanfaptaizhichi"
+cd <仓库根目录>          # 例如 E:\gongsi\suanfaptaizhichi
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt

@@ -2,38 +2,53 @@ from collections import defaultdict
 
 from app.building import (
     RISER_TYPES,
-    device_floor_id,
     floor_ids,
+    implicit_floor_id,
     is_riser,
-    pipe_floor_id,
     pipe_floor_span,
-    room_floor_id,
 )
 from app.data.equipment import role_for_device
 from app.schemas import Issue, SystemEvaluateRequest
 
 
 def validate_floors(request: SystemEvaluateRequest) -> list[Issue]:
+    """楼层引用校验。
+
+    **只校验显式声明的楼层**（`tests/test_floor_fallback.py` 双向钉死）。
+    未声明楼层的节点由 `building.implicit_floor_id` 兜底到项目里真实存在的
+    第一个楼层，不在这里判——此前的写法先兜底成字面量 `default_floor` 再比对，
+    于是"项目声明了 F1/F2、节点没写楼层"会凭空报 error：两个 manifold 样例
+    的 18 条 `UNKNOWN_PIPE_FLOOR`（error）全部是这么来的，而前端 `addPipe()`
+    建管路时本来就不写楼层，等于默认操作就会变红。
+
+    显式写错楼层的仍照旧报 error——降噪不能把真错一起消掉。
+    """
     issues: list[Issue] = []
     known_floor_ids = floor_ids(request)
 
     for room in request.rooms:
-        floor_id = room_floor_id(room)
-        if floor_id not in known_floor_ids:
+        floor_id = room.floor_id
+        if floor_id and floor_id not in known_floor_ids:
             issues.append(Issue(level="error", code="UNKNOWN_ROOM_FLOOR", message=f"Room {room.name} references unknown floor {floor_id}.", target=room.id or room.name))
 
     for device in request.devices:
-        floor_id = device_floor_id(device)
-        if floor_id not in known_floor_ids:
+        floor_id = device.floor_id
+        if floor_id and floor_id not in known_floor_ids:
             issues.append(Issue(level="error", code="UNKNOWN_DEVICE_FLOOR", message=f"Device {device.id} references unknown floor {floor_id}.", target=device.id))
 
     for pipe in request.pipes:
-        pipe_floors = {pipe_floor_id(pipe), *(value for value in (pipe.from_floor_id, pipe.to_floor_id) if value)}
-        for floor_id in pipe_floors:
+        declared_floors = [
+            floor_id
+            for floor_id in (pipe.floor_id, pipe.from_floor_id, pipe.to_floor_id)
+            if floor_id
+        ]
+        for floor_id in declared_floors:
             if floor_id not in known_floor_ids:
                 issues.append(Issue(level="error", code="UNKNOWN_PIPE_FLOOR", message=f"Pipe {pipe.id} references unknown floor {floor_id}.", target=pipe.id))
 
-        start_floor, end_floor = pipe_floor_span(pipe)
+        start_floor, end_floor = pipe_floor_span(
+            pipe, implicit=implicit_floor_id(request)
+        )
         crosses_floor = start_floor != end_floor
         if crosses_floor and not is_riser(pipe):
             issues.append(Issue(level="warning", code="INVALID_CROSS_FLOOR_PIPE", message=f"Pipe {pipe.id} crosses floors but pipe_type is {pipe.pipe_type}; use riser_supply/riser_return for vertical pipes.", target=pipe.id))

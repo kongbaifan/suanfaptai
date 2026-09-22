@@ -1,7 +1,12 @@
 import math
 from typing import Literal
 
-from app.building import floor_base_summary, node_floor_id, pipe_floor_id
+from app.building import (
+    floor_base_summary,
+    implicit_floor_id,
+    node_floor_id,
+    pipe_floor_id,
+)
 from app.calculators.air import (
     AIR_DENSITY_KG_M3,
     _area_for_rect,
@@ -272,7 +277,7 @@ def _floor_airflow_summary(request: SystemEvaluateRequest, calculations: list[Du
         pipe = pipe_map.get(calc.duct_id)
         if not pipe:
             continue
-        floor_id = pipe_floor_id(pipe)
+        floor_id = pipe_floor_id(pipe, implicit=implicit_floor_id(request))
         item = summary.setdefault(floor_id, {"air": 0.0, "duct_count": 0})
         item["air"] = round(
             _safe_fsum((item.get("air", 0.0), calc.airflow_m3_h)),

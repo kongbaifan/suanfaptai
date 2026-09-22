@@ -400,8 +400,12 @@ def test_room_states_return_typed_initial_snapshot_without_runtime_side_effects(
                 {
                     "room_id": "room-2",
                     "name": sample["rooms"][1]["name"],
-                    "floor_id": "default_floor",
-                    "floor_name": "default_floor",
+                    # 该房间没写 floor_id：归属项目里真实存在的**第一个楼层**
+                    # （normalized_floors 按层级→标高→id 排序，这里是 F1）。
+                    # 改动前这里兜底成字面量 "default_floor"，那是个项目里根本
+                    # 不存在的楼层（见 tests/test_floor_fallback.py）。
+                    "floor_id": "F1",
+                    "floor_name": "First floor",
                     "temperature_c": 31.23,
                         "target_temp_c": 24.68,
                         "relative_humidity_pct": 64.4,

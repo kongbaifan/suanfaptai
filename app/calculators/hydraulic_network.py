@@ -1,7 +1,12 @@
 from collections import defaultdict
 from typing import Literal
 
-from app.building import floor_base_summary, node_floor_id, pipe_floor_id
+from app.building import (
+    floor_base_summary,
+    implicit_floor_id,
+    node_floor_id,
+    pipe_floor_id,
+)
 from app.calculators.network_paths import (
     enumerate_network_paths,
     is_closed_circuit,
@@ -245,7 +250,7 @@ def _floor_flow_summary(request: SystemEvaluateRequest, calculations: list[PipeC
         pipe = pipe_map.get(calc.pipe_id)
         if not pipe:
             continue
-        floor_id = pipe_floor_id(pipe)
+        floor_id = pipe_floor_id(pipe, implicit=implicit_floor_id(request))
         item = summary.setdefault(floor_id, {"chilled_water": 0.0, "cooling_water": 0.0, "hot_water": 0.0, "pipe_count": 0})
         item[calc.system] = round(item.get(calc.system, 0.0) + calc.flow_m3_h, 3)
         item["pipe_count"] += 1

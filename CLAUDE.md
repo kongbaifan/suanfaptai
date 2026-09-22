@@ -182,6 +182,56 @@ npm run build
   `plr_factor` 崩到 0.03，COP 被 `_clamp(cop,1.5,12)` 的 1.5 下界钉死，
   冷凝温度随之失去影响，教学场景"冷却效果不足"算不出 COP 下降）—— **已修复**，
   新增 `PLR_FACTOR_FLOOR = 0.45` 并加全负荷区间回归测试
+- 楼层兜底凭空造出一个不存在的楼层（两个 manifold 样例的 18 条 error 级
+  `UNKNOWN_PIPE_FLOOR` **全部**来自此，前端"新增管路"也踩得到）—— **已修复**，
+  见下文「楼层兜底」专节
+
+### 楼层兜底：凭空造出一个不存在的楼层（**已修**）
+
+**结论先行**：`room_floor_id` / `device_floor_id` / `pipe_floor_id` 原先在节点
+**没有声明楼层**时兜底成**字面量** `DEFAULT_FLOOR_ID = "default_floor"`，而
+`validators/floors.py` 拿它去和项目真实楼层比对 → **error**。项目一台楼层都没
+声明时这条兜底是对的（`normalized_floors` 会合成同 id 的楼层）；项目**声明了**
+楼层时这个 id 根本不存在，于是每个没写楼层的节点白报一条 `UNKNOWN_*_FLOOR`。
+
+实测：
+
+| 算例 | 改前 | 改后 |
+| --- | --- | --- |
+| `manifold_fcu` | 6 条 `UNKNOWN_PIPE_FLOOR`(error) | **0** |
+| `manifold_fcu_dual_water` | 12 条 | **0** |
+| 最小复现（楼层只有 `F1`，设备与管路都不写楼层） | 3 条 error | **0** |
+
+那两个样例的 error 级 issue **全部**是这么来的（`MANIFOLD_FCU_SAMPLE` 的 18 根
+管子都省略了 `floor_id`）。用户路径同样踩得到：前端 `addPipe()` 建管路时就不写
+`floor_id`，`BuildingView.onAddPipe` 只在「楼层节点视图」里补——"新增管路"在
+默认路径上就会变红。
+
+**修法**：新增 `building.implicit_floor_id(request)`——未声明楼层时归属**项目里
+真实存在的第一个楼层**（`normalized_floors` 的顺序：层级 → 标高 → id；项目没有
+楼层时为合成楼层 `default_floor`）。四个取值函数接受 `implicit=` 关键字参数，
+调用方（`calculators/` 的 load / topology / air_network / hydraulic_network、
+`realtime.py` 的房间分组）一律传入它；`validators/floors.py` 改为**只校验显式
+声明的楼层**——显式写错仍照旧报 error（降噪不能把真错一起消掉）。前端
+`BuildingView.fallbackFloorId()` 与后端同序，新增设备/管路时显式写出落位楼层。
+
+**影响面**（10 个内置样例的**完整** evaluate 响应逐路径比对）：51 处差异**全部**
+落在两个 manifold 样例上——issues 29→23 与 41→29；幻影楼层 `default_floor` 从
+`floor_summary` / `floor_flow_summary` / `floor_airflow_summary` 与
+`hydraulic.paths[].floor_ids` 中消失，它的 6 根管子与 15.322 m³/h 记到 `B1F`
+（最低层）。**数字未变，只是不再挂在不存在的楼层上。**
+
+回归测试 `tests/test_floor_fallback.py`（14 项）双向钉死：十个样例 0 条楼层错误、
+未声明楼层归属真实楼层且楼层汇总无幽灵楼层、**显式写错楼层仍报**（含立管的
+`from_floor_id`/`to_floor_id` 端点）。反向验证：把兜底改回字面量，**14 项中
+4 项失败**；另有两项既有测试（`test_floors_and_risers.py::test_path_floor_ids_are_a_dedup_of_the_nodes_own_floors`、
+`test_realtime.py::test_room_states_return_typed_initial_snapshot_without_runtime_side_effects`）
+原先钉的正是这条旧兜底，已一并更新为真实楼层（反向验证时它们**确实**失败）。
+
+> **遗留（本次未做）**：两个 manifold 样例的管子仍未写 `floor_id`，于是
+> `chw_branch_supply_f1` / `_f2` 这类"名字里就写着楼层"的支管被归到最低层
+> `B1F`（该层没有房间 → 面积权重 0 → 支管流量仍算 0）。给它们补显式楼层属
+> **样例数据整理**，会改动水力报表的分楼层流量数字，故与本次修复分开处理。
 
 ### 盘管 ε-NTU 模型的已知边界（非缺陷，但必须知情）
 

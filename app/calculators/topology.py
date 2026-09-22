@@ -3,6 +3,7 @@ from collections import defaultdict, deque
 from app.building import (
     floor_base_summary,
     floor_weight_map,
+    implicit_floor_id,
     is_riser,
     node_floor_id,
     pipe_floor_id,
@@ -229,10 +230,19 @@ def _typed_pipe_flow(request: SystemEvaluateRequest, pipe, total_flow: float, we
         served_weight = sum(weights.get(floor_id, 0.0) for floor_id in served_floor_ids(request, pipe))
         return total_flow * (served_weight or 1.0)
     if pipe.pipe_type in {"branch_supply", "branch_return"}:
-        return total_flow * weights.get(pipe_floor_id(pipe), 0.0)
+        return total_flow * weights.get(
+            pipe_floor_id(pipe, implicit=implicit_floor_id(request)), 0.0
+        )
     if pipe.pipe_type == "terminal_branch":
-        same_floor = [item for item in system_pipes if item.pipe_type == "terminal_branch" and pipe_floor_id(item) == pipe_floor_id(pipe)]
-        floor_flow = total_flow * weights.get(pipe_floor_id(pipe), 0.0)
+        implicit = implicit_floor_id(request)
+        floor_id = pipe_floor_id(pipe, implicit=implicit)
+        same_floor = [
+            item
+            for item in system_pipes
+            if item.pipe_type == "terminal_branch"
+            and pipe_floor_id(item, implicit=implicit) == floor_id
+        ]
+        floor_flow = total_flow * weights.get(floor_id, 0.0)
         return floor_flow / max(len(same_floor), 1)
     if pipe.pipe_type == "bypass":
         return total_flow * 0.1
@@ -255,7 +265,9 @@ def _vertical_network(request: SystemEvaluateRequest) -> dict:
     risers = []
     invalid_pipes = []
     for pipe in request.pipes:
-        start_floor, end_floor = pipe_floor_span(pipe)
+        start_floor, end_floor = pipe_floor_span(
+            pipe, implicit=implicit_floor_id(request)
+        )
         if is_riser(pipe):
             risers.append(
                 {

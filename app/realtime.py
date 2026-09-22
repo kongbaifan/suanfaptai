@@ -13,6 +13,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger(__name__)
 
+from app.building import implicit_floor_id, room_floor_id
 from app.data.equipment import flow_for_device, head_for_device, role_for_device
 from app.data.field_labels import keys_to_zh
 from app.data.project_store import get_project
@@ -497,7 +498,7 @@ def get_room_states(project_id: str) -> RealtimeRoomStatesResult:
     for index, room in enumerate(project.rooms):
         room_id = room_instance_id(room, index)
         reading = snapshot.rooms[room_id]
-        floor_id = room.floor_id or "default_floor"
+        floor_id = room_floor_id(room, implicit=implicit_floor_id(project))
         rooms.append(
             RealtimeRoomState(
                 room_id=room_id,
@@ -1012,7 +1013,9 @@ def _floor_states(
     for index, room in enumerate(project.rooms):
         reading = snapshot.rooms.get(room_instance_id(room, index))
         if reading is not None:
-            grouped.setdefault(room.floor_id or "default_floor", []).append(reading)
+            grouped.setdefault(
+                room_floor_id(room, implicit=implicit_floor_id(project)), []
+            ).append(reading)
     floor_names = {floor.id: floor.name or floor.id for floor in project.floors}
     floor_levels = {floor.id: floor.level for floor in project.floors}
     return {

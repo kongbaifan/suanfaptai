@@ -11,7 +11,7 @@
 import math
 from collections import defaultdict
 
-from app.building import normalized_floors, room_floor_id
+from app.building import implicit_floor_id, normalized_floors, room_floor_id
 from app.data.design_defaults import ORIENTATION_SOLAR_W_M2, PURPOSE_DEFAULTS
 from app.schemas import FloorLoadResult, Issue, LoadRequest, LoadResult, RoomLoadResult
 from app.simcore.psychrometrics import VAPORIZATION_HEAT_KJ_KG, humidity_ratio_from_rh
@@ -48,7 +48,7 @@ def calculate_load(request: LoadRequest) -> LoadResult:
     )
 
     for room in request.rooms:
-        floor_id = room_floor_id(room)
+        floor_id = room_floor_id(room, implicit=implicit_floor_id(request))
         defaults = PURPOSE_DEFAULTS.get(room.purpose, {})
         cooling_index_w_m2 = defaults.get("cooling_index_w_m2", room.cooling_index_w_m2)
         heating_index_w_m2 = defaults.get("heating_index_w_m2", room.heating_index_w_m2)

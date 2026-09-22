@@ -330,12 +330,33 @@ function onUnbindDevice(roomId: string, deviceId: string) {
   onPatchRoom(roomId, { device_ids: kept });
 }
 
+/**
+ * 未选中楼层节点时，新增设备/管路的落位楼层。
+ *
+ * 与后端 `app/building.py` 的 `implicit_floor_id` 同序（`normalized_floors`：
+ * 层级 → 标高 → id），这样界面显示的归属与楼层汇总算出来的归属一致。
+ * 以前这里留空：后端会把"未声明楼层"兜底成一个不存在的 `default_floor` 并报
+ * `UNKNOWN_*_FLOOR` error，"新增管路"在默认路径上就会变红（已修，见
+ * `tests/test_floor_fallback.py`）。现在后端不再报错，显式写出楼层是为了让
+ * 新节点被算进用户正在看的那一层，而不是悄悄归到最低层。
+ */
+function fallbackFloorId(): string {
+  const floors = draft.value?.floors ?? [];
+  const sorted = [...floors].sort(
+    (a, b) =>
+      a.level - b.level ||
+      a.elevation_m - b.elevation_m ||
+      String(a.id).localeCompare(String(b.id)),
+  );
+  return sorted[0]?.id ?? "";
+}
+
 function openDeviceModal() {
   if (!draft.value) return;
   deviceForm.value = {
     type: "风机盘管",
     name: "",
-    floorId: activeNode.value?.floor.id ?? "",
+    floorId: activeNode.value?.floor.id ?? fallbackFloorId(),
     quantity: 1,
   };
   deviceModalOpen.value = true;
@@ -383,6 +404,11 @@ function onAddPipe() {
     draft.value = updatePipeAt(draft.value, index, { pipe_type: "riser_supply" });
   } else if (activeNode.value) {
     draft.value = updatePipeAt(draft.value, index, { floor_id: activeNode.value.floor.id });
+  } else {
+    // 没选中楼层节点时显式落到 fallbackFloorId()，避免新管路在楼层汇总里
+    // 归到与界面显示不同的层（后端兜底与它同序，但显式写出更直观）。
+    const floorId = fallbackFloorId();
+    if (floorId) draft.value = updatePipeAt(draft.value, index, { floor_id: floorId });
   }
   notice.value = `已新增管路 ${result.pipeId}，保存后生效。`;
 }

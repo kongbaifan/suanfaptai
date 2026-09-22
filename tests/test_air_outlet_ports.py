@@ -1,4 +1,4 @@
-"""风口/风阀的端口布局：单连接点，不再产生结构性 isolated_port
+"""串联件的端口布局：单连接点，不再产生结构性 isolated_port
 
 回归背景
 --------
@@ -12,10 +12,17 @@
 实测：`four_floor_fcu_fresh_air` 3 条 → 0 条、`multi_zone_all_air`
 6 条 → 0 条、`ducted_fresh_air` 4 条 → 0 条，而所有真实漏接一条未减。
 
+2026-10 补入第二批同类角色：`fire_damper`（防火阀）与 `measurement`
+（测量件）。它们同样落到默认分支拿 2 个双向口——实测把一台防火阀串进
+`ducted_fresh_air` 的风管、或把一台测量件串进冷冻水支管，各白报 1 条
+`isolated_port`。这两类此前进不了「新增设备」清单，所以没暴露；本次把
+它们加入清单的同时按同一口径声明单端口。
+
 本文件把「结构性冗余必须是 0」与「真实漏接必须继续报」两个方向都钉死。
 """
 
 from collections import Counter
+from copy import deepcopy
 
 import pytest
 from fastapi.testclient import TestClient
@@ -28,8 +35,10 @@ from app.steady_solver.port_graph import build_port_graph
 
 client = TestClient(app)
 
-# 只在风口/风阀上成立：角色声明了几何上必然用不到的端口
-SINGLE_PORT_ROLES = ("air_outlet", "air_valve")
+# 只在串联件上成立：角色声明了几何上必然用不到的端口。
+# 风口/风阀（2026-09 修正）之外，2026-10 又补入防火阀与测量件——它们此前落到
+# `_role_port_entries` 的默认分支拿 2 个双向口，每台白报一条 isolated_port。
+SINGLE_PORT_ROLES = ("air_outlet", "air_valve", "fire_damper", "measurement")
 
 
 def _isolated_ports(sample: dict) -> list[tuple[str, str, int]]:
@@ -127,6 +136,59 @@ def test_all_samples_still_work_after_port_change():
     for name, sample in SAMPLES.items():
         response = client.post("/api/v1/system/evaluate", json=sample)
         assert response.status_code == 200, f"{name} 评估失败：{response.text[:200]}"
+
+
+def _insert_series_device(
+    sample: dict, device_type: str, name: str, system: str
+) -> dict:
+    """把一台串联设备插进样例里某条 `system` 介质连接的中间。
+
+    这是「用户在界面上新增一台防火阀/测量件」的最小复现：串在既有一对端点
+    之间，两端各产生一条连接。
+    """
+    data = deepcopy(sample)
+    for index, connection in enumerate(data["connections"]):
+        if connection["system"] != system:
+            continue
+        new_id = f"probe_{device_type}"
+        data["devices"].append(
+            {"id": new_id, "type": device_type, "name": name, "floor_id": None}
+        )
+        data["connections"][index : index + 1] = [
+            {"from_id": connection["from_id"], "to_id": new_id, "system": system},
+            {"from_id": new_id, "to_id": connection["to_id"], "system": system},
+        ]
+        return data
+    raise AssertionError(f"样例里没有 {system} 连接可供插入 {device_type}")
+
+
+@pytest.mark.parametrize(
+    ("device_type", "name", "system"),
+    [("防火阀", "120x120", "air"), ("测量件", "温度计", "chilled_water")],
+)
+def test_series_accessories_no_longer_report_isolated_ports(
+    device_type: str, name: str, system: str
+):
+    """防火阀/测量件串进拓扑后不得产生结构性 isolated_port
+
+    改动前这两类角色落到 `_role_port_entries` 的默认分支各拿 2 个双向口，
+    端口 1 永远空置，每台设备白报一条 `isolated_port`（实测 1 条）。
+    改动后应声明单端口，两条边（进+出）挂在同一个连接点上。
+    """
+    sample = _insert_series_device(SAMPLES["ducted_fresh_air"], device_type, name, system)
+    isolated = _isolated_ports(sample)
+    assert isolated == [], (
+        f"插入 {device_type} 后出现孤立端口：{isolated}；"
+        "串联件不该产生结构性孤立端口"
+    )
+
+    graph = build_port_graph(SystemEvaluateRequest(**sample))
+    ports = graph.device_ports[f"probe_{device_type}"]
+    assert len(ports) == 1, f"{device_type} 应声明 1 个端口，实际 {len(ports)}"
+    edges = graph.adjacency.get((f"probe_{device_type}", 0), [])
+    assert len(edges) == 2, (
+        f"{device_type} 端口 0 有 {len(edges)} 条边，期望 2（进+出）"
+    )
 
 
 def test_isolated_port_counts_match_the_measured_baseline():

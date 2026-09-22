@@ -245,6 +245,17 @@ def _role_port_entries(role: str) -> list[PortLayoutEntry]:
         # 阀门同样串联在管路里，是单连接点。理由同风口：默认 2 口会让
         # 第 2 个口永远空置并触发 `isolated_port`。
         return [PortLayoutEntry("bidirectional", None)]
+    if role == "fire_damper" or role == "measurement":
+        # 防火阀与测量件同样是**串联件**，理由同风口/风阀：
+        #   防火阀两端法兰接在风管中间，气流从一侧进、另一侧出；
+        #   测量件（温度计/压力计/流量计）是水管或风管上的一个测点。
+        # 两者在拓扑上都只需要**一个连接点**。此前它们落到函数末尾的默认分支
+        # 各拿 2 个双向端口，而 `_find_matching_port` 永远返回第一个匹配口
+        # （不做占用检查），于是端口 1 永远空置 → 每台设备白报一条
+        # `isolated_port`，把「真漏接」的信号淹掉。
+        # 这两个口本来就完全同质（同为 bidirectional、medium=None），
+        # 第二个口不携带任何信息，故塌成单口没有任何语义损失。
+        return [PortLayoutEntry("bidirectional", None)]
     if role == "manifold":
         # 仅主口；分支口由连接布局动态决定（见 _build_manifold_layout）
         return [PortLayoutEntry("bidirectional", None)]

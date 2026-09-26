@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
-import { Download, Play, RefreshCw } from "lucide-vue-next";
+import { ChevronRight, Download, Play, RefreshCw } from "lucide-vue-next";
 import StatusBadge from "@/components/StatusBadge.vue";
 import { api, errorMessage } from "@/api/client";
 import { useEvaluationStore } from "@/stores/evaluation";
@@ -102,6 +102,99 @@ const componentKeys = computed(() => {
     "envelope_heating",
     "fresh_air_heating",
   ].filter((key) => keys.has(key));
+});
+
+/**
+ * 房间负荷明细的两级结构：**楼层 → 房间**。
+ *
+ * 楼层行显示该层**合计**（各分项直接相加，与房间行同口径、都是未乘系数的值），
+ * 房间行显示逐房间值。楼层顺序沿用后端 `floor_loads`（已按 level→id 排序），
+ * 不在 `floor_loads` 里的楼层（理论不该出现）追加在末尾，保证房间不会丢。
+ *
+ * 未修正 vs 修正：本表用的是未乘同时/安全系数的值（可直接相加），
+ * 上面「楼层负荷」表用的是 `adjusted_*`（乘过 0.9×1.1）——两张表口径不同，
+ * 不要互相核对。
+ */
+interface RoomLoadRow {
+  key: string;
+  name: string;
+  floorId: string;
+  components: Record<string, number>;
+  coolingKw: number;
+  heatingKw: number;
+}
+
+interface FloorLoadGroup {
+  floorId: string;
+  floorName: string;
+  roomCount: number;
+  people: number;
+  areaM2: number;
+  totals: Record<string, number>;
+  coolingKw: number;
+  heatingKw: number;
+  rooms: RoomLoadRow[];
+}
+
+const collapsedFloorIds = ref<Set<string>>(new Set());
+
+function toggleFloorGroup(floorId: string) {
+  const next = new Set(collapsedFloorIds.value);
+  if (next.has(floorId)) next.delete(floorId);
+  else next.add(floorId);
+  collapsedFloorIds.value = next;
+}
+
+const roomLoadTree = computed<FloorLoadGroup[]>(() => {
+  const rooms = evaluation.result?.load?.rooms ?? [];
+  const floors = evaluation.result?.load?.floor_loads ?? [];
+  const byFloor = new Map<string, RoomLoadRow[]>();
+  rooms.forEach((room, index) => {
+    const floorId = room.floor_id || "未指定楼层";
+    const rows = byFloor.get(floorId) ?? [];
+    rows.push({
+      // 房间可能没有 id、也允许重名，必须带上序号，否则 key 会重复。
+      key: `${room.id ?? "room"}-${index}`,
+      name: room.name,
+      floorId: room.floor_id,
+      components: room.components_kw ?? {},
+      coolingKw: room.cooling_kw,
+      heatingKw: room.heating_kw,
+    });
+    byFloor.set(floorId, rows);
+  });
+
+  const orderedFloorIds = [
+    ...floors.map((floor) => floor.floor_id),
+    ...[...byFloor.keys()].filter(
+      (floorId) => !floors.some((floor) => floor.floor_id === floorId),
+    ),
+  ];
+
+  return orderedFloorIds
+    .filter((floorId) => byFloor.has(floorId))
+    .map((floorId) => {
+      const rows = byFloor.get(floorId) ?? [];
+      const meta = floors.find((floor) => floor.floor_id === floorId);
+      const totals: Record<string, number> = {};
+      for (const key of componentKeys.value) {
+        totals[key] = rows.reduce(
+          (sum, row) => sum + (row.components[key] ?? 0),
+          0,
+        );
+      }
+      return {
+        floorId,
+        floorName: meta?.floor_name || floorId,
+        roomCount: meta?.room_count ?? rows.length,
+        people: meta?.people ?? 0,
+        areaM2: meta?.area_m2 ?? 0,
+        totals,
+        coolingKw: rows.reduce((sum, row) => sum + row.coolingKw, 0),
+        heatingKw: rows.reduce((sum, row) => sum + row.heatingKw, 0),
+        rooms: rows,
+      };
+    });
 });
 
 function topRoom(field: "cooling_kw" | "heating_kw") {
@@ -519,11 +612,10 @@ onBeforeUnmount(() => {
         <section v-if="evaluation.result.load" class="band-section">
           <div class="section-title"><h2>房间负荷明细</h2></div>
           <div v-if="evaluation.result.load.rooms.length" class="table-wrap">
-            <table>
+            <table class="room-load-table">
               <thead>
                 <tr>
                   <th>房间</th>
-                  <th>楼层</th>
                   <th v-for="key in componentKeys" :key="key">
                     {{ componentLabels[key] }}
                   </th>
@@ -532,24 +624,53 @@ onBeforeUnmount(() => {
                 </tr>
               </thead>
               <tbody>
-                <tr
-                  v-for="room in evaluation.result.load.rooms"
-                  :key="room.id || room.name"
-                >
-                  <td>{{ room.name }}</td>
-                  <td>{{ room.floor_id }}</td>
-                  <td v-for="key in componentKeys" :key="key">
-                    {{ finite(room.components_kw?.[key] ?? 0, 2) }}
-                  </td>
-                  <td>{{ finite(room.cooling_kw, 2) }} kW</td>
-                  <td>{{ finite(room.heating_kw, 2) }} kW</td>
-                </tr>
+                <template v-for="group in roomLoadTree" :key="group.floorId">
+                  <tr class="load-floor-row">
+                    <td>
+                      <div class="load-tree-cell">
+                        <button
+                          class="load-tree-expand"
+                          type="button"
+                          :aria-expanded="!collapsedFloorIds.has(group.floorId)"
+                          :aria-label="`${group.floorName} 房间明细`"
+                          @click="toggleFloorGroup(group.floorId)"
+                        >
+                          <ChevronRight class="load-tree-chevron" />
+                        </button>
+                        <strong>{{ group.floorName }}</strong>
+                        <span class="load-tree-meta">
+                          {{ group.roomCount }} 间 · {{ group.people }} 人 ·
+                          {{ finite(group.areaM2, 0) }} m²
+                        </span>
+                      </div>
+                    </td>
+                    <td v-for="key in componentKeys" :key="key">
+                      {{ finite(group.totals[key] ?? 0, 2) }}
+                    </td>
+                    <td>{{ finite(group.coolingKw, 2) }} kW</td>
+                    <td>{{ finite(group.heatingKw, 2) }} kW</td>
+                  </tr>
+                  <tr
+                    v-for="row in collapsedFloorIds.has(group.floorId)
+                      ? []
+                      : group.rooms"
+                    :key="row.key"
+                    class="load-room-row"
+                  >
+                    <td class="load-room-name">{{ row.name }}</td>
+                    <td v-for="key in componentKeys" :key="key">
+                      {{ finite(row.components[key] ?? 0, 2) }}
+                    </td>
+                    <td>{{ finite(row.coolingKw, 2) }} kW</td>
+                    <td>{{ finite(row.heatingKw, 2) }} kW</td>
+                  </tr>
+                </template>
               </tbody>
             </table>
           </div>
           <div v-else class="empty-state">暂无房间负荷明细。</div>
           <p class="table-note">
-            分项单位为
+            按楼层分组：楼层行为该层合计，点楼层行可展开/收起该层房间。分项单位为
             kW；冷负荷为人员、照明、设备、新风显热、新风潜热、太阳辐射与围护传热冷负荷之和；热负荷为围护传热与新风加热之和。面积指标仅用于校核，不计入分项合计。
           </p>
         </section></template
@@ -1090,6 +1211,54 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* 房间负荷明细：楼层（第一级）→ 房间（第二级）两级树，点楼层行开合。 */
+.load-floor-row > td {
+  background: #f2f7f6;
+  font-weight: 600;
+}
+.load-tree-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.load-tree-expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #4d6b7a;
+  cursor: pointer;
+}
+.load-tree-expand:hover {
+  background: #e2edeb;
+}
+.load-tree-chevron {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.15s ease;
+}
+.load-tree-expand[aria-expanded="true"] .load-tree-chevron {
+  transform: rotate(90deg);
+}
+.load-tree-meta {
+  color: #7d8da2;
+  font-size: 11px;
+  font-weight: 400;
+}
+/* 第二级缩进，让从属关系一眼可见 */
+.load-room-row .load-room-name {
+  padding-left: 28px;
+}
+.load-room-row .load-room-name::before {
+  content: "↳ ";
+  color: #9fb0c0;
+}
 .evaluation-workspace .metric-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }

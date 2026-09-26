@@ -7,7 +7,7 @@ import EvaluationView from "./EvaluationView.vue";
 import { useEvaluationStore } from "@/stores/evaluation";
 import { useProjectStore } from "@/stores/project";
 import { api } from "@/api/client";
-import type { EvaluationResult } from "@/types";
+import type { EvaluationResult, FloorLoad, RoomLoad } from "@/types";
 import type { EvaluationReport } from "@/types/evaluation";
 
 vi.mock("@/api/client", () => ({
@@ -517,6 +517,206 @@ describe("evaluation workspace tabs and report export", () => {
     );
     await openTab(wrapper, "风系统");
     expect(wrapper.text()).toContain("暂无风管网络结果");
+    wrapper.unmount();
+  });
+});
+
+/**
+ * 房间负荷明细改成「楼层 → 房间」两级树：
+ * 第一级是楼层（显示该层合计），第二级是该层房间；点楼层行可开合。
+ */
+describe("room load breakdown tree", () => {
+  const COMPONENTS_F1_OFFICE = {
+    people: 1,
+    lighting: 1,
+    equipment: 1,
+    fresh_air_cooling: 1,
+    latent_cooling: 2,
+    solar: 1,
+    envelope_cooling: 3,
+    envelope_heating: 3,
+    fresh_air_heating: 1,
+  };
+  const COMPONENTS_F1_MEETING = {
+    people: 2,
+    lighting: 1,
+    equipment: 1,
+    fresh_air_cooling: 1,
+    latent_cooling: 3,
+    solar: 1,
+    envelope_cooling: 3,
+    envelope_heating: 4,
+    fresh_air_heating: 1,
+  };
+
+  function roomLoad(
+    overrides: Partial<RoomLoad> & Pick<RoomLoad, "name" | "floor_id">,
+  ): RoomLoad {
+    return {
+      id: overrides.name,
+      cooling_kw: 0,
+      heating_kw: 0,
+      fresh_air_m3_h: 0,
+      index_estimate_kw: 0,
+      index_deviation_pct: 0,
+      heating_index_estimate_kw: 0,
+      heating_index_deviation_pct: 0,
+      components_kw: {},
+      ...overrides,
+    };
+  }
+
+  function floorLoad(
+    floor_id: string,
+    floor_name: string,
+    level: number,
+  ): FloorLoad {
+    return {
+      floor_id,
+      floor_name,
+      level,
+      area_m2: 0,
+      people: 0,
+      room_count: 0,
+      cooling_kw: 0,
+      heating_kw: 0,
+      adjusted_cooling_kw: 0,
+      adjusted_heating_kw: 0,
+    };
+  }
+
+  function evaluationWithRooms(includeFloorLoads = true): EvaluationResult {
+    return evaluationWithHydraulic({
+      load: {
+        total_cooling_kw: 30,
+        total_heating_kw: 12,
+        adjusted_cooling_kw: 29.7,
+        adjusted_heating_kw: 11.88,
+        rooms: [
+          roomLoad({
+            name: "一层办公",
+            floor_id: "F1",
+            cooling_kw: 10,
+            heating_kw: 4,
+            components_kw: COMPONENTS_F1_OFFICE,
+          }),
+          roomLoad({
+            name: "一层会议",
+            floor_id: "F1",
+            cooling_kw: 12,
+            heating_kw: 5,
+            components_kw: COMPONENTS_F1_MEETING,
+          }),
+          roomLoad({
+            name: "二层办公",
+            floor_id: "F2",
+            cooling_kw: 8,
+            heating_kw: 3,
+            components_kw: {
+              people: 1,
+              lighting: 1,
+              equipment: 1,
+              fresh_air_cooling: 1,
+              latent_cooling: 1,
+              solar: 1,
+              envelope_cooling: 2,
+              envelope_heating: 2,
+              fresh_air_heating: 1,
+            },
+          }),
+        ],
+        floor_loads: includeFloorLoads
+          ? [
+              {
+                ...floorLoad("F1", "一层", 1),
+                area_m2: 220,
+                people: 42,
+                room_count: 2,
+              },
+              {
+                ...floorLoad("F2", "二层", 2),
+                area_m2: 120,
+                people: 18,
+                room_count: 1,
+              },
+            ]
+          : [],
+        issues: [],
+      },
+    });
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("groups rooms under their floor and shows floor totals", async () => {
+    const { wrapper } = await mountView(evaluationWithRooms());
+    await openTab(wrapper, "建筑负荷");
+
+    const floorRows = wrapper.findAll(".load-floor-row");
+    expect(floorRows).toHaveLength(2);
+    expect(wrapper.findAll(".load-room-row")).toHaveLength(3);
+
+    // 楼层已经是第一级，表里不该再有「楼层」列（否则同一信息出现两次）
+    const headers = wrapper
+      .findAll(".room-load-table thead th")
+      .map((cell) => cell.text());
+    expect(headers).not.toContain("楼层");
+    expect(headers[0]).toBe("房间");
+
+    // 第一级：楼层名 + 该层房间数/人数/面积
+    expect(floorRows[0].text()).toContain("一层");
+    expect(floorRows[0].text()).toContain("2 间 · 42 人 · 220 m²");
+    expect(floorRows[1].text()).toContain("二层");
+
+    // 楼层行的分项与冷/热负荷都是该层房间之和（未乘系数，与房间行同口径）
+    const cells = floorRows[0].findAll("td");
+    expect(cells[1].text()).toBe("3.00"); // people = 1 + 2
+    expect(cells[10].text()).toBe("22.00 kW"); // 冷 = 10 + 12
+    expect(cells[11].text()).toBe("9.00 kW"); // 热 = 4 + 5
+
+    // 第二级：房间名带缩进标记，从属于所在楼层
+    const roomRows = wrapper.findAll(".load-room-row");
+    expect(roomRows[0].text()).toContain("一层办公");
+    expect(roomRows[2].text()).toContain("二层办公");
+    expect(roomRows[0].findAll("td")[10].text()).toBe("10.00 kW");
+
+    wrapper.unmount();
+  });
+
+  it("collapses and re-expands one floor without touching the others", async () => {
+    const { wrapper } = await mountView(evaluationWithRooms());
+    await openTab(wrapper, "建筑负荷");
+
+    const firstFloorToggle = wrapper.findAll(".load-tree-expand")[0];
+    expect(firstFloorToggle.attributes("aria-expanded")).toBe("true");
+
+    await firstFloorToggle.trigger("click");
+    // 只收起 F1 的两间房，F2 那间仍在
+    expect(wrapper.findAll(".load-room-row")).toHaveLength(1);
+    expect(wrapper.findAll(".load-room-row")[0].text()).toContain("二层办公");
+    expect(wrapper.findAll(".load-floor-row")).toHaveLength(2);
+    expect(
+      wrapper.findAll(".load-tree-expand")[0].attributes("aria-expanded"),
+    ).toBe("false");
+
+    await wrapper.findAll(".load-tree-expand")[0].trigger("click");
+    expect(wrapper.findAll(".load-room-row")).toHaveLength(3);
+
+    wrapper.unmount();
+  });
+
+  it("still groups by floor when the floor summary is missing", async () => {
+    const { wrapper } = await mountView(evaluationWithRooms(false));
+    await openTab(wrapper, "建筑负荷");
+
+    // 楼层行由房间自身推断，楼层名回落到 floor_id，房间一间都不能丢
+    const floorRows = wrapper.findAll(".load-floor-row");
+    expect(floorRows).toHaveLength(2);
+    expect(floorRows[0].text()).toContain("F1");
+    expect(wrapper.findAll(".load-room-row")).toHaveLength(3);
+
     wrapper.unmount();
   });
 });

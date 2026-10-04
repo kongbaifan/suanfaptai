@@ -868,7 +868,7 @@ onBeforeUnmount(() => {
         class="band-section"
       >
         <div class="section-title">
-          <h2>水泵选配对照</h2>
+          <h2>冷冻水泵选配对照</h2>
           <span
             >{{ hydraulic.pump_check.duty_pump_count }} 用
             {{ hydraulic.pump_check.standby_pump_count }} 备</span
@@ -901,7 +901,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <p class="table-note">
-          余量为可用值与需求值之比。闭合环路包括供程与回程；水力问题已汇总到“评估结论”。
+          只统计冷冻水泵（按接线归属），冷却水泵、热水泵不计入。余量为可用值与需求值之比。闭合环路包括供程与回程；水力问题已汇总到“评估结论”。
         </p>
       </section>
       <template v-if="activeTab === 'air' && evaluation.result"

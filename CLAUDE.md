@@ -185,6 +185,12 @@ npm run build
 - 楼层兜底凭空造出一个不存在的楼层（两个 manifold 样例的 18 条 error 级
   `UNKNOWN_PIPE_FLOOR` **全部**来自此，前端"新增管路"也踩得到）—— **已修复**，
   见下文「楼层兜底」专节
+- 冷冻水泵校核混入冷却水泵、热水泵（装机流量对全部泵求和、可用扬程取全部泵最大值；
+  5 个多泵样例装机流量虚增 1.5~3.0 倍，如 `four_floor_fcu_fresh_air` 73.73→32.71 m³/h、
+  3 台→1 台、可用扬程 14.9→9.8 m；最小复现里冷冻泵选小了的 `PUMP_FLOW_LOW` 被盖成
+  info 级 `PUMP_FLOW_HIGH`）—— **已修复**，泵按接线归属（泵↔管段、泵↔设备两类
+  水系统连接都采信，`air` 不算；没有任何水系统连接的泵保留受查），见
+  `hydraulic_network._pump_water_systems` 与 `tests/test_pump_head_circuits.py`（新增 7 项）
 
 ### 楼层兜底：凭空造出一个不存在的楼层（**已修**）
 

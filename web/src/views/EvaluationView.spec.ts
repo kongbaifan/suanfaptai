@@ -307,6 +307,15 @@ describe("evaluation hydraulic check", () => {
     expect(summary.text()).toContain("1.9x");
     expect(summary.text()).toContain("2.6x");
     expect(summary.text()).toContain("合格");
+
+    // 选配对照只统计冷冻水泵：冷冻/冷却/热水各一台泵的项目在这里显示「1 用」，
+    // 标题和注释必须说清，否则会被误读成台数算错了
+    const pumpSection = wrapper
+      .findAll(".band-section")
+      .find((section) => section.text().includes("选配对照"));
+    expect(pumpSection).toBeTruthy();
+    expect(pumpSection!.text()).toContain("冷冻水泵选配对照");
+    expect(pumpSection!.text()).toContain("只统计冷冻水泵");
     wrapper.unmount();
   });
 

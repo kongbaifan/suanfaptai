@@ -117,14 +117,61 @@ def _required_flow_by_system(cooling_load_kw: float, heating_load_kw: float) -> 
     }
 
 
+def _pump_water_systems(request: SystemEvaluateRequest, pump_id: str) -> set[str]:
+    """泵经接线实际归属的水系统集合
+
+    目录里的循环泵是通用条目（`systems` 同时列出三种水系统），泵到底喂哪条
+    环路只能看接线。只认三种水系统的连接：接到风管上的 air 连接不算归属，
+    否则接错线的泵会被判为「明确不属于冷冻水」而从校核里静默消失。两类连接
+    都采信：
+
+    - 泵↔管段：connection.system 与管段自身 system 一致才算数，口径与
+      `_water_resistance_by_pipe` 相同；
+    - 泵↔设备：取 connection.system。泵两侧都直接连设备时（冷却塔 → 泵 →
+      冷机、泵出口先接止回阀）接线里只有这类连接，不采信就会被判为无法归属、
+      计回冷冻水校核。
+
+    另一端既不是管段也不是设备的悬空引用不参与归属。
+    """
+    pipe_systems = {pipe.id: pipe.system for pipe in request.pipes}
+    device_ids = {device.id for device in request.devices}
+    systems: set[str] = set()
+    for connection in request.connections:
+        if connection.system not in WATER_SYSTEMS:
+            continue
+        for node, other in ((connection.from_id, connection.to_id), (connection.to_id, connection.from_id)):
+            if node != pump_id:
+                continue
+            if other in pipe_systems:
+                if pipe_systems[other] == connection.system:
+                    systems.add(connection.system)
+            elif other in device_ids:
+                systems.add(connection.system)
+    return systems
+
+
 def _build_pump_check(request: SystemEvaluateRequest, required_flow_m3_h: float, required_head_m: float) -> PumpCheckResult | None:
     pumps = [device for device in request.devices if role_for_device(device) == "pump" or device.type == "循环泵"]
     if not pumps or required_flow_m3_h <= 0:
         return None
 
-    total_pump_flow = sum(flow_for_device(pump) for pump in pumps)
-    max_pump_head = max((head_for_device(pump) for pump in pumps), default=0.0)
-    duty_count = sum(pump.quantity for pump in pumps)
+    # 本校核只针对冷冻水环路。冷却水泵、热水泵的额定流量和扬程不是冷冻水泵
+    # 的装机能力，混进来会虚增 flow_margin/head_margin，把本该报出的
+    # PUMP_FLOW_LOW/PUMP_HEAD_LOW 盖掉。泵归属按接线判断（泵↔管段、泵↔设备两类
+    # 连接都采信，见 `_pump_water_systems`）：接线可明确归属且不含冷冻水的泵
+    # 剔除；没有任何水系统连接的泵无法归属，保留（半成品项目仍受查）。
+    pump_systems = {pump.id: _pump_water_systems(request, pump.id) for pump in pumps}
+    chilled_pumps = [
+        pump
+        for pump in pumps
+        if "chilled_water" in pump_systems[pump.id] or not pump_systems[pump.id]
+    ]
+    if not chilled_pumps:
+        return None
+
+    total_pump_flow = sum(flow_for_device(pump, "chilled_water") for pump in chilled_pumps)
+    max_pump_head = max((head_for_device(pump) for pump in chilled_pumps), default=0.0)
+    duty_count = sum(pump.quantity for pump in chilled_pumps)
     standby_count = int(request.design_options.get("standby_pump_count", 0))
     flow_margin = total_pump_flow / required_flow_m3_h if required_flow_m3_h > 0 and total_pump_flow > 0 else None
     head_margin = max_pump_head / required_head_m if required_head_m > 0 and max_pump_head > 0 else None

@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import { markRaw } from "vue";
 import { api, errorMessage } from "@/api/client";
 import type {
   LoadState,
@@ -11,6 +12,7 @@ import type {
 } from "@/types";
 
 type SocketState = "disconnected" | "connecting" | "connected" | "reconnecting";
+type RuntimeContext = { projectId: string; revision: number };
 
 export function defaultSimulationConfig(): SimulationConfig {
   return {
@@ -58,9 +60,20 @@ export const useRealtimeStore = defineStore("realtime", {
     reconnectTimer: null as ReturnType<typeof setTimeout> | null,
     intentionalClose: false,
     retiredSessions: [] as string[],
+    contextRevision: 0,
   }),
   actions: {
+    captureContext(projectId?: string): RuntimeContext | null {
+      const target = projectId ?? this.projectId;
+      if (!target || target === "sample" || target !== this.projectId) return null;
+      return { projectId: target, revision: this.contextRevision };
+    },
+    isCurrentContext(context: RuntimeContext): boolean {
+      return context.projectId === this.projectId && context.revision === this.contextRevision;
+    },
     clearRuntimeData() {
+      // A -> B -> A is a new context even though the final project ID matches.
+      this.contextRevision += 1;
       this.current = null;
       this.history = [];
       this.config = defaultSimulationConfig();
@@ -112,6 +125,8 @@ export const useRealtimeStore = defineStore("realtime", {
       this.disconnect(false);
       this.clearRuntimeData();
       this.projectId = projectId;
+      const context = this.captureContext(projectId);
+      if (!context) return;
       await Promise.all([
         this.loadState(projectId),
         this.loadConfig(projectId),
@@ -121,107 +136,117 @@ export const useRealtimeStore = defineStore("realtime", {
         this.loadPipes(projectId),
         this.loadRated(projectId),
       ]);
-      if (this.projectId === projectId) this.connect(projectId);
+      if (this.isCurrentContext(context)) this.connect(projectId);
     },
     async loadState(projectId?: string) {
-      const target = projectId ?? this.projectId ?? "";
-      if (!target || target === "sample") return;
+      const context = this.captureContext(projectId);
+      if (!context) return;
+      const target = context.projectId;
       this.state = "loading";
       try {
         const result = await api<RealtimeState>(`/api/v1/realtime/state/${encodeURIComponent(target)}`);
-        if (this.projectId !== target) return;
+        if (!this.isCurrentContext(context)) return;
         if (!this.acceptSnapshot(result)) return;
         this.stale = this.isStale(result.updated_at);
         this.state = "ready";
       } catch (error) {
-        if (this.projectId !== target) return;
+        if (!this.isCurrentContext(context)) return;
         this.error = errorMessage(error);
         this.state = "error";
       }
     },
     async loadHistory(projectId?: string) {
-      const target = projectId ?? this.projectId ?? "";
-      if (!target || target === "sample") return;
+      const context = this.captureContext(projectId);
+      if (!context) return;
+      const target = context.projectId;
       try {
         const result = await api<{ points: Record<string, unknown>[] }>(`/api/v1/realtime/history/${encodeURIComponent(target)}`);
-        if (this.projectId === target) this.history = result.points;
+        if (this.isCurrentContext(context)) this.history = result.points;
       } catch (error) {
-        if (this.projectId === target) this.error = errorMessage(error);
+        if (this.isCurrentContext(context)) this.error = errorMessage(error);
       }
     },
     async loadConfig(projectId?: string) {
-      const target = projectId ?? this.projectId ?? "";
-      if (!target || target === "sample") return;
+      const context = this.captureContext(projectId);
+      if (!context) return;
+      const target = context.projectId;
       try {
         const result = await api<SimulationConfig>(`/api/v1/realtime/simulate/config/${encodeURIComponent(target)}`);
-        if (this.projectId === target) this.config = result;
+        if (this.isCurrentContext(context)) this.config = result;
       } catch (error) {
-        if (this.projectId === target) this.error = errorMessage(error);
+        if (this.isCurrentContext(context)) this.error = errorMessage(error);
       }
     },
     async loadControls(projectId?: string) {
-      const target = projectId ?? this.projectId ?? "";
-      if (!target || target === "sample") return;
+      const context = this.captureContext(projectId);
+      if (!context) return;
+      const target = context.projectId;
       try {
         const result = await api<RealtimeControlsResult>(`/api/v1/realtime/controls/${encodeURIComponent(target)}`);
-        if (this.projectId === target) this.acceptControls(result);
+        if (this.isCurrentContext(context)) this.acceptControls(result);
       } catch (error) {
-        if (this.projectId === target) this.error = errorMessage(error);
+        if (this.isCurrentContext(context)) this.error = errorMessage(error);
       }
     },
     async loadRooms(projectId?: string) {
-      const target = projectId ?? this.projectId ?? "";
-      if (!target || target === "sample") return;
+      const context = this.captureContext(projectId);
+      if (!context) return;
+      const target = context.projectId;
       try {
         const result = await api<RealtimeRoomStatesResult>(`/api/v1/realtime/rooms/${encodeURIComponent(target)}`);
-        if (this.projectId !== target || !this.acceptsProjection(result, this.rooms)) return;
+        if (!this.isCurrentContext(context) || !this.acceptsProjection(result, this.rooms)) return;
         this.rooms = result;
         this.running = result.running;
       } catch (error) {
-        if (this.projectId === target) this.error = errorMessage(error);
+        if (this.isCurrentContext(context)) this.error = errorMessage(error);
       }
     },
     async loadPipes(projectId?: string) {
-      const target = projectId ?? this.projectId ?? "";
-      if (!target || target === "sample") return;
+      const context = this.captureContext(projectId);
+      if (!context) return;
+      const target = context.projectId;
       try {
         const result = await api<RealtimePipeStatesResult>(`/api/v1/realtime/pipes/${encodeURIComponent(target)}`);
-        if (this.projectId === target && this.acceptsProjection(result, this.pipes)) this.pipes = result;
+        if (this.isCurrentContext(context) && this.acceptsProjection(result, this.pipes)) this.pipes = result;
       } catch (error) {
-        if (this.projectId === target) this.error = errorMessage(error);
+        if (this.isCurrentContext(context)) this.error = errorMessage(error);
       }
     },
     async loadRated(projectId?: string) {
-      const target = projectId ?? this.projectId ?? "";
-      if (!target || target === "sample") return;
+      const context = this.captureContext(projectId);
+      if (!context) return;
+      const target = context.projectId;
       try {
         const result = await api<RatedDevicesResult>(`/api/v1/projects/${encodeURIComponent(target)}/devices/rated`);
-        if (this.projectId === target) this.rated = result;
+        if (this.isCurrentContext(context)) this.rated = result;
       } catch (error) {
-        if (this.projectId === target) this.error = errorMessage(error);
+        if (this.isCurrentContext(context)) this.error = errorMessage(error);
       }
     },
     async saveConfig(config: SimulationConfig): Promise<SimulationConfig | null> {
-      if (!this.projectId || this.projectId === "sample") return null;
+      const context = this.captureContext();
+      if (!context) return null;
       this.configSaving = true;
       this.error = "";
       try {
-        const accepted = await api<SimulationConfig>(`/api/v1/realtime/simulate/config/${encodeURIComponent(this.projectId)}`, {
+        const accepted = await api<SimulationConfig>(`/api/v1/realtime/simulate/config/${encodeURIComponent(context.projectId)}`, {
           method: "POST",
           body: JSON.stringify(config),
         });
+        if (!this.isCurrentContext(context)) return null;
         this.config = accepted;
         return accepted;
       } catch (error) {
-        this.error = errorMessage(error);
+        if (this.isCurrentContext(context)) this.error = errorMessage(error);
         return null;
       } finally {
-        this.configSaving = false;
+        if (this.isCurrentContext(context)) this.configSaving = false;
       }
     },
     async setDeviceControls(deviceId: string, values: Record<string, number>): Promise<boolean> {
-      if (!this.projectId || this.projectId === "sample") return false;
-      const target = this.projectId;
+      const context = this.captureContext();
+      if (!context) return false;
+      const target = context.projectId;
       this.controlSavingDevice = deviceId;
       this.error = "";
       try {
@@ -229,17 +254,18 @@ export const useRealtimeStore = defineStore("realtime", {
           method: "POST",
           body: JSON.stringify({ device_instance_id: deviceId, values }),
         });
-        return this.acceptControls(result);
+        return this.isCurrentContext(context) && this.acceptControls(result);
       } catch (error) {
-        if (this.projectId === target) this.error = errorMessage(error);
+        if (this.isCurrentContext(context)) this.error = errorMessage(error);
         return false;
       } finally {
-        if (this.projectId === target) this.controlSavingDevice = null;
+        if (this.isCurrentContext(context)) this.controlSavingDevice = null;
       }
     },
     async resetControls(deviceId?: string): Promise<boolean> {
-      if (!this.projectId || this.projectId === "sample") return false;
-      const target = this.projectId;
+      const context = this.captureContext();
+      if (!context) return false;
+      const target = context.projectId;
       this.controlsResetting = true;
       this.error = "";
       try {
@@ -247,64 +273,78 @@ export const useRealtimeStore = defineStore("realtime", {
           method: "POST",
           body: JSON.stringify(deviceId ? { device_instance_id: deviceId } : {}),
         });
-        return this.acceptControls(result);
+        return this.isCurrentContext(context) && this.acceptControls(result);
       } catch (error) {
-        if (this.projectId === target) this.error = errorMessage(error);
+        if (this.isCurrentContext(context)) this.error = errorMessage(error);
         return false;
       } finally {
-        if (this.projectId === target) this.controlsResetting = false;
+        if (this.isCurrentContext(context)) this.controlsResetting = false;
       }
     },
     async syncRuntimeState() {
-      if (!this.projectId) return;
+      const context = this.captureContext();
+      if (!context || !this.isCurrentContext(context)) return;
       await Promise.all([
-        this.loadState(),
-        this.loadHistory(),
-        this.loadConfig(),
-        this.loadControls(),
-        this.loadRooms(),
-        this.loadPipes(),
+        this.loadState(context.projectId),
+        this.loadHistory(context.projectId),
+        this.loadConfig(context.projectId),
+        this.loadControls(context.projectId),
+        this.loadRooms(context.projectId),
+        this.loadPipes(context.projectId),
       ]);
     },
     async start(config?: SimulationConfig): Promise<boolean> {
-      if (!this.projectId || this.projectId === "sample") return false;
+      const context = this.captureContext();
+      if (!context) return false;
       if (!await this.saveConfig(config ?? this.config)) return false;
+      if (!this.isCurrentContext(context)) return false;
       try {
-        const control = await api<{ running: boolean }>(`/api/v1/realtime/simulate/start/${encodeURIComponent(this.projectId)}`, { method: "POST" });
+        const control = await api<{ running: boolean }>(`/api/v1/realtime/simulate/start/${encodeURIComponent(context.projectId)}`, { method: "POST" });
+        if (!this.isCurrentContext(context)) return false;
         this.running = control.running;
         await this.syncRuntimeState();
-        return true;
+        return this.isCurrentContext(context);
       } catch (error) {
-        this.error = errorMessage(error);
+        if (this.isCurrentContext(context)) this.error = errorMessage(error);
         return false;
       }
     },
     async stop(): Promise<boolean> {
-      if (!this.projectId || this.projectId === "sample") return false;
+      const context = this.captureContext();
+      if (!context) return false;
       try {
-        const control = await api<{ running: boolean }>(`/api/v1/realtime/simulate/stop/${encodeURIComponent(this.projectId)}`, { method: "POST" });
+        const control = await api<{ running: boolean }>(`/api/v1/realtime/simulate/stop/${encodeURIComponent(context.projectId)}`, { method: "POST" });
+        if (!this.isCurrentContext(context)) return false;
         this.running = control.running;
         await this.syncRuntimeState();
-        return true;
+        return this.isCurrentContext(context);
       } catch (error) {
-        this.error = errorMessage(error);
+        if (this.isCurrentContext(context)) this.error = errorMessage(error);
         return false;
       }
     },
     connect(projectId?: string) {
-      const target = projectId ?? this.projectId ?? "";
-      if (!target || target === "sample") return;
+      const context = this.captureContext(projectId);
+      if (!context) return;
+      const target = context.projectId;
+      if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+      const previous = this.socket;
+      this.socket = null;
+      previous?.close();
       this.intentionalClose = false;
       this.socketState = this.reconnectAttempt ? "reconnecting" : "connecting";
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const socket = new WebSocket(`${protocol}//${window.location.host}/ws/realtime/${encodeURIComponent(target)}`);
+      const socket = markRaw(new WebSocket(`${protocol}//${window.location.host}/ws/realtime/${encodeURIComponent(target)}`));
       this.socket = socket;
+      const isCurrentSocket = () => this.isCurrentContext(context) && this.socket === socket;
       socket.onopen = () => {
+        if (!isCurrentSocket()) return;
         this.socketState = "connected";
         this.reconnectAttempt = 0;
       };
       socket.onmessage = (event) => {
-        if (this.projectId !== target || this.socket !== socket) return;
+        if (!isCurrentSocket()) return;
         const message = JSON.parse(event.data) as { type?: string; data?: unknown };
         if (["connected", "system_tick"].includes(message.type ?? "") && this.isRealtimeState(message.data)) {
           if (!this.acceptSnapshot(message.data)) return;
@@ -324,14 +364,16 @@ export const useRealtimeStore = defineStore("realtime", {
           this.running = (message.data as { running?: boolean }).running === true;
         }
       };
-      socket.onerror = () => { this.error = "WebSocket 连接失败"; };
+      socket.onerror = () => { if (isCurrentSocket()) this.error = "WebSocket 连接失败"; };
       socket.onclose = () => {
+        if (!isCurrentSocket()) return;
         this.socket = null;
         this.socketState = "disconnected";
         if (!this.intentionalClose && this.projectId === target) this.scheduleReconnect(target);
       };
     },
     disconnect(clearData = true) {
+      this.contextRevision += 1;
       this.intentionalClose = true;
       if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -345,10 +387,14 @@ export const useRealtimeStore = defineStore("realtime", {
       }
     },
     scheduleReconnect(projectId: string) {
+      const context = this.captureContext(projectId);
+      if (!context) return;
       this.reconnectAttempt = Math.min(this.reconnectAttempt + 1, 6);
       const delay = Math.min(1000 * 2 ** (this.reconnectAttempt - 1), 15000);
       this.socketState = "reconnecting";
-      this.reconnectTimer = setTimeout(() => this.connect(projectId), delay);
+      this.reconnectTimer = setTimeout(() => {
+        if (this.isCurrentContext(context)) this.connect(projectId);
+      }, delay);
     },
     isRealtimeState(value: unknown): value is RealtimeState {
       return typeof value === "object" && value !== null && "devices" in value && "project_id" in value;

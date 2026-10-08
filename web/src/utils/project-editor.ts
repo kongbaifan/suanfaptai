@@ -254,6 +254,8 @@ export function cloneProjectData(source: ProjectData): ProjectData {
     rooms: source.rooms.map((room) => ({
       ...cloneRecord(room),
       device_ids: [...(room.device_ids ?? [])],
+      supply_air_outlet_ids: [...(room.supply_air_outlet_ids ?? [])],
+      return_air_outlet_ids: [...(room.return_air_outlet_ids ?? [])],
     })) as RoomInput[],
     devices: source.devices.map((device) => cloneRecord(device)),
     pipes: source.pipes.map((pipe) => cloneRecord(pipe)),
@@ -355,6 +357,8 @@ export function removeDevice(project: ProjectData, deviceId: string): ProjectDat
     rooms: project.rooms.map((room) => ({
       ...room,
       device_ids: (room.device_ids ?? []).filter((id) => id !== deviceId),
+      supply_air_outlet_ids: (room.supply_air_outlet_ids ?? []).filter((id) => id !== deviceId),
+      return_air_outlet_ids: (room.return_air_outlet_ids ?? []).filter((id) => id !== deviceId),
     })),
     connections: project.connections.filter(
       (connection) => connection.from_id !== deviceId && connection.to_id !== deviceId,

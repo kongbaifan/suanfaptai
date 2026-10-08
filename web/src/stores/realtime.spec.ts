@@ -189,4 +189,39 @@ describe("realtime runtime inputs", () => {
     expect(store.rated).toBeNull();
     expect(store.running).toBe(false);
   });
+
+  it("rejects old ticks and snapshots from a retired session", () => {
+    const store = useRealtimeStore();
+    store.projectId = "project-a";
+    const snapshot = { project_id: "project-a", devices: {}, alarms: [], summary: {}, history_count: 0,
+      session_id: "one", simcore_tick: 10, applied_control_revision: 2 };
+    expect(store.acceptSnapshot(snapshot)).toBe(true);
+    expect(store.acceptSnapshot({ ...snapshot, simcore_tick: 9 })).toBe(false);
+    expect(store.acceptSnapshot({ ...snapshot, session_id: "two", simcore_tick: 1 })).toBe(true);
+    expect(store.acceptSnapshot({ ...snapshot, simcore_tick: 11 })).toBe(false);
+    expect(store.current?.session_id).toBe("two");
+    expect(store.acceptControls({ ...controls, session_id: "one", control_revision: 100 })).toBe(false);
+  });
+
+  it("does not overwrite a newer control acknowledgement with a delayed read", () => {
+    const store = useRealtimeStore();
+    store.projectId = "project-a";
+    expect(store.acceptControls({ ...controls, session_id: "one", control_revision: 3, simcore_tick: 4 })).toBe(true);
+    expect(store.acceptControls({ ...controls, session_id: "one", control_revision: 2, simcore_tick: 5 })).toBe(false);
+    expect(store.acceptControls({ ...controls, session_id: "one", control_revision: 3, simcore_tick: 3 })).toBe(false);
+    expect(store.controls?.control_revision).toBe(3);
+  });
+
+  it("ignores a control response after the user switches projects", async () => {
+    let resolve!: (value: Response) => void;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => new Promise<Response>((done) => { resolve = done; })));
+    const store = useRealtimeStore();
+    store.projectId = "project-a";
+    const pending = store.setDeviceControls("pump", { speed_pct: 50 });
+    store.projectId = "project-b";
+    store.clearRuntimeData();
+    resolve(response(controls));
+    expect(await pending).toBe(false);
+    expect(store.controls).toBeNull();
+  });
 });

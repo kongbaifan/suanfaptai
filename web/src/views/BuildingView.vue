@@ -91,6 +91,7 @@ const catalogLoaded = ref(false);
 const tree = computed(() => (draft.value ? buildTree(draft.value) : { nodes: [], orphans: [] }));
 const devices = computed(() => draft.value?.devices ?? []);
 const terminalDeviceList = computed(() => (draft.value ? terminalDevices(draft.value) : []));
+const airOutletDevices = computed(() => draft.value?.devices.filter((device) => ["送风口", "回风口"].includes(device.type)) ?? []);
 const pipes = computed(() => draft.value?.pipes ?? []);
 const connections = computed(() => draft.value?.connections ?? []);
 const nodeOptions = computed(() => (draft.value ? editorNodeOptions(draft.value) : []));
@@ -713,6 +714,18 @@ async function save() {
                   <span v-else class="tree-meta">暂无可服务末端（先新增 FCU / AHU）</span>
                   <span class="tree-meta room-key-hint">{{ item.key }}</span>
                 </div>
+                <div class="room-card-terminals" v-for="binding in (['supply_air_outlet_ids', 'return_air_outlet_ids'] as const)" :key="binding">
+                  <span class="room-card-label">{{ binding === 'supply_air_outlet_ids' ? '送风口' : '回风口' }}</span>
+                  <div class="terminal-chip-row">
+                    <button v-for="outletId in (item.room[binding] ?? [])" :key="outletId" class="terminal-chip"
+                      :title="`解绑风口 ${outletId}`" @click="onPatchRoom(item.key, { [binding]: (item.room[binding] ?? []).filter((id) => id !== outletId) })">{{ outletId }}</button>
+                    <select class="terminal-add" value="" :aria-label="`${item.room.name} ${binding === 'supply_air_outlet_ids' ? '添加送风口' : '添加回风口'}`"
+                      @change="onPatchRoom(item.key, { [binding]: [...(item.room[binding] ?? []), inputText($event)] })">
+                      <option value="" disabled>＋ 绑定风口</option>
+                      <option v-for="outlet in airOutletDevices.filter((device) => !(item.room[binding] ?? []).includes(device.id))" :key="outlet.id" :value="outlet.id">{{ outlet.id }} · {{ outlet.type }}</option>
+                    </select>
+                  </div>
+                </div>
               </article>
             </div>
           </section>
@@ -749,6 +762,7 @@ async function save() {
                         <div class="editor-detail-grid">
                           <label>ID<input :value="device.id" class="editor-id-input" :aria-label="`设备 ${index + 1} ID`" @input="onPatchDevice(index, { id: inputText($event) })" /></label>
                           <label>安装楼层<select :value="device.floor_id ?? ''" :aria-label="`${device.id} 所属楼层`" @change="onPatchDevice(index, { floor_id: inputText($event) || null })"><option value="">未指定</option><option v-for="floor in draft.floors" :key="floor.id" :value="floor.id">{{ floor.name || floor.id }}</option></select></label>
+                          <label v-if="device.type === '风机盘管'">送回风方式<select :value="device.air_connection_mode ?? ''" :aria-label="`${device.id} 送回风方式`" @change="onPatchDevice(index, { air_connection_mode: (inputText($event) || null) as 'room' | 'ducted' | null })"><option value="">按现有连接识别</option><option value="room">房间直吹</option><option value="ducted">经风管送回风</option></select></label>
                           <label>容量（kW）<input :value="valueOrBlank(device.capacity_kw)" type="number" min="0" step="0.1" :aria-label="`${device.id} 容量`" @input="onPatchDevice(index, { capacity_kw: optionalNumber($event) })" /></label>
                           <label>流量（m³/h）<input :value="valueOrBlank(device.flow_m3_h)" type="number" min="0" step="0.1" :aria-label="`${device.id} 流量`" @input="onPatchDevice(index, { flow_m3_h: optionalNumber($event) })" /></label>
                           <label>扬程（m）<input :value="valueOrBlank(device.head_m)" type="number" min="0" step="0.1" :aria-label="`${device.id} 扬程`" @input="onPatchDevice(index, { head_m: optionalNumber($event) })" /></label>

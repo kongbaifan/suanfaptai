@@ -22,6 +22,8 @@ export interface RoomInput {
   name: string;
   /** 服务本房间的末端设备 id。绑定的权威方向是房间 → 设备。 */
   device_ids: string[];
+  supply_air_outlet_ids?: string[];
+  return_air_outlet_ids?: string[];
   area_m2: number;
   people: number;
   /** 房间用途：对应后端 PURPOSE_DEFAULTS 的键，负荷指标按用途取预设。 */
@@ -35,6 +37,7 @@ export interface DeviceInput {
   name?: string | null;
   floor_id?: string | null;
   location_type?: string | null;
+  air_connection_mode?: "room" | "ducted" | null;
   capacity_kw?: number | null;
   flow_m3_h?: number | null;
   head_m?: number | null;
@@ -252,6 +255,50 @@ export interface RealtimeState {
   summary: Record<string, unknown>;
   last_result?: Record<string, unknown> | null;
   history_count: number;
+  session_id?: string | null;
+  simcore_tick?: number;
+  applied_control_revision?: number;
+  network?: RealtimeNetworkResult | null;
+}
+
+export type NetworkModelStatus = "modeled" | "disconnected" | "unsupported";
+
+export interface RuntimeNetworkNode {
+  node_id: string;
+  system: string;
+  circuit_id: string | null;
+  model_status: NetworkModelStatus;
+  flow_m3_h: number;
+  velocity_m_s: number | null;
+  pressure_drop_pa: number | null;
+  head_m: number | null;
+  diameter_mm: number | null;
+  supply_temp_c: number | null;
+  return_temp_c: number | null;
+  flow_blocked: boolean;
+  served_terminal_ids: string[];
+  parameter_sources: string[];
+}
+
+export interface RuntimeCircuitState {
+  circuit_id: string;
+  system: string;
+  source_ids: string[];
+  drive_ids: string[];
+  model_status: NetworkModelStatus;
+  flow_m3_h: number;
+  supply_temp_c: number | null;
+  return_temp_c: number | null;
+}
+
+export interface RealtimeNetworkResult {
+  model: "bounded_teaching_network";
+  pressure_balance_solved: boolean;
+  circuits: RuntimeCircuitState[];
+  pipes: RuntimeNetworkNode[];
+  ducts: RuntimeNetworkNode[];
+  devices: RuntimeNetworkNode[];
+  issues: Issue[];
 }
 
 export interface SimulationConfig {
@@ -289,6 +336,8 @@ export interface RealtimeRoomState {
 }
 
 export interface RealtimeRoomStatesResult {
+  session_id?: string | null;
+  applied_control_revision?: number;
   project_id: string;
   running: boolean;
   simcore_tick: number;
@@ -306,9 +355,14 @@ export interface RealtimePipeState {
   pressure_drop_pa: number;
   head_m: number;
   served_terminal_ids: string[];
+  model_status?: NetworkModelStatus;
+  flow_blocked?: boolean;
+  parameter_sources?: string[];
 }
 
 export interface RealtimePipeStatesResult {
+  session_id?: string | null;
+  applied_control_revision?: number;
   project_id: string;
   running: boolean;
   simcore_tick: number;
@@ -325,6 +379,7 @@ export interface RealtimeControlValue {
   max: number;
   step: number;
   current: number;
+  effective?: number | null;
 }
 
 export interface RealtimeDeviceControls {
@@ -336,6 +391,10 @@ export interface RealtimeDeviceControls {
 export interface RealtimeControlsResult {
   project_id: string;
   devices: Record<string, RealtimeDeviceControls>;
+  session_id?: string | null;
+  control_revision?: number;
+  simcore_tick?: number;
+  applied_control_revision?: number;
 }
 
 export interface DiagnosticCheck {

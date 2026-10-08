@@ -57,6 +57,7 @@ export const useRealtimeStore = defineStore("realtime", {
     reconnectAttempt: 0,
     reconnectTimer: null as ReturnType<typeof setTimeout> | null,
     intentionalClose: false,
+    retiredSessions: [] as string[],
   }),
   actions: {
     clearRuntimeData() {
@@ -74,6 +75,38 @@ export const useRealtimeStore = defineStore("realtime", {
       this.configSaving = false;
       this.controlSavingDevice = null;
       this.controlsResetting = false;
+      this.retiredSessions = [];
+    },
+    acceptSnapshot(result: RealtimeState): boolean {
+      if (result.project_id !== this.projectId) return false;
+      const session = result.session_id;
+      if (session && this.retiredSessions.includes(session)) return false;
+      const previous = this.current;
+      if (session && previous?.session_id === session
+        && (result.simcore_tick ?? 0) < (previous.simcore_tick ?? 0)) return false;
+      if (session && previous?.session_id && session !== previous.session_id) {
+        this.retiredSessions.push(previous.session_id);
+      }
+      this.current = result;
+      return true;
+    },
+    acceptControls(result: RealtimeControlsResult): boolean {
+      if (result.project_id !== this.projectId) return false;
+      if (result.session_id && this.retiredSessions.includes(result.session_id)) return false;
+      if (result.session_id && this.controls?.session_id === result.session_id) {
+        if ((result.control_revision ?? 0) < (this.controls.control_revision ?? 0)) return false;
+        if (result.control_revision === this.controls.control_revision
+          && (result.simcore_tick ?? 0) < (this.controls.simcore_tick ?? 0)) return false;
+      }
+      this.controls = result;
+      return true;
+    },
+    acceptsProjection(result: { project_id: string; session_id?: string | null; simcore_tick: number }, previous: { session_id?: string | null; simcore_tick: number } | null): boolean {
+      if (result.project_id !== this.projectId) return false;
+      if (result.session_id && this.retiredSessions.includes(result.session_id)) return false;
+      if (result.session_id && previous?.session_id === result.session_id
+        && result.simcore_tick < previous.simcore_tick) return false;
+      return true;
     },
     async activate(projectId: string) {
       this.disconnect(false);
@@ -97,7 +130,7 @@ export const useRealtimeStore = defineStore("realtime", {
       try {
         const result = await api<RealtimeState>(`/api/v1/realtime/state/${encodeURIComponent(target)}`);
         if (this.projectId !== target) return;
-        this.current = result;
+        if (!this.acceptSnapshot(result)) return;
         this.stale = this.isStale(result.updated_at);
         this.state = "ready";
       } catch (error) {
@@ -131,7 +164,7 @@ export const useRealtimeStore = defineStore("realtime", {
       if (!target || target === "sample") return;
       try {
         const result = await api<RealtimeControlsResult>(`/api/v1/realtime/controls/${encodeURIComponent(target)}`);
-        if (this.projectId === target) this.controls = result;
+        if (this.projectId === target) this.acceptControls(result);
       } catch (error) {
         if (this.projectId === target) this.error = errorMessage(error);
       }
@@ -141,7 +174,7 @@ export const useRealtimeStore = defineStore("realtime", {
       if (!target || target === "sample") return;
       try {
         const result = await api<RealtimeRoomStatesResult>(`/api/v1/realtime/rooms/${encodeURIComponent(target)}`);
-        if (this.projectId !== target) return;
+        if (this.projectId !== target || !this.acceptsProjection(result, this.rooms)) return;
         this.rooms = result;
         this.running = result.running;
       } catch (error) {
@@ -153,7 +186,7 @@ export const useRealtimeStore = defineStore("realtime", {
       if (!target || target === "sample") return;
       try {
         const result = await api<RealtimePipeStatesResult>(`/api/v1/realtime/pipes/${encodeURIComponent(target)}`);
-        if (this.projectId === target) this.pipes = result;
+        if (this.projectId === target && this.acceptsProjection(result, this.pipes)) this.pipes = result;
       } catch (error) {
         if (this.projectId === target) this.error = errorMessage(error);
       }
@@ -188,36 +221,38 @@ export const useRealtimeStore = defineStore("realtime", {
     },
     async setDeviceControls(deviceId: string, values: Record<string, number>): Promise<boolean> {
       if (!this.projectId || this.projectId === "sample") return false;
+      const target = this.projectId;
       this.controlSavingDevice = deviceId;
       this.error = "";
       try {
-        this.controls = await api<RealtimeControlsResult>(`/api/v1/realtime/control/${encodeURIComponent(this.projectId)}`, {
+        const result = await api<RealtimeControlsResult>(`/api/v1/realtime/control/${encodeURIComponent(target)}`, {
           method: "POST",
           body: JSON.stringify({ device_instance_id: deviceId, values }),
         });
-        return true;
+        return this.acceptControls(result);
       } catch (error) {
-        this.error = errorMessage(error);
+        if (this.projectId === target) this.error = errorMessage(error);
         return false;
       } finally {
-        this.controlSavingDevice = null;
+        if (this.projectId === target) this.controlSavingDevice = null;
       }
     },
     async resetControls(deviceId?: string): Promise<boolean> {
       if (!this.projectId || this.projectId === "sample") return false;
+      const target = this.projectId;
       this.controlsResetting = true;
       this.error = "";
       try {
-        this.controls = await api<RealtimeControlsResult>(`/api/v1/realtime/controls/reset/${encodeURIComponent(this.projectId)}`, {
+        const result = await api<RealtimeControlsResult>(`/api/v1/realtime/controls/reset/${encodeURIComponent(target)}`, {
           method: "POST",
           body: JSON.stringify(deviceId ? { device_instance_id: deviceId } : {}),
         });
-        return true;
+        return this.acceptControls(result);
       } catch (error) {
-        this.error = errorMessage(error);
+        if (this.projectId === target) this.error = errorMessage(error);
         return false;
       } finally {
-        this.controlsResetting = false;
+        if (this.projectId === target) this.controlsResetting = false;
       }
     },
     async syncRuntimeState() {
@@ -269,14 +304,17 @@ export const useRealtimeStore = defineStore("realtime", {
         this.reconnectAttempt = 0;
       };
       socket.onmessage = (event) => {
+        if (this.projectId !== target || this.socket !== socket) return;
         const message = JSON.parse(event.data) as { type?: string; data?: unknown };
         if (["connected", "system_tick"].includes(message.type ?? "") && this.isRealtimeState(message.data)) {
-          this.current = message.data;
+          if (!this.acceptSnapshot(message.data)) return;
           this.stale = false;
           if (message.type === "system_tick") void Promise.all([this.loadRooms(target), this.loadPipes(target), this.loadControls(target)]);
         } else if (message.type === "device_state_updated" && this.isRealtimeState(message.data)) {
           // 增量事件只含本次变化的设备：合并进现有快照，不能整体替换。
           const incoming = message.data;
+          if (incoming.project_id !== target) return;
+          if (this.running && this.current?.session_id) return;
           this.current =
             this.current && this.current.project_id === incoming.project_id
               ? { ...this.current, ...incoming, devices: { ...this.current.devices, ...incoming.devices } }

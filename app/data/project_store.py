@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from app.data.json_store import write_json_atomic
 from app.room_bindings import raise_for_room_binding_errors, resolve_room_bindings
 from app.schemas import (
     ProjectHistoryEntry,
@@ -11,6 +12,7 @@ from app.schemas import (
     ProjectSummary,
     SystemEvaluateResult,
 )
+from app.simcore.synchronization import project_runtime_lock
 
 PROJECT_DIR = Path(__file__).with_name("projects")
 
@@ -19,71 +21,74 @@ def list_projects() -> list[ProjectSummary]:
     PROJECT_DIR.mkdir(parents=True, exist_ok=True)
     summaries = []
     for path in sorted(PROJECT_DIR.glob("*.json")):
-        record = _read_record(path)
-        summaries.append(_summary_from_record(record))
+        with project_runtime_lock(path.stem):
+            # A project may have been deleted after the directory was listed.
+            if path.exists():
+                summaries.append(_summary_from_record(_read_record(path)))
     return sorted(summaries, key=lambda item: item.updated_at, reverse=True)
 
 
 def save_project(request: ProjectSaveRequest, project_id: str | None = None) -> ProjectRecord:
     raise_for_room_binding_errors(resolve_room_bindings(request.project))
-    PROJECT_DIR.mkdir(parents=True, exist_ok=True)
-    now = _now()
-    if project_id:
+    project_id = project_id or uuid4().hex[:12]
+    with project_runtime_lock(project_id):
+        now = _now()
         path = _path_for_project(project_id)
         existing = _read_record(path) if path.exists() else None
         created_at = existing.created_at if existing else now
         history = existing.history if existing else []
-    else:
-        project_id = uuid4().hex[:12]
-        created_at = now
-        history = []
 
-    record = ProjectRecord(
-        project_id=project_id,
-        name=request.name,
-        description=request.description,
-        tags=request.tags,
-        created_at=created_at,
-        updated_at=now,
-        history_count=len(history),
-        project=request.project,
-        history=history,
-    )
-    _write_record(record)
-    return record
+        record = ProjectRecord(
+            project_id=project_id,
+            name=request.name,
+            description=request.description,
+            tags=request.tags,
+            created_at=created_at,
+            updated_at=now,
+            history_count=len(history),
+            project=request.project,
+            history=history,
+        )
+        _write_record(record)
+        return record
 
 
 def get_project(project_id: str) -> ProjectRecord:
-    path = _path_for_project(project_id)
-    if not path.exists():
-        raise FileNotFoundError(project_id)
-    return _read_record(path)
+    with project_runtime_lock(project_id):
+        path = _path_for_project(project_id)
+        if not path.exists():
+            raise FileNotFoundError(project_id)
+        return _read_record(path)
 
 
 def delete_project(project_id: str) -> bool:
-    path = _path_for_project(project_id)
-    if not path.exists():
-        return False
-    path.unlink()
-    return True
+    with project_runtime_lock(project_id):
+        path = _path_for_project(project_id)
+        if not path.exists():
+            return False
+        path.unlink()
+        return True
 
 
 def add_project_history(project_id: str, result: SystemEvaluateResult) -> ProjectHistoryEntry:
-    record = get_project(project_id)
-    entry = ProjectHistoryEntry(
-        history_id=uuid4().hex[:12],
-        project_id=project_id,
-        created_at=_now(),
-        issue_count=len(result.issues),
-        summary=result.report.summary if result.report else {},
-        result=result.model_dump(),
-    )
-    record.history.insert(0, entry.model_dump())
-    record.history = record.history[:50]
-    record.updated_at = entry.created_at
-    record.history_count = len(record.history)
-    _write_record(record)
-    return entry
+    # The whole read/modify/write must share the edit/delete lock. Serializing
+    # only the final write would still allow two stale records to overwrite it.
+    with project_runtime_lock(project_id):
+        record = get_project(project_id)
+        entry = ProjectHistoryEntry(
+            history_id=uuid4().hex[:12],
+            project_id=project_id,
+            created_at=_now(),
+            issue_count=len(result.issues),
+            summary=result.report.summary if result.report else {},
+            result=result.model_dump(),
+        )
+        record.history.insert(0, entry.model_dump())
+        record.history = record.history[:50]
+        record.updated_at = entry.created_at
+        record.history_count = len(record.history)
+        _write_record(record)
+        return entry
 
 
 def list_project_history(project_id: str) -> list[ProjectHistoryEntry]:
@@ -106,10 +111,7 @@ def _read_record(path: Path) -> ProjectRecord:
 
 
 def _write_record(record: ProjectRecord) -> None:
-    PROJECT_DIR.mkdir(parents=True, exist_ok=True)
-    with _path_for_project(record.project_id).open("w", encoding="utf-8") as file:
-        json.dump(record.model_dump(), file, ensure_ascii=False, indent=2)
-        file.write("\n")
+    write_json_atomic(_path_for_project(record.project_id), record.model_dump())
 
 
 def _summary_from_record(record: ProjectRecord) -> ProjectSummary:

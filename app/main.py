@@ -319,7 +319,12 @@ def projects_evaluate(project_id: str) -> SystemEvaluateResult:
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Project not found.") from exc
     result = _evaluate(record.project)
-    add_project_history(project_id, result)
+    try:
+        add_project_history(project_id, result)
+    except FileNotFoundError as exc:
+        # Evaluation runs outside the storage lock; deletion may finish while
+        # it calculates. Do not recreate that project or turn this into a 500.
+        raise HTTPException(status_code=404, detail="Project not found.") from exc
     return result
 
 

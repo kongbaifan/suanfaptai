@@ -253,18 +253,21 @@ def projects_air_network(project_id: str) -> AirNetworkResult:
     responses={409: {"description": "Stop the simulation before editing the project."}},
 )
 def projects_update(project_id: str, request: ProjectSaveRequest) -> ProjectRecord:
-    # 必须先于 save_project 判定：编辑会重建 session，落盘后再拒就会留下
-    # "改动已存、仿真还在按旧布局跑"的中间态。
-    if is_simulation_running(project_id):
-        raise HTTPException(
-            status_code=409, detail=ProjectEditRequiresStopError.detail
-        )
-    try:
-        record = save_project(request, project_id=project_id)
-    except ProjectRoomBindingError as exc:
-        raise _room_binding_http_error(exc) from exc
-    invalidate_project_runtime_caches(project_id)
-    return record
+    from app.simcore.synchronization import project_runtime_lock
+
+    with project_runtime_lock(project_id):
+        # 必须先于 save_project 判定：编辑会重建 session，落盘后再拒就会留下
+        # "改动已存、仿真还在按旧布局跑"的中间态。
+        if is_simulation_running(project_id):
+            raise HTTPException(
+                status_code=409, detail=ProjectEditRequiresStopError.detail
+            )
+        try:
+            record = save_project(request, project_id=project_id)
+        except ProjectRoomBindingError as exc:
+            raise _room_binding_http_error(exc) from exc
+        invalidate_project_runtime_caches(project_id)
+        return record
 
 
 @app.delete(
@@ -330,7 +333,12 @@ def projects_history(project_id: str) -> list[ProjectHistoryEntry]:
 
 @app.post("/api/v1/realtime/update", response_model=RealtimeSystemState)
 async def realtime_update(request: RealtimeUpdateRequest) -> RealtimeSystemState:
-    return await update_realtime_state(request)
+    from app.realtime import RuntimeStateRequiresStopError
+
+    try:
+        return await update_realtime_state(request)
+    except RuntimeStateRequiresStopError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
 
 
 @app.get("/api/v1/realtime/state/{project_id}", response_model=RealtimeSystemState)

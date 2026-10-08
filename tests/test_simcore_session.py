@@ -1067,43 +1067,31 @@ class TestSteady:
             "说明 converged=True 是在极限环折返点上误报的"
         )
 
-    def test_oscillating_system_is_not_reported_as_converged(self):
-        """极限环必须报未收敛，而不是在折返点上误报收敛
+    def test_oscillating_system_is_not_reported_as_converged(self, monkeypatch):
+        """A periodic trajectory must not pass at a stationary turning point.
 
-        真实缺陷案例：四层样例（four_floor_fcu_fresh_air）在自动调节下处于
-        极限环，室温在 ~0.9 K、湿度在 ~9 个百分点间持续振荡，1500 tick 后
-        仍未平息。
-
-        旧判据只看单步漂移 ≤ 0.01 K。振荡时单步变化每周期两次穿过零，因此
-        **每个折返点**都会被判为收敛。实测该样例上 `converged=True` 返回的
-        点继续积分会漂移 3.34 K —— 这个"稳态"根本不是不动点，而稳态结果被
-        设计工况评估、设备选型与教学对比共同依赖。
-
-        本测试断言：对处于极限环的系统，`converged` 必须为 False。
+        Use a controlled trajectory so improved physical/control models do not
+        turn this convergence-criterion regression into a test requiring a
+        particular teaching sample to remain unstable forever.
         """
-        from app.samples import SAMPLES
-        from app.schemas import SystemEvaluateRequest
-        from app.simcore.project import build_runtime_layout
+        from app.simcore import steady as steady_module
 
-        layout = build_runtime_layout(
-            SystemEvaluateRequest(**SAMPLES["four_floor_fcu_fresh_air"])
-        ).layout
-        result = solve_steady(
-            layout,
-            SimulationConfig(
-                mode=SimulationMode.COOLING,
-                step_seconds=300.0,
-                target_temp_c=24.0,
-                target_humidity_pct=55.0,
-                outdoor_humidity_pct=70.0,
-                automatic_control=True,
-            ),
-        )
+        class PeriodicSession(SimulationSession):
+            def step(self, transient_controls=None):
+                self._tick += 1
+                temperature = 24.0 + math.cos(2.0 * math.pi * self._tick / 200.0)
+                self._snapshot = replace(
+                    self._snapshot,
+                    tick=self._tick,
+                    rooms={key: replace(room, temperature_c=temperature)
+                           for key, room in self._snapshot.rooms.items()},
+                )
+                return self._snapshot
 
-        assert result.converged is False, (
-            "极限环系统被判为收敛；"
-            f"ticks={result.ticks} drift={result.final_drift_c:.6f}"
-        )
+        monkeypatch.setattr(steady_module, "SimulationSession", PeriodicSession)
+        result = solve_steady(build_layout(), SimulationConfig(), max_ticks=500)
+        assert result.converged is False
+        assert result.final_drift_c > 0.01
 
     def test_invalid_limits_rejected(self):
         """非法迭代参数直接报错"""

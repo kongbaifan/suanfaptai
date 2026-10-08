@@ -299,7 +299,14 @@ def test_scenario_physical_directions_and_capacity_alarm(client):
         == "increase"
     )
     assert low_cooling["metrics"]["system_cop"]["direction"] == "decrease"
-    assert low_cooling["metrics"]["chiller_power_kw"]["direction"] == "increase"
+    power = low_cooling["metrics"]["chiller_power_kw"]
+    cop = low_cooling["metrics"]["system_cop"]
+    if power["direction"] != "increase":
+        # Lower condenser flow now also limits delivered cooling. The identity
+        # P=Q/COP permits lower power when Q falls; that is not improved COP.
+        assert power["after"] * cop["after"] < power["before"] * cop["before"]
+        explanation = next(e for e in low_cooling["explanations"] if e["code"] == "COOLING_PERFORMANCE_LOW_CHILLER_POWER")
+        assert explanation["expectation_met"] is None
     assert low_cooling["metrics"]["total_power_kw"]["direction"] in {
         "increase",
         "decrease",

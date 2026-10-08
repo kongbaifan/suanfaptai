@@ -208,7 +208,7 @@ def test_invalid_binding_creates_no_realtime_session_or_control_state(
         (SimulationMode.VENTILATION, 26.0, 26.0, None),
     ],
 )
-def test_multi_room_allocation_is_mode_weighted_and_conserved(
+def test_ducted_room_allocation_follows_cav_outlets_and_is_conserved(
     mode: SimulationMode,
     initial_temp: float,
     target_temp: float,
@@ -248,12 +248,9 @@ def test_multi_room_allocation_is_mode_weighted_and_conserved(
     assert list(snapshot.devices).count("ahu_f1") == 1
 
     room_nodes = {room.room_id: room for room in layout.rooms}
-    if mode is SimulationMode.HEATING:
-        raw_weights = [room_nodes[room_id].design_heating_kw for room_id in ROOM_IDS]
-    elif mode is SimulationMode.VENTILATION:
-        raw_weights = [room_nodes[room_id].fresh_air_m3_h for room_id in ROOM_IDS]
-    else:
-        raw_weights = [room_nodes[room_id].design_cooling_kw for room_id in ROOM_IDS]
+    # The declared CAV ducts/outlets fix the distribution. Changing operating
+    # mode cannot silently rebalance room airflow as if VAV terminals existed.
+    raw_weights = [room_nodes[room_id].design_cooling_kw for room_id in ROOM_IDS]
     total_weight = math.fsum(raw_weights)
     for room, weight in zip(room_readings[:-1], raw_weights[:-1], strict=True):
         assert room.airflow_m3_h == pytest.approx(

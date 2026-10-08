@@ -341,6 +341,8 @@ def test_unknown_project_and_pipeless_project_contract():
             "project_id": project_id,
             "running": False,
             "simcore_tick": 0,
+            "session_id": None,
+            "applied_control_revision": 0,
             "pipes": [],
             "total_flow_by_system_m3_h": {},
             "most_loaded_pipe_id": None,

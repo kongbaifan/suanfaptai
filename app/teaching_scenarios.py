@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass, replace
@@ -52,6 +53,7 @@ class _ExpectedEffect:
     direction: TeachingMetricDirection
     code: str
     message: str
+    requires_equal_cooling: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,9 +224,11 @@ _SCENARIOS = (
                 direction="increase",
                 code="COOLING_PERFORMANCE_LOW_CHILLER_POWER",
                 message=(
-                    "冷凝压力升高后，冷机功率应上升；系统总功率还会受水泵和"
-                    "冷却塔节能影响，应以实测对比为准。"
+                    "在制冷量相同的条件下，COP 降低使冷机功率上升；"
+                    "若冷却水限流同时降低了制冷量，功率也可能下降。"
+                    "请按 P=Q/COP 联合判断，不能只看功率。"
                 ),
+                requires_equal_cooling=True,
             ),
         ),
         overlays=(
@@ -542,6 +546,14 @@ def _explanations(
     explanations = []
     for effect in scenario.effects:
         observed = comparisons[effect.metric].direction
+        condition_met = True
+        if effect.requires_equal_cooling:
+            power = comparisons["chiller_power_kw"]
+            cop = comparisons["system_cop"]
+            if power.before is None or power.after is None or cop.before is None or cop.after is None:
+                condition_met = False
+            else:
+                condition_met = math.isclose(power.before * cop.before, power.after * cop.after, rel_tol=0.001, abs_tol=0.001)
         explanations.append(
             TeachingExplanation(
                 code=effect.code,
@@ -551,7 +563,7 @@ def _explanations(
                 expected_direction=effect.direction,
                 observed_direction=observed,
                 expectation_met=(observed == effect.direction)
-                if observed is not None
+                if observed is not None and condition_met
                 else None,
             )
         )

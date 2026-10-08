@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from app.schemas import SystemEvaluateRequest
+from app.schemas import ConnectionInput, RoomInput, SystemEvaluateRequest
 from app.simcore.devices import pump_state, terminal_state
 from app.simcore.hydronics import (
     MAX_HYDRONIC_DELTA_T_C,
@@ -321,7 +321,7 @@ def test_device_actual_flow_rejects_non_finite_values(actual_flow: float):
     assert terminal.cooling_kw == 0.0
 
 
-def test_project_without_water_topology_keeps_legacy_rated_flow_fallback():
+def test_project_without_water_topology_cannot_invent_circulation():
     project = SystemEvaluateRequest(
         devices=[
             {"id": "pump", "type": "循环泵", "name": "EC32"},
@@ -334,10 +334,8 @@ def test_project_without_water_topology_keeps_legacy_rated_flow_fallback():
 
     assert layout.modeled_water_loops == frozenset()
     assert layout.hydronic_branches == ()
-    assert snapshot.chilled_flow_m3_h == pytest.approx(20.51)
-    assert snapshot.devices["terminal"].values["water_flow_m3_h"] == pytest.approx(
-        0.378
-    )
+    assert snapshot.chilled_flow_m3_h == 0.0
+    assert snapshot.devices["terminal"].values["water_flow_m3_h"] == 0.0
 
 
 def test_declared_loop_without_terminal_branches_does_not_invent_flow():
@@ -450,6 +448,10 @@ def test_disconnected_terminal_component_cannot_receive_global_pump_flow():
         ],
     )
 
+    project.connections.append(
+        ConnectionInput(from_id="served", to_id="chiller", system="chilled_water")
+    )
+    project.rooms.append(RoomInput(id="served-room", area_m2=50, device_ids=["served"]))
     layout = build_project_layout(project).layout
     snapshot = SimulationSession(layout, SimulationConfig()).step()
 
@@ -516,6 +518,11 @@ def test_heat_pump_is_a_serviceable_chilled_loop_source():
             {"from_id": "hp", "to_id": "fcu_b", "system": "chilled_water"},
         ],
     )
+    # Both source islands need a complete return as well as a supply path.
+    project.connections.extend([
+        ConnectionInput(from_id="fcu_a", to_id="pump_a", system="chilled_water"),
+        ConnectionInput(from_id="fcu_b", to_id="pump_b", system="chilled_water"),
+    ])
     resolved = build_project_layout(project)
 
     # 布局层：B 组件末端有水力分支、无不可服务告警。

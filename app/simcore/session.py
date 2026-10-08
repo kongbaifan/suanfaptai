@@ -14,9 +14,12 @@ import math
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from enum import Enum
+from threading import RLock
 from types import MappingProxyType
 from typing import Any, Literal
+from uuid import uuid4
 
+from app.schemas import RealtimeNetworkResult
 from app.simcore.controls import clamp_controls, default_controls
 from app.simcore.devices import (
     AIR_DENSITY_KG_M3,
@@ -65,6 +68,8 @@ from app.simcore.room import (
     step_room_humidity,
     step_room_temperature,
 )
+from app.simcore.runtime_network import RuntimeNetworkLayout
+from app.simcore.synchronization import session_locked
 from app.simcore.weather import Ambient, ambient_at
 from app.unity_catalog import DeviceRole
 
@@ -192,6 +197,9 @@ class PlantLayout:
     rooms: tuple[RoomNode, ...] = ()
     hydronic_branches: tuple[HydronicBranch, ...] = ()
     modeled_water_loops: frozenset[WaterLoop] = frozenset()
+    # None is reserved for explicitly assembled device-model test benches.
+    # Every project DTO gets a compiled network, including incomplete projects.
+    network: RuntimeNetworkLayout | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -362,12 +370,20 @@ class PlantSnapshot:
     devices: Mapping[str, DeviceReading]
     rooms: Mapping[str, RoomReading]
     alarms: tuple[str, ...]
+    network: RealtimeNetworkResult | None = None
+    applied_control_revision: int = 0
+    control_sources: Mapping[str, ControlSource] = field(default_factory=dict)
+    effective_controls: Mapping[str, Mapping[str, float]] = field(default_factory=dict)
 
 
 class SimulationSession:
     """一个项目的仿真状态机"""
 
     def __init__(self, layout: PlantLayout, config: SimulationConfig | None = None):
+        self.runtime_lock = RLock()
+        self.session_id = uuid4().hex
+        self.control_revision = 0
+        self._applied_control_revision = 0
         self.layout = layout
         self.config = config or SimulationConfig()
         known_room_ids = {room.room_id for room in layout.rooms}
@@ -415,6 +431,8 @@ class SimulationSession:
         initial_water_temp = self._average_room_temp()
         self._chilled_supply_temp_c = initial_water_temp
         self._hot_supply_temp_c = initial_water_temp
+        self._network_supply_temps: dict[str, float] = {}
+        self._network_air_room_flows: dict[str, dict[str, float]] = {}
         self._snapshot = self._build_snapshot(
             ambient=self._ambient(),
             solved=_SolveResult.empty(initial_water_temp),
@@ -449,6 +467,7 @@ class SimulationSession:
             raise KeyError(instance_id)
         return "manual_override" if instance_id in self._manual_overrides else "auto"
 
+    @session_locked
     def set_controls(
         self, instance_id: str, values: Mapping[str, float]
     ) -> dict[str, float]:
@@ -460,8 +479,10 @@ class SimulationSession:
         self._controls[instance_id].update(accepted)
         if accepted:
             self._manual_overrides.add(instance_id)
+            self.control_revision += 1
         return accepted
 
+    @session_locked
     def reset_controls(self, instance_id: str | None = None) -> None:
         """Restore defaults and clear one or all device-level manual overrides."""
         nodes: tuple[DeviceNode, ...]
@@ -478,7 +499,9 @@ class SimulationSession:
             )
             self._manual_overrides.discard(node.instance_id)
         self._effective_controls = self._mode_interlocked_controls(self._controls)
+        self.control_revision += 1
 
+    @session_locked
     def update_runtime_config(self, config: SimulationConfig) -> None:
         """Replace runtime inputs without rebuilding dynamic session state."""
         if config.mode is not self.config.mode:
@@ -490,6 +513,7 @@ class SimulationSession:
         self.config = config
         self._effective_controls = self._mode_interlocked_controls(self._controls)
 
+    @session_locked
     def step(
         self,
         transient_controls: Mapping[str, Mapping[str, float]] | None = None,
@@ -497,6 +521,7 @@ class SimulationSession:
         """推进一个时间步"""
         self._tick += 1
         self._simulation_seconds += self.config.step_seconds
+        self._applied_control_revision = self.control_revision
 
         if self.config.automatic_control:
             self._apply_automatic_controls()
@@ -536,6 +561,10 @@ class SimulationSession:
     # ---------- 求解 ----------
 
     def _solve(self, ambient: Ambient) -> _SolveResult:
+        if self.layout.network is not None:
+            from app.simcore.connected import solve_connected
+
+            return solve_connected(self, ambient)
         chillers = self._nodes_with_role(DeviceRole.CHILLER)
         heat_sources = self._nodes_with_role(DeviceRole.HEAT_SOURCE)
         towers = self._nodes_with_role(DeviceRole.COOLING_TOWER)
@@ -1192,8 +1221,6 @@ class SimulationSession:
         其次组合式机组）。若让每台服务该房间的设备都各算一份房间新风，新风负荷
         会被按设备台数成倍放大——风机盘管 + 新风机组共服一室时实测翻了一倍。
         """
-        room_by_id = {room.room_id: room for room in self.layout.rooms}
-        fresh_handler_by_room = self._fresh_air_handlers()
         deliveries: dict[str, RoomDelivery] = {}
         for node in self.layout.devices:
             state = solved.terminals.get(node.instance_id)
@@ -1212,62 +1239,7 @@ class SimulationSession:
                 and state.airflow_m3_h > 0.0
                 and state.cooling_kw > 0.0
             ):
-                if is_fresh_air:
-                    # 新风机组整机处理室外新风：进风即室外状态，不含回风。
-                    # 不能用"房间所需新风量"反推，否则机组额定风量与需求不等时
-                    # 差额会被误当回风，稀释进风、虚增可除湿量。
-                    fresh_air_m3_h = state.airflow_m3_h
-                else:
-                    # 组合式机组：本机组承担的室外新风
-                    fresh_air_m3_h = min(
-                        math.fsum(
-                            room_by_id[room_id].fresh_air_m3_h
-                            for room_id, _ in weights
-                            if room_id in room_by_id
-                            and fresh_handler_by_room.get(room_id) == node.instance_id
-                        ),
-                        state.airflow_m3_h,
-                    )
-                return_air_m3_h = max(state.airflow_m3_h - fresh_air_m3_h, 0.0)
-                # 回风求**平均状态**（按各房间分摊风量加权），再与新风按风量混合。
-                served_airflow_m3_h = math.fsum(
-                    airflow[room_id] for room_id, _ in weights
-                )
-                if served_airflow_m3_h > 0.0:
-                    return_temp_c = (
-                        math.fsum(
-                            self._room_temp(room_id) * airflow[room_id]
-                            for room_id, _ in weights
-                        )
-                        / served_airflow_m3_h
-                    )
-                    return_ratio = (
-                        math.fsum(
-                            humidity_ratio_from_rh(
-                                self._room_temp(room_id),
-                                self._room_humidity_pct[room_id],
-                            )
-                            * airflow[room_id]
-                            for room_id, _ in weights
-                        )
-                        / served_airflow_m3_h
-                    )
-                else:
-                    return_temp_c = ambient.dry_bulb_c
-                    return_ratio = humidity_ratio_from_rh(
-                        ambient.dry_bulb_c, ambient.relative_humidity_pct
-                    )
-                outdoor_ratio = humidity_ratio_from_rh(
-                    ambient.dry_bulb_c, ambient.relative_humidity_pct
-                )
-                mix_temp_c = (
-                    return_air_m3_h * return_temp_c
-                    + fresh_air_m3_h * ambient.dry_bulb_c
-                ) / state.airflow_m3_h
-                mix_ratio = (
-                    return_air_m3_h * return_ratio
-                    + fresh_air_m3_h * outdoor_ratio
-                ) / state.airflow_m3_h
+                mix_temp_c, mix_ratio = self._terminal_air_entering_state(node, state.airflow_m3_h)
                 supply_temp_c, supply_ratio = coil_leaving_state(
                     mix_temp_c, mix_ratio, state.airflow_m3_h, state.cooling_kw
                 )
@@ -1352,6 +1324,26 @@ class SimulationSession:
                 handlers.setdefault(room_id, node.instance_id)
         return handlers
 
+    def _terminal_air_entering_state(self, node: DeviceNode, airflow_m3_h: float) -> tuple[float, float]:
+        """One inlet state for coil capacity, delivered heat/moisture and display."""
+        ambient = self._ambient()
+        outdoor_ratio = humidity_ratio_from_rh(ambient.dry_bulb_c, ambient.relative_humidity_pct)
+        if node.rated.role is DeviceRole.FRESH_AIR_UNIT:
+            return ambient.dry_bulb_c, outdoor_ratio
+        weights = self._terminal_room_weights(node)
+        if not weights or airflow_m3_h <= 0.0:
+            return self._terminal_room_reference_temp(node), self._terminal_entering_humidity_ratio(node)
+        air = _allocate_conserved(airflow_m3_h, weights)
+        total = math.fsum(air.values())
+        return_temp = math.fsum(self._room_temp(key) * air[key] for key, _ in weights) / total
+        return_ratio = math.fsum(humidity_ratio_from_rh(self._room_temp(key), self._room_humidity_pct[key]) * air[key] for key, _ in weights) / total
+        handlers = self._fresh_air_handlers()
+        room_by_id = {room.room_id: room for room in self.layout.rooms}
+        fresh = min(math.fsum(room_by_id[key].fresh_air_m3_h for key, weight in weights if weight > 0.0 and handlers.get(key) == node.instance_id), airflow_m3_h)
+        fraction = fresh / airflow_m3_h
+        return (return_temp * (1.0 - fraction) + ambient.dry_bulb_c * fraction,
+                return_ratio * (1.0 - fraction) + outdoor_ratio * fraction)
+
     def _terminal_room_reference_temp(self, node: DeviceNode) -> float:
         """末端盘管的**进风**温度
 
@@ -1396,6 +1388,16 @@ class SimulationSession:
         )
 
     def _terminal_room_weights(
+        self, node: DeviceNode
+    ) -> tuple[tuple[str, float], ...]:
+        actual = self._network_air_room_flows.get(node.instance_id)
+        if actual:
+            total = math.fsum(actual.values())
+            if total > 0.0:
+                return tuple((key, value / total) for key, value in sorted(actual.items()))
+        return self._base_terminal_room_weights(node)
+
+    def _base_terminal_room_weights(
         self, node: DeviceNode
     ) -> tuple[tuple[str, float], ...]:
         room_by_id = {room.room_id: room for room in self.layout.rooms}
@@ -1565,6 +1567,11 @@ class SimulationSession:
         total_power = 0.0
         for node in self.layout.devices:
             values = solved.values_for(node.instance_id)
+            if solved.network is not None and is_valve(node.rated.role):
+                values["flow_m3_h"] = math.fsum(
+                    item.flow_m3_h for item in solved.network.devices
+                    if item.node_id == node.instance_id
+                )
             for name, value in self._effective_controls.get(
                 node.instance_id, {}
             ).items():
@@ -1614,6 +1621,11 @@ class SimulationSession:
                 net_latent_kw=humidity.net_latent_kw if humidity else 0.0,
             )
 
+        network = solved.network
+        if network is None and self.layout.network is not None:
+            from app.simcore.connected import network_projection
+
+            network = network_projection(self.layout.network)
         return PlantSnapshot(
             tick=self._tick,
             simulation_seconds=self._simulation_seconds,
@@ -1634,18 +1646,31 @@ class SimulationSession:
             devices=MappingProxyType(devices),
             rooms=MappingProxyType(rooms),
             alarms=self._alarms(solved),
+            network=network,
+            applied_control_revision=self._applied_control_revision,
+            control_sources=MappingProxyType({node.instance_id: self.control_source(node.instance_id) for node in self.layout.devices}),
+            effective_controls=self.effective_controls,
         )
 
     def _alarms(self, solved: _SolveResult) -> tuple[str, ...]:
         alarms: list[str] = []
         if self.config.mode is SimulationMode.COOLING:
+            bound_terminals = {node.instance_id for node in self.layout.devices if node.effective_room_ids}
+            missing_served_path = self.layout.network is not None and not any(
+                path.system == "chilled_water" and path.target_id in bound_terminals
+                for path in self.layout.network.paths
+            )
+            has_source = any(node.rated.role in {DeviceRole.CHILLER, DeviceRole.HEAT_SOURCE} for node in self.layout.devices)
             if solved.installed_capacity_kw <= 0.0 and self.layout.devices:
                 alarms.append("no_cold_source")
             elif solved.design_load_kw > solved.installed_capacity_kw > 0.0:
                 alarms.append("capacity_deficit")
             if (
                 solved.chilled_flow_m3_h <= 0.0
-                and solved.installed_capacity_kw > 0.0
+                and (
+                    solved.installed_capacity_kw > 0.0
+                    or (has_source and missing_served_path)
+                )
             ):
                 alarms.append("no_chilled_flow")
             if solved.cooling_flow_m3_h <= 0.0 and solved.towers:
@@ -1701,6 +1726,11 @@ class SimulationSession:
             if node.instance_id in self._manual_overrides:
                 continue
             role = node.rated.role
+            if is_valve(role) and self.layout.network is not None:
+                # Standalone valves have no implicit project-wide thermostat.
+                # Their default is open; only an explicit command/fault closes
+                # them. Terminal coil valves retain their automatic controller.
+                continue
             demand = (
                 max(
                     (
@@ -1712,6 +1742,12 @@ class SimulationSession:
                 if is_terminal(role)
                 else aggregate_demand
             )
+            if self.layout.network is not None and not is_terminal(role):
+                system = "hot_water" if self.config.mode is SimulationMode.HEATING else "chilled_water"
+                if self._loop_of(node) == "cooling" or role is DeviceRole.COOLING_TOWER:
+                    system = "cooling_water"
+                controlled_rooms = self.layout.network.control_room_ids.get((system, node.instance_id), ())
+                demand = max((self._room_demand(room_id) for room_id in controlled_rooms), default=0.0)
             if self.config.mode is SimulationMode.VENTILATION:
                 demand = 0.5 if role in {DeviceRole.AHU, DeviceRole.FRESH_AIR_UNIT} else 0.0
             if is_pump(role):
@@ -1818,7 +1854,17 @@ class SimulationSession:
         rated = node.rated.airflow_m3_h or 0.0
         if required <= 0.0 or rated <= 0.0:
             return 0.0
-        return max(AUTO_MIN_AIR_OUTPUT_PCT, min(100.0, required / rated * 100.0))
+        base = max(AUTO_MIN_AIR_OUTPUT_PCT, min(100.0, required / rated * 100.0))
+        if self.layout.network is not None and self._snapshot.tick > 0:
+            # A fan must also overcome the connected duct pressure loss. The
+            # former Q/Q_r feedforward alone cannot meet ventilation after a
+            # resistance change. Correct by measured flow, with the same bounded
+            # slew used by other actuators; the network caps delivery at demand.
+            reading = self._snapshot.devices.get(node.instance_id)
+            actual = reading.values.get("airflow_m3_h", 0.0) if reading else 0.0
+            current = self._controls[node.instance_id].get("fan_speed_pct", base)
+            return max(base, min(100.0, current + (required - actual) / rated * 100.0))
+        return base
 
     def _fresh_air_coil_demand(self, node: DeviceNode) -> float:
         """新风机组盘管的最小出力：保证送入房间的新风已被处理。
@@ -2149,6 +2195,7 @@ class _SolveResult:
     towers: Mapping[str, CoolingTowerState] = field(default_factory=dict)
     terminals: Mapping[str, TerminalState] = field(default_factory=dict)
     valves: Mapping[str, object] = field(default_factory=dict)
+    network: RealtimeNetworkResult | None = None
 
     @classmethod
     def empty(cls, initial_water_temp_c: float = 20.0) -> _SolveResult:

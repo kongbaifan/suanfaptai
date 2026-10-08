@@ -305,7 +305,7 @@ MANIFOLD_FCU_DUAL_WATER_SAMPLE["connections"].extend(
 )
 
 
-FOUR_FLOOR_FCU_FRESH_AIR_SAMPLE = {
+FOUR_FLOOR_FCU_FRESH_AIR_SAMPLE: dict[str, Any] = {
     "floors": [
         {"id": "B1F", "name": "地下一层机房", "level": -1, "elevation_m": -4.5, "height_m": 4.5},
         {"id": "F1", "name": "一层", "level": 1, "elevation_m": 0.0, "height_m": 4.2},
@@ -477,7 +477,7 @@ FOUR_FLOOR_FCU_FRESH_AIR_SAMPLE = {
 }
 
 
-MULTI_ZONE_ALL_AIR_SAMPLE = {
+MULTI_ZONE_ALL_AIR_SAMPLE: dict[str, Any] = {
     "floors": [
         {"id": "B1F", "name": "地下一层机房", "level": -1, "elevation_m": -4.5, "height_m": 4.5},
         {"id": "F1", "name": "一层教学区", "level": 1, "elevation_m": 0.0, "height_m": 4.2},
@@ -1020,6 +1020,28 @@ THREE_FLOOR_TWELVE_ROOM_SAMPLE: dict[str, Any] = {
     # 当前最不利风路约 557.6 Pa，800 Pa 可用静压通过校核；改管路后需重算。
     "design_options": {"fan_static_pressure_pa": 800.0},
 }
+
+
+# These are explicit teaching-zone boundaries, not inferred runtime wiring.
+# A shared outlet serves all listed rooms on that sample floor.
+for _sample, _outlet_prefix, _paired_return in (
+    (FOUR_FLOOR_FCU_FRESH_AIR_SAMPLE, "outlet_", False),
+    (DUCTED_FRESH_AIR_SAMPLE, "supply_outlet_", True),
+    (THREE_FLOOR_TWELVE_ROOM_SAMPLE, "supply_outlet_", True),
+):
+    for _device in _sample["devices"]:
+        if _device["type"] == "风机盘管":
+            _device["air_connection_mode"] = "ducted"
+    for _room in _sample["rooms"]:
+        _floor_tag = _room["floor_id"].lower()
+        _room["supply_air_outlet_ids"] = [_outlet_prefix + _floor_tag]
+        _room["return_air_outlet_ids"] = [
+            ("return_outlet_" if _paired_return else _outlet_prefix) + _floor_tag
+        ]
+for _room in MULTI_ZONE_ALL_AIR_SAMPLE["rooms"]:
+    _outlet = "outlet_" + _room["id"].removeprefix("zone_")
+    _room["supply_air_outlet_ids"] = [_outlet]
+    _room["return_air_outlet_ids"] = [_outlet]
 
 
 SAMPLES = {

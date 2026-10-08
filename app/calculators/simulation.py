@@ -37,7 +37,7 @@ def simulate_steady_state(
     )
     snapshot = result.snapshot
 
-    issues: list[Issue] = []
+    issues: list[Issue] = list(snapshot.network.issues) if snapshot.network else []
     if cooling_load_kw > snapshot.installed_capacity_kw:
         issues.append(
             Issue(

@@ -153,6 +153,7 @@ class _Builder:
                 floor_id=floor_id,
                 location_type=location_type,
                 quantity=quantity,
+                air_connection_mode="ducted" if device_type == _FCU_TYPE else None,
             )
         )
         return device_id
@@ -1669,6 +1670,14 @@ def _bind_rooms_to_terminals(
     for room in project.rooms:
         floor_id = room.floor_id or ""
         room.device_ids = sorted(by_floor.get(floor_id, []))
+        outlet_id = (
+            f"outlet_{_slug(floor_id)}"
+            if form is SystemForm.FCU_FRESH_AIR
+            else f"outlet_{_slug(room.id or '')}"
+        )
+        if any(device.id == outlet_id for device in builder.devices):
+            room.supply_air_outlet_ids = [outlet_id]
+            room.return_air_outlet_ids = [outlet_id]
 
 
 def _verify(project: SystemEvaluateRequest, builder: _Builder) -> list[Issue]:

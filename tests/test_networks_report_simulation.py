@@ -168,7 +168,16 @@ def test_system_evaluate_contains_full_outputs():
 
 
 def test_design_load_drives_shared_core_energy_and_published_total():
-    request = SystemEvaluateRequest(**_system_payload())
+    payload = _system_payload()
+    payload["rooms"][0]["device_ids"] = ["terminal"]
+    payload["devices"].append({"id": "cw_pump", "type": "循环泵", "name": "EC80"})
+    # This fixture tests load/energy, so use a room-mounted FCU and a closed
+    # condenser loop instead of relying on the old implicit-flow fallback.
+    payload["connections"] = [e for e in payload["connections"] if e["system"] != "air"]
+    edge = next(e for e in payload["connections"] if e["from_id"] == "chiller" and e["system"] == "cooling_water")
+    edge["to_id"] = "cw_pump"
+    payload["connections"].append({"from_id": "cw_pump", "to_id": "cw_1", "system": "cooling_water"})
+    request = SystemEvaluateRequest(**payload)
 
     def simulate(cooling_kw: float):
         load = LoadResult(

@@ -382,6 +382,8 @@ def test_room_states_return_typed_initial_snapshot_without_runtime_side_effects(
             "project_id": project_id,
             "running": False,
             "simcore_tick": 0,
+            "session_id": None,
+            "applied_control_revision": 0,
             "rooms": [
                 {
                     "room_id": "room_b",
@@ -471,6 +473,8 @@ def test_room_states_unknown_project_and_empty_project_contract():
             "project_id": project_id,
             "running": False,
             "simcore_tick": 0,
+            "session_id": None,
+            "applied_control_revision": 0,
             "rooms": [],
         }
         assert project_id not in realtime._sessions
@@ -671,6 +675,7 @@ def test_rated_parameters_and_control_ranges_are_exposed():
             "max": 100.0,
             "step": 1.0,
             "current": 100.0,
+            "effective": 100.0,
         }
     finally:
         client.delete(f"/api/v1/projects/{project_id}")
@@ -827,7 +832,8 @@ def test_cooling_realtime_projects_heat_pump_as_cold_source(heat_pump_id):
 
     纯热泵系统不再因互锁而无冷源——房间降温、cooling_kw/reject 非零。
     """
-    project_id, _ = _create_four_floor_project()
+    project_id, sample = _create_four_floor_project()
+    _connect_heat_pump_for_cooling(project_id, sample, heat_pump_id)
     try:
         # 把样例里的冷机从冷源池里移走，构造"纯热泵制冷"工况。
         response = client.post(
@@ -889,9 +895,21 @@ def _simulate_ticks(project_id: str, ticks: int) -> None:
         realtime._store_system_state(project_id, state)
 
 
+def _connect_heat_pump_for_cooling(project_id, sample, heat_pump_id="ashp_roof"):
+    # A reversible heat pump still needs a physical chilled-water connection.
+    # The unmodified sample connects this source only to the hot-water circuit.
+    sample["connections"].extend([
+        {"from_id": heat_pump_id, "to_id": "chw_pump_b1", "system": "chilled_water"},
+        {"from_id": "chw_main_return_b1", "to_id": heat_pump_id, "system": "chilled_water"},
+    ])
+    response = client.put(f"/api/v1/projects/{project_id}", json={"name": "connected-heat-pump", "project": sample})
+    assert response.status_code == 200, response.text
+
+
 def test_mixed_chiller_heat_pump_cooling_shares_load():
     """混装制冷：冷机+热泵按容量份额共同分摊，合计覆盖末端负荷。"""
-    project_id, _ = _create_four_floor_project()
+    project_id, sample = _create_four_floor_project()
+    _connect_heat_pump_for_cooling(project_id, sample)
     try:
         start = client.post(
             f"/api/v1/realtime/simulate/start/{project_id}",

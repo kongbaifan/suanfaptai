@@ -17,6 +17,11 @@
     "flow_min": 1.0,
     "flow_max": 1.25
   },
+  "runtime_network": {
+    "default_water_diameter_mm": 100.0,
+    "fan_static_pressure_pa": 500.0,
+    "minimum_valve_ratio": 0.02
+  },
   "pressure_defaults": {
     "water_friction_factor": 0.025,
     "air_friction_factor": 0.02,
@@ -24,4 +29,3 @@
     "air_local_k": 1.5
   }
 }
-

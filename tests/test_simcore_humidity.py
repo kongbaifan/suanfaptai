@@ -374,9 +374,14 @@ def test_humidity_demand_ramp_prevents_chiller_cycling():
     """
     from app.samples import COMPLETE_SYSTEM_SAMPLE
 
-    layout = build_project_layout(
-        SystemEvaluateRequest(**deepcopy(COMPLETE_SYSTEM_SAMPLE))
-    ).layout
+    payload = deepcopy(COMPLETE_SYSTEM_SAMPLE)
+    # The historical sample has no condenser pump. Complete that circuit so
+    # this regression exercises humidity control, not the no-flow interlock.
+    payload["devices"].append({"id": "cw_pump", "type": "循环泵", "name": "EC80"})
+    edge = next(e for e in payload["connections"] if e["from_id"] == "chiller_1" and e["system"] == "cooling_water")
+    edge["to_id"] = "cw_pump"
+    payload["connections"].append({"from_id": "cw_pump", "to_id": "cw_supply", "system": "cooling_water"})
+    layout = build_project_layout(SystemEvaluateRequest(**payload)).layout
     session = SimulationSession(
         layout,
         SimulationConfig(

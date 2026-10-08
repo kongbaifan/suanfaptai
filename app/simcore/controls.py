@@ -167,6 +167,10 @@ def controls_for(rated: RatedSpec, quantity: int = 1) -> tuple[ControlSpec, ...]
         )
 
     if is_valve(role):
+        if rated.device_type == "止回阀":
+            # Passive directional element; accepting a manual opening would
+            # falsely promise an actuator which is not part of this model.
+            return ()
         return (_ENABLED, *bank, _OPENING)
 
     return (_ENABLED, *bank)

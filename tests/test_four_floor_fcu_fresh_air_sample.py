@@ -186,14 +186,16 @@ def test_four_floor_cooling_uses_one_conserved_topology_aware_flow():
     assert snapshot.devices["chw_pump_b1"].values["flow_m3_h"] == pytest.approx(
         terminal_flow, abs=0.001
     )
-    # 制冷工况下热泵四通阀换向参与冷源池（教学口径），冷量与水量按容量份额
-    # 在冷机与热泵之间分摊。守恒发生在"冷源池"层面：所有冷源水量之和 = 环路水量。
+    # This sample connects the heat pump only to hot water. Reversibility does
+    # not create a chilled-water connection: the connected chiller carries it.
     source_flow = (
         snapshot.devices["chiller_b1"].values["flow_m3_h"]
         + snapshot.devices["ashp_roof"].values["flow_m3_h"]
     )
     assert source_flow == pytest.approx(terminal_flow, abs=0.001)
-    assert snapshot.devices["chiller_b1"].values["flow_m3_h"] < terminal_flow
+    assert snapshot.devices["chiller_b1"].values["flow_m3_h"] == pytest.approx(terminal_flow)
+    assert snapshot.devices["ashp_roof"].values["flow_m3_h"] == 0.0
+    assert snapshot.devices["ashp_roof"].values["cooling_kw"] == 0.0
     terminal_cooling = sum(
         snapshot.devices[terminal_id].values["cooling_kw"]
         for terminal_id in terminal_ids

@@ -64,6 +64,7 @@ from app.simcore.session import (
     SimulationMode,
     SimulationSession,
 )
+from app.simcore.synchronization import project_locked, project_runtime_lock
 from app.unity_catalog import DeviceRole
 
 HISTORY_DIR = Path(__file__).parent / "data" / "realtime_history"
@@ -82,6 +83,7 @@ _layouts: dict[str, ProjectSimulationLayout] = {}
 _control_values: dict[str, dict[str, dict[str, float]]] = {}
 _last_floor_states: dict[str, dict[str, dict[str, Any]]] = {}
 _last_control_state: dict[str, dict[str, Any]] = {}
+_published: dict[str, RealtimeSystemState] = {}
 
 
 class RuntimeConfigValidationError(ValueError):
@@ -114,7 +116,26 @@ class ProjectEditRequiresStopError(ValueError):
     }
 
 
+class RuntimeStateRequiresStopError(ValueError):
+    detail: ClassVar[dict[str, str]] = {
+        "code": "RUNTIME_STATE_REQUIRES_STOP",
+        "message": "仿真运行时请使用控制接口；外部状态不能覆盖已发布的仿真快照。",
+    }
+
+
 async def update_realtime_state(request: RealtimeUpdateRequest) -> RealtimeSystemState:
+    with project_runtime_lock(request.project_id):
+        if is_simulation_running(request.project_id):
+            raise RuntimeStateRequiresStopError()
+        return_state, delta = _accept_external_state(request)
+    await _broadcast(request.project_id, "device_state_updated", delta)
+    return return_state
+
+
+def _accept_external_state(request: RealtimeUpdateRequest) -> tuple[RealtimeSystemState, dict[str, Any]]:
+    # An external snapshot has no simcore tick or network validity claim.
+    _published.pop(request.project_id, None)
+    _summary.pop(request.project_id, None)
     now = _now()
     project_states = _states.setdefault(request.project_id, {})
     for state in request.states:
@@ -135,20 +156,22 @@ async def update_realtime_state(request: RealtimeUpdateRequest) -> RealtimeSyste
         for device_id in changed_ids
         if device_id in system_state.devices
     }
-    await _broadcast(request.project_id, "device_state_updated", delta)
-    return system_state
+    return system_state, delta
 
 
+@project_locked
 def get_realtime_state(project_id: str) -> RealtimeSystemState:
     return _build_system_state(project_id)
 
 
+@project_locked
 def get_realtime_history(project_id: str) -> RealtimeHistoryResult:
     return RealtimeHistoryResult(
         project_id=project_id, points=_read_history(project_id)
     )
 
 
+@project_locked
 def set_runtime_controls(
     project_id: str, request: RealtimeControlRequest
 ) -> RealtimeControlsResult:
@@ -179,6 +202,7 @@ def set_runtime_controls(
     return get_runtime_controls(project_id)
 
 
+@project_locked
 def reset_runtime_controls(
     project_id: str, request: RealtimeControlsResetRequest
 ) -> RealtimeControlsResult:
@@ -198,6 +222,7 @@ def reset_runtime_controls(
     return get_runtime_controls(project_id)
 
 
+@project_locked
 def get_runtime_controls(project_id: str) -> RealtimeControlsResult:
     record = get_project(project_id)
     session = _ensure_session(
@@ -218,13 +243,15 @@ def get_runtime_controls(project_id: str) -> RealtimeControlsResult:
                     max=spec.maximum,
                     step=spec.step,
                     current=current[spec.name],
+                    effective=session.snapshot.effective_controls.get(node.instance_id, {}).get(spec.name),
                 )
                 for spec in controls_for(node.rated, node.quantity)
             },
         )
-    return RealtimeControlsResult(project_id=project_id, devices=devices)
+    return RealtimeControlsResult(project_id=project_id, devices=devices, session_id=session.session_id, control_revision=session.control_revision, simcore_tick=session.snapshot.tick, applied_control_revision=session.snapshot.applied_control_revision)
 
 
+@project_locked
 def get_current_control_snapshot(
     project_id: str, layout: PlantLayout
 ) -> dict[str, dict[str, float]]:
@@ -303,6 +330,15 @@ async def subscribe(project_id: str, websocket: WebSocket) -> None:
 async def start_simulation(
     project_id: str, config: RealtimeSimulationConfig | None = None
 ) -> RealtimeSimulationControl:
+    with project_runtime_lock(project_id):
+        control, first_state = _start_simulation_locked(project_id, config)
+    if first_state is not None:
+        await _broadcast(project_id, "simulation_status", {"project_id": project_id, "running": True})
+        await _broadcast(project_id, "system_tick", first_state.model_dump())
+    return control
+
+
+def _start_simulation_locked(project_id: str, config: RealtimeSimulationConfig | None) -> tuple[RealtimeSimulationControl, RealtimeSystemState | None]:
     record = get_project(project_id)
     # Unknown/duplicate/unsupported room references remain structural client
     # errors (HTTP 422).  Incomplete *topology*—missing links, sources, pumps,
@@ -316,7 +352,7 @@ async def start_simulation(
             project_id=project_id,
             running=True,
             interval_seconds=config.interval_seconds,
-        )
+        ), None
     # Runtime teaching deliberately tolerates an incomplete design.  The
     # strict project adapter remains the source of 422s for save/validate and
     # malformed control requests, while startup receives a bounded layout with
@@ -324,17 +360,13 @@ async def start_simulation(
     session = _ensure_session(project_id, record.project, tolerate_incomplete=True)
     first_state = _simulate_system_tick(project_id, record.project, session, config)
     _store_system_state(project_id, first_state)
-    await _broadcast(
-        project_id, "simulation_status", {"project_id": project_id, "running": True}
-    )
-    await _broadcast(project_id, "system_tick", first_state.model_dump())
     task = asyncio.create_task(_simulation_loop(project_id))
     _sim_tasks[project_id] = task
     return RealtimeSimulationControl(
         project_id=project_id,
         running=True,
         interval_seconds=config.interval_seconds,
-    )
+    ), first_state
 
 
 async def stop_simulation(project_id: str) -> RealtimeSimulationControl:
@@ -353,18 +385,21 @@ async def stop_simulation(project_id: str) -> RealtimeSimulationControl:
             # The loop task already failed on its own; stopping must still
             # succeed, but the failure is worth a log line.
             logger.exception("Simulation loop for %s raised while stopping", project_id)
-    _sim_tasks.pop(project_id, None)
-    if was_running:
-        session = _sessions.get(project_id)
-        if session is not None:
-            session.reset_controls()
-        _control_values.pop(project_id, None)
+    with project_runtime_lock(project_id):
+        if _sim_tasks.get(project_id) is task:
+            _sim_tasks.pop(project_id, None)
+        if was_running:
+            session = _sessions.get(project_id)
+            if session is not None:
+                session.reset_controls()
+            _control_values.pop(project_id, None)
     await _broadcast(
         project_id, "simulation_status", {"project_id": project_id, "running": False}
     )
     return RealtimeSimulationControl(project_id=project_id, running=False)
 
 
+@project_locked
 def invalidate_project_runtime_caches(project_id: str) -> None:
     """Drop caches derived from project data so the next read rebuilds them.
 
@@ -381,6 +416,7 @@ def invalidate_project_runtime_caches(project_id: str) -> None:
     _layouts.pop(project_id, None)
     for store in (
         _states,
+        _published,
         _updated_at,
         _alarms,
         _summary,
@@ -438,6 +474,7 @@ async def cleanup_project_runtime(project_id: str) -> None:
             logger.exception("Simulation loop for %s raised during cleanup", project_id)
     for store in (
         _states,
+        _published,
         _updated_at,
         _alarms,
         _summary,
@@ -455,11 +492,13 @@ async def cleanup_project_runtime(project_id: str) -> None:
         path.unlink()
 
 
+@project_locked
 def is_simulation_running(project_id: str) -> bool:
     task = _sim_tasks.get(project_id)
     return bool(task and not task.done())
 
 
+@project_locked
 def set_simulation_config(
     project_id: str, config: RealtimeSimulationConfig
 ) -> RealtimeSimulationConfig:
@@ -474,14 +513,18 @@ def set_simulation_config(
     if protected_changed:
         _sessions.pop(project_id, None)
         _layouts.pop(project_id, None)
+        for store in (_published, _states, _summary, _alarms, _updated_at, _last_floor_states, _last_control_state):
+            store.pop(project_id, None)
     _sim_configs[project_id] = normalized
     return normalized
 
 
+@project_locked
 def get_simulation_config(project_id: str) -> RealtimeSimulationConfig:
     return _sim_configs.get(project_id) or RealtimeSimulationConfig()
 
 
+@project_locked
 def get_room_states(project_id: str) -> RealtimeRoomStatesResult:
     record = get_project(project_id)
     project = record.project
@@ -520,9 +563,12 @@ def get_room_states(project_id: str) -> RealtimeRoomStatesResult:
         running=is_simulation_running(project_id),
         simcore_tick=snapshot.tick,
         rooms=rooms,
+        session_id=session.session_id if project_id in _sessions else None,
+        applied_control_revision=snapshot.applied_control_revision,
     )
 
 
+@project_locked
 def get_pipe_states(project_id: str) -> RealtimePipeStatesResult:
     """当前 tick 的逐管段读数
 
@@ -539,12 +585,8 @@ def get_pipe_states(project_id: str) -> RealtimePipeStatesResult:
             resolved.layout, _simulation_config(project, config)
         )
     snapshot = session.snapshot
-    readings = pipe_flow_readings(
-        project,
-        _terminal_water_flows(session, snapshot),
-        {"cooling_water": snapshot.cooling_flow_m3_h},
-        _pump_device_ids(session),
-    )
+    readings = _snapshot_pipe_readings(project, session, snapshot)
+    network_nodes = {p.node_id: p for p in snapshot.network.pipes} if snapshot.network else {}
     pipes = [
         RealtimePipeState(
             pipe_id=reading.pipe_id,
@@ -557,6 +599,9 @@ def get_pipe_states(project_id: str) -> RealtimePipeStatesResult:
             pressure_drop_pa=reading.pressure_drop_pa,
             head_m=reading.head_m,
             served_terminal_ids=list(reading.served_terminal_ids),
+            model_status=network_nodes[reading.pipe_id].model_status if reading.pipe_id in network_nodes else "modeled",
+            flow_blocked=network_nodes[reading.pipe_id].flow_blocked if reading.pipe_id in network_nodes else False,
+            parameter_sources=network_nodes[reading.pipe_id].parameter_sources if reading.pipe_id in network_nodes else [],
         )
         for reading in readings
     ]
@@ -565,11 +610,27 @@ def get_pipe_states(project_id: str) -> RealtimePipeStatesResult:
         running=is_simulation_running(project_id),
         simcore_tick=snapshot.tick,
         pipes=pipes,
-        total_flow_by_system_m3_h=_pipe_flow_by_system(readings),
+        total_flow_by_system_m3_h={"chilled_water": round(snapshot.chilled_flow_m3_h, 3), "cooling_water": round(snapshot.cooling_flow_m3_h, 3), "hot_water": round(snapshot.hot_water_flow_m3_h, 3)} if readings else {},
         most_loaded_pipe_id=_most_loaded_pipe_id(readings),
+        session_id=session.session_id if project_id in _sessions else None,
+        applied_control_revision=snapshot.applied_control_revision,
     )
 
 
+def _snapshot_pipe_readings(project: SystemEvaluateRequest, session: SimulationSession, snapshot: PlantSnapshot) -> tuple[PipeFlowReading, ...]:
+    if snapshot.network is None:
+        return pipe_flow_readings(project, _terminal_water_flows(session, snapshot), {"cooling_water": snapshot.cooling_flow_m3_h}, _pump_device_ids(session))
+    by_id = {p.id: p for p in project.pipes}
+    return tuple(PipeFlowReading(
+        pipe_id=node.node_id, system=node.system, pipe_type=by_id[node.node_id].pipe_type,
+        floor_id=by_id[node.node_id].floor_id, diameter_mm=node.diameter_mm,
+        flow_m3_h=round(node.flow_m3_h, 3), velocity_m_s=round(node.velocity_m_s or 0.0, 3),
+        pressure_drop_pa=round(node.pressure_drop_pa or 0.0, 3), head_m=round(node.head_m or 0.0, 3),
+        served_terminal_ids=tuple(node.served_terminal_ids),
+    ) for node in snapshot.network.pipes)
+
+
+@project_locked
 def get_device_states(
     project_id: str,
     device_id: str | None = None,
@@ -630,7 +691,7 @@ def get_device_states(
                 status="running" if enabled else "stopped",
                 parameter_origin=reading.parameter_origin,
                 parameters_degraded=bool(reading.degraded_fields),
-                control_source=session.control_source(device.id),
+                control_source=snapshot.control_sources.get(device.id, "auto"),
                 values=values,
             )
         )
@@ -642,6 +703,8 @@ def get_device_states(
         devices=readings,
         device_count=len(readings),
         filtered_by_type=device_type,
+        session_id=session.session_id if project_id in _sessions else None,
+        applied_control_revision=snapshot.applied_control_revision,
     )
 
 
@@ -718,18 +781,16 @@ async def _simulation_loop(project_id: str) -> None:
     while True:
         config = get_simulation_config(project_id)
         await asyncio.sleep(max(config.interval_seconds, 0.2))
-        config = get_simulation_config(project_id)
-        record = get_project(project_id)
-        session = _ensure_session(
-            project_id, record.project, tolerate_incomplete=True
-        )
-        system_state = _simulate_system_tick(
-            project_id, record.project, session, config
-        )
-        _store_system_state(project_id, system_state)
+        with project_runtime_lock(project_id):
+            config = get_simulation_config(project_id)
+            record = get_project(project_id)
+            session = _ensure_session(project_id, record.project, tolerate_incomplete=True)
+            system_state = _simulate_system_tick(project_id, record.project, session, config)
+            _store_system_state(project_id, system_state)
         await _broadcast(project_id, "system_tick", system_state.model_dump())
 
 
+@project_locked
 def _ensure_session(
     project_id: str,
     project: SystemEvaluateRequest,
@@ -790,6 +851,7 @@ def _simulation_config(
     )
 
 
+@project_locked
 def _simulate_system_tick(
     project_id: str,
     project: SystemEvaluateRequest,
@@ -823,6 +885,7 @@ def _fault_controls(
     return overrides
 
 
+@project_locked
 def _project_snapshot(
     project_id: str,
     project: SystemEvaluateRequest,
@@ -839,7 +902,7 @@ def _project_snapshot(
         values["role"] = _legacy_role(layout.rated_by_device[device.id].role)
         values["parameter_origin"] = reading.parameter_origin
         values["parameters_degraded"] = bool(reading.degraded_fields)
-        values["control_source"] = session.control_source(device.id)
+        values["control_source"] = snapshot.control_sources.get(device.id, "auto")
         enabled = (
             float(values.get("enabled", 1.0) or 0.0) >= 0.5
             and float(values.get("active_count", 1.0) or 0.0) >= 0.5
@@ -853,6 +916,8 @@ def _project_snapshot(
         )
 
     alarms = list(layout.issues)
+    if snapshot.network is not None:
+        alarms.extend(snapshot.network.issues)
     alarms.extend(
         Issue(
             level="warning",
@@ -861,6 +926,7 @@ def _project_snapshot(
         )
         for alarm in snapshot.alarms
     )
+    alarms = _dedupe_issues(alarms)
     floor_states = _floor_states(project, snapshot, config)
     chiller_ratios = [
         float(state.values.get("load_ratio", 0.0) or 0.0)
@@ -949,6 +1015,8 @@ def _project_snapshot(
         "floor_states": floor_states,
         "control_state": control_state,
         "simcore_tick": snapshot.tick,
+        "session_id": session.session_id,
+        "applied_control_revision": snapshot.applied_control_revision,
     }
     return RealtimeSystemState(
         project_id=project_id,
@@ -958,6 +1026,10 @@ def _project_snapshot(
         summary=summary,
         last_result=None,
         history_count=len(_read_history(project_id)),
+        session_id=session.session_id,
+        simcore_tick=snapshot.tick,
+        applied_control_revision=snapshot.applied_control_revision,
+        network=snapshot.network,
     )
 
 
@@ -1075,6 +1147,7 @@ def _legacy_role(role: DeviceRole) -> str:
     return role.value
 
 
+@project_locked
 def _store_system_state(project_id: str, system_state: RealtimeSystemState) -> None:
     _states[project_id] = system_state.devices
     _updated_at[project_id] = system_state.updated_at or _now()
@@ -1082,9 +1155,13 @@ def _store_system_state(project_id: str, system_state: RealtimeSystemState) -> N
     _summary[project_id] = system_state.summary
     _append_history(project_id, system_state)
     system_state.history_count = len(_read_history(project_id))
+    _published[project_id] = system_state.model_copy(deep=True)
 
 
+@project_locked
 def _build_system_state(project_id: str) -> RealtimeSystemState:
+    if project_id in _published:
+        return _published[project_id].model_copy(deep=True)
     devices = _states.get(project_id, {})
     if _summary.get(project_id, {}).get("floor_states"):
         alarms = _alarms.get(project_id, [])

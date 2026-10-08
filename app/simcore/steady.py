@@ -149,6 +149,18 @@ def _temperature_drift(previous: PlantSnapshot, current: PlantSnapshot) -> float
         for room_id, reading in current.rooms.items()
         if room_id in previous.rooms
     ]
+    # Opposite drift in independent circuits must not disappear in the global
+    # flow-weighted mean. Check each active circuit's own thermal state.
+    if current.network is not None and previous.network is not None:
+        previous_circuits = {c.circuit_id: c for c in previous.network.circuits}
+        for circuit in current.network.circuits:
+            before = previous_circuits.get(circuit.circuit_id)
+            if before is None or circuit.flow_m3_h <= 0.0 or circuit.system == "air":
+                continue
+            for name in ("supply_temp_c", "return_temp_c"):
+                old, new = getattr(before, name), getattr(circuit, name)
+                if old is not None and new is not None:
+                    differences.append(abs(new - old))
     if current.cooling_load_kw > 0.0 and current.chilled_flow_m3_h > 0.0:
         differences.extend(
             (

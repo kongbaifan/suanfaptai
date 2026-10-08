@@ -467,7 +467,10 @@ def test_solve_steady_state_simple(simple_chilled_water_system):
     assert result.equipment_balance is not None
     assert result.equipment_balance.cooling_balance_residual_kw <= 0.01
     simulation = result.equipment_balance.simulation
-    assert simulation.cooling_energy_kw > 0
+    # This is only a chilled-water fixture: no condenser circuit and no room
+    # binding. The dynamic core must not invent cooling from a design flow.
+    assert simulation.cooling_energy_kw == 0
+    assert any(issue.code == "SIM_CONDENSER_FLOW_MISSING" for issue in simulation.issues)
     assert simulation.total_energy_kw == pytest.approx(
         simulation.cooling_energy_kw
         + simulation.pump_energy_kw

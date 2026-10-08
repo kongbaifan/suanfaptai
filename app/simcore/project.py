@@ -23,6 +23,7 @@ from app.schemas import (
 from app.simcore.hydronics import HydronicBranch, HydronicLoop, pipe_resistance_index
 from app.simcore.rated import RatedSpec, resolve_rated_spec_by_type
 from app.simcore.room import RoomThermalConfig
+from app.simcore.runtime_network import compile_runtime_network
 from app.simcore.session import DeviceNode, PlantLayout, RoomNode, WaterLoop
 from app.unity_catalog import DeviceRole
 
@@ -127,7 +128,13 @@ def _build_project_layout(
     )
     modeled_water_loops = _modeled_water_loops(project)
     hydronic_branches = _hydronic_branches(project, device_nodes, modeled_water_loops)
+    network = compile_runtime_network(
+        project,
+        {node.instance_id: node.rated for node in device_nodes},
+        {key: value.cooling_kw for key, value in loads_by_room_id.items()},
+    )
     issues = list(binding_resolution.issues)
+    issues.extend(network.issues)
     if runtime_diagnostics:
         issues.extend(
             _runtime_topology_issues(
@@ -143,6 +150,7 @@ def _build_project_layout(
             rooms=room_nodes,
             hydronic_branches=hydronic_branches,
             modeled_water_loops=frozenset(modeled_water_loops),
+            network=network,
         ),
         rated_by_device={node.instance_id: node.rated for node in device_nodes},
         issues=tuple(_dedupe_issues(issues)),

@@ -55,6 +55,7 @@ _IPLV_CURVATURE_COEFFICIENT = 0.04575
 # 作为曲线下界，使低负荷 COP 仍随冷凝温度变化，保留可观测的教学因果关系。
 # 该下界与 `_clamp(cop, 1.5, 12.0)` 共同作用，两者都不再在常规工况内饱和。
 PLR_FACTOR_FLOOR = 0.45
+MIN_CHILLER_COP = 1.5
 
 # 目录标称容量为全热能力，只有显热部分体现为送风温降。
 #
@@ -283,7 +284,7 @@ def _chiller_cop(rated: RatedSpec, load_ratio: float, condenser_temp_c: float) -
         * _clamp(plr_factor, PLR_FACTOR_FLOOR, 1.6)
         * _clamp(condenser_factor, 0.4, 1.3)
     )
-    return _clamp(cop, 1.5, 12.0)
+    return _clamp(cop, MIN_CHILLER_COP, 12.0)
 
 
 def _plr_curvature(rated: RatedSpec) -> float:
@@ -671,6 +672,7 @@ def terminal_state(
     enabled: bool = True,
     actual_water_flow_m3_h: float | None = None,
     room_humidity_ratio: float | None = None,
+    actual_airflow_m3_h: float | None = None,
 ) -> TerminalState:
     """末端盘管：按 ε-NTU 逆流换热器计算换热量
 
@@ -715,6 +717,9 @@ def terminal_state(
     capacity_kw = _positive(rated.capacity_kw, 0.0)
     rated_airflow_m3_h = _positive(rated.airflow_m3_h, 0.0)
     airflow_m3_h = rated_airflow_m3_h * fan_ratio
+    if actual_airflow_m3_h is not None:
+        actual_air = actual_airflow_m3_h if math.isfinite(actual_airflow_m3_h) else 0.0
+        airflow_m3_h = _clamp(actual_air, 0.0, airflow_m3_h)
     rated_water_flow = _positive(rated.flow_m3_h, 0.0)
 
     if actual_water_flow_m3_h is None:

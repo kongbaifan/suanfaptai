@@ -26,6 +26,10 @@ class RoomInput(BaseModel):
     # 房间持有服务它的末端设备清单。方向不能反过来放到 DeviceInput 上：
     # 房间是建筑里的实体，设备装在房间里，删房间应当连同清单一起消失。
     device_ids: list[str] = []
+    # Air outlets are topology boundaries, not conditioning terminals. Several
+    # rooms may explicitly share an outlet (a teaching zone).
+    supply_air_outlet_ids: list[str] = []
+    return_air_outlet_ids: list[str] = []
     area_m2: float = Field(gt=0)
     height_m: float = Field(default=3.0, gt=0)
     people: int = Field(default=0, ge=0)
@@ -132,6 +136,7 @@ class DeviceInput(BaseModel):
     name: str | None = None
     floor_id: str | None = None
     location_type: str | None = None
+    air_connection_mode: Literal["room", "ducted"] | None = None
     capacity_kw: float | None = Field(default=None, ge=0)
     flow_m3_h: float | None = Field(default=None, ge=0)
     head_m: float | None = Field(default=None, ge=0)
@@ -460,6 +465,44 @@ class RealtimeUpdateRequest(BaseModel):
     states: list[RealtimeDeviceState]
 
 
+class RuntimeNetworkNode(BaseModel):
+    node_id: str
+    system: str
+    circuit_id: str | None = None
+    model_status: Literal["modeled", "disconnected", "unsupported"] = "modeled"
+    flow_m3_h: float = 0.0
+    velocity_m_s: float | None = None
+    pressure_drop_pa: float | None = None
+    head_m: float | None = None
+    diameter_mm: float | None = None
+    supply_temp_c: float | None = None
+    return_temp_c: float | None = None
+    flow_blocked: bool = False
+    served_terminal_ids: list[str] = []
+    parameter_sources: list[str] = []
+
+
+class RuntimeCircuitState(BaseModel):
+    circuit_id: str
+    system: str
+    source_ids: list[str] = []
+    drive_ids: list[str] = []
+    model_status: Literal["modeled", "disconnected", "unsupported"] = "modeled"
+    flow_m3_h: float = 0.0
+    supply_temp_c: float | None = None
+    return_temp_c: float | None = None
+
+
+class RealtimeNetworkResult(BaseModel):
+    model: Literal["bounded_teaching_network"] = "bounded_teaching_network"
+    pressure_balance_solved: bool = False
+    circuits: list[RuntimeCircuitState] = []
+    pipes: list[RuntimeNetworkNode] = []
+    ducts: list[RuntimeNetworkNode] = []
+    devices: list[RuntimeNetworkNode] = []
+    issues: list[Issue] = []
+
+
 class RealtimeSystemState(BaseModel):
     project_id: str
     updated_at: str | None = None
@@ -468,6 +511,10 @@ class RealtimeSystemState(BaseModel):
     summary: dict[str, Any] = {}
     last_result: dict[str, Any] | None = None
     history_count: int = 0
+    session_id: str | None = None
+    simcore_tick: int = 0
+    applied_control_revision: int = 0
+    network: RealtimeNetworkResult | None = None
 
 
 class RealtimeHistoryResult(BaseModel):
@@ -538,6 +585,8 @@ class RealtimeRoomState(BaseModel):
 
 
 class RealtimeRoomStatesResult(BaseModel):
+    session_id: str | None = None
+    applied_control_revision: int = 0
     project_id: str
     running: bool
     simcore_tick: int
@@ -555,9 +604,14 @@ class RealtimePipeState(BaseModel):
     pressure_drop_pa: float
     head_m: float
     served_terminal_ids: list[str] = []
+    model_status: Literal["modeled", "disconnected", "unsupported"] = "modeled"
+    flow_blocked: bool = False
+    parameter_sources: list[str] = []
 
 
 class RealtimePipeStatesResult(BaseModel):
+    session_id: str | None = None
+    applied_control_revision: int = 0
     project_id: str
     running: bool
     simcore_tick: int
@@ -582,6 +636,8 @@ class RealtimeDeviceReading(BaseModel):
 
 
 class RealtimeDeviceStatesResult(BaseModel):
+    session_id: str | None = None
+    applied_control_revision: int = 0
     project_id: str
     running: bool
     simcore_tick: int
@@ -611,6 +667,7 @@ class RealtimeControlValue(BaseModel):
     max: float
     step: float
     current: float
+    effective: float | None = None
 
 
 class RealtimeDeviceControls(BaseModel):
@@ -622,6 +679,10 @@ class RealtimeDeviceControls(BaseModel):
 class RealtimeControlsResult(BaseModel):
     project_id: str
     devices: dict[str, RealtimeDeviceControls]
+    session_id: str | None = None
+    control_revision: int = 0
+    simcore_tick: int = 0
+    applied_control_revision: int = 0
 
 
 class RatedDeviceView(BaseModel):

@@ -39,4 +39,17 @@ describe("connected runtime network", () => {
     expect(wrapper.text()).not.toContain("98765");
     expect(wrapper.text()).toContain("此旁通需要压力平衡求解");
   });
+
+  it("hides numeric flow and temperatures for an unsupported circuit", () => {
+    const network: RealtimeNetworkResult = { model: "bounded_teaching_network", pressure_balance_solved: false,
+      circuits: [{ circuit_id: "loop", system: "chilled_water", source_ids: ["source"], drive_ids: ["pump"],
+        model_status: "unsupported", flow_m3_h: 98765, supply_temp_c: 99.99, return_temp_c: 88.88 }],
+      pipes: [], ducts: [], devices: [], issues: [] };
+    const wrapper = mount(RuntimeNetworkPanel, { props: { network, tick: 5 } });
+    expect(wrapper.text()).toContain("不可计算");
+    expect(wrapper.text()).toContain("接法暂不支持");
+    expect(wrapper.text()).not.toContain("98765");
+    expect(wrapper.text()).not.toContain("99.99");
+    expect(wrapper.text()).not.toContain("88.88");
+  });
 });

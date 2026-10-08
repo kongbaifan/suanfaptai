@@ -45,8 +45,9 @@ function sourceLabel(value: string): string {
       <div class="network-circuits">
         <article v-for="circuit in circuits" :key="circuit.circuit_id" class="network-circuit">
           <strong>{{ labels[circuit.system] }} · {{ circuit.source_ids.join('、') || '未连接冷热源' }}</strong>
-          <span>{{ number(circuit.flow_m3_h) }} m³/h</span>
-          <small v-if="circuit.supply_temp_c !== null">供给 / 回流温度：{{ number(circuit.supply_temp_c, 2) }} / {{ number(circuit.return_temp_c, 2) }} ℃</small>
+          <span v-if="circuit.model_status === 'unsupported'">不可计算</span>
+          <span v-else>{{ number(circuit.flow_m3_h) }} m³/h</span>
+          <small v-if="circuit.model_status !== 'unsupported' && circuit.supply_temp_c !== null">供给 / 回流温度：{{ number(circuit.supply_temp_c, 2) }} / {{ number(circuit.return_temp_c, 2) }} ℃</small>
           <StatusBadge v-if="circuit.model_status !== 'modeled'" tone="warn" :label="circuit.model_status === 'unsupported' ? '接法暂不支持' : '通路未完整'" />
         </article>
       </div>

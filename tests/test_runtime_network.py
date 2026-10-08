@@ -11,7 +11,7 @@ from dataclasses import replace
 import pytest
 
 from app.samples import SAMPLES
-from app.schemas import ConnectionInput, DeviceInput, SystemEvaluateRequest
+from app.schemas import ConnectionInput, DeviceInput, PipeInput, SystemEvaluateRequest
 from app.simcore.project import build_runtime_layout
 from app.simcore.session import SimulationConfig, SimulationMode, SimulationSession
 
@@ -357,3 +357,161 @@ def test_order_and_steady_state_use_the_same_connected_model(water_project):
     )
     assert steady.snapshot.cooling_load_kw == pytest.approx(transient.cooling_load_kw)
     assert replace(steady.snapshot, network=None) == replace(transient, network=None)
+
+
+def _use_water_medium(project, system):
+    for pipe in project.pipes:
+        pipe.system = system
+    for edge in project.connections:
+        edge.system = system
+    if system == "cooling_water":
+        project.rooms = []
+        for device in project.devices:
+            if device.id == "source":
+                device.type, device.name = "冷源机组", "SCWE-100H+B"
+            elif device.id.startswith("fcu"):
+                device.type, device.name = "冷却塔", "S15E-1285-06JN"
+    return SimulationMode.HEATING if system == "hot_water" else SimulationMode.COOLING
+
+
+@pytest.mark.parametrize("system", ["chilled_water", "hot_water", "cooling_water"])
+@pytest.mark.parametrize("kind", ["unknown", "branch_supply", "direct", "local"])
+def test_actual_bypass_is_unsupported_for_every_water_medium(water_project, system, kind):
+    mode = _use_water_medium(water_project, system)
+    baseline = run_project(water_project, mode=mode, ticks=2).snapshot
+    assert all(c.model_status == "modeled" and c.flow_m3_h > 0 for c in baseline.network.circuits)
+    if kind == "direct":
+        links = [("main", "return")]
+    else:
+        water_project.pipes.append(PipeInput(
+            id="extra", system=system, pipe_type="branch_supply" if kind == "branch_supply" else "unknown",
+            diameter_mm=65, length_m=10,
+        ))
+        links = [("s1", "extra"), ("extra", "rtn1")] if kind == "local" else [("main", "extra"), ("extra", "return")]
+    water_project.connections.extend(ConnectionInput(from_id=a, to_id=b, system=system) for a, b in links)
+    snapshot = run_project(water_project, mode=mode, ticks=2).snapshot
+    assert all(c.model_status == "unsupported" and c.flow_m3_h == 0 for c in snapshot.network.circuits)
+    assert all(node.model_status == "unsupported" and node.flow_m3_h == 0 for node in snapshot.network.pipes)
+    assert any(issue.code == "SIM_NETWORK_UNSUPPORTED" for issue in snapshot.network.issues)
+
+
+@pytest.mark.parametrize("system", ["chilled_water", "hot_water", "cooling_water"])
+@pytest.mark.parametrize("position", ["supply", "return", "mixed_parallel"])
+def test_series_pumps_are_unsupported_instead_of_missing_paths(water_project, system, position):
+    mode = _use_water_medium(water_project, system)
+    pump = next(device for device in water_project.devices if device.id == "pump")
+    water_project.devices.append(pump.model_copy(update={"id": "pump2"}))
+    replaced = ("return", "source") if position == "return" else ("pump", "main")
+    water_project.connections = [e for e in water_project.connections if (e.from_id, e.to_id) != replaced]
+    links = [(replaced[0], "pump2"), ("pump2", replaced[1])]
+    if position == "mixed_parallel":
+        water_project.devices.append(pump.model_copy(update={"id": "pump3"}))
+        links.extend([("source", "pump3"), ("pump3", "main")])
+    water_project.connections.extend(ConnectionInput(from_id=a, to_id=b, system=system) for a, b in links)
+    snapshot = run_project(water_project, mode=mode, ticks=2).snapshot
+    assert all(c.model_status == "unsupported" and c.flow_m3_h == 0 for c in snapshot.network.circuits)
+    assert any("串联" in issue.message for issue in snapshot.network.issues)
+    assert not any(issue.code == "SIM_WATER_PATH_INCOMPLETE" for issue in snapshot.network.issues)
+
+
+def test_parallel_pumps_still_share_the_flow(water_project):
+    pump = next(device for device in water_project.devices if device.id == "pump")
+    water_project.devices.append(pump.model_copy(update={"id": "pump2"}))
+    water_project.connections.extend([
+        ConnectionInput(from_id="source", to_id="pump2", system="chilled_water"),
+        ConnectionInput(from_id="pump2", to_id="main", system="chilled_water"),
+    ])
+    snapshot = run_project(water_project, ticks=2).snapshot
+    assert snapshot.chilled_flow_m3_h == pytest.approx(3.784)
+    assert snapshot.devices["pump"].values["flow_m3_h"] == pytest.approx(1.892)
+    assert snapshot.devices["pump2"].values["flow_m3_h"] == pytest.approx(1.892)
+    assert not snapshot.network.issues
+
+
+def test_cross_link_does_not_publish_only_the_surviving_branch(water_project):
+    water_project.connections.append(ConnectionInput(from_id="s1", to_id="s2", system="chilled_water"))
+    snapshot = run_project(water_project, ticks=2).snapshot
+    assert snapshot.chilled_flow_m3_h == 0
+    assert snapshot.devices["fcu1"].values["water_flow_m3_h"] == 0
+    assert snapshot.devices["fcu2"].values["water_flow_m3_h"] == 0
+    assert all(c.model_status == "unsupported" for c in snapshot.network.circuits)
+
+
+@pytest.mark.parametrize("with_pump", [False, True])
+def test_a_dead_end_does_not_disable_complete_branches(water_project, with_pump):
+    baseline = run_project(water_project, ticks=2).snapshot
+    water_project.pipes.append(PipeInput(id="extra", system="chilled_water", diameter_mm=65))
+    links = [("main", "extra")]
+    if with_pump:
+        pump = next(device for device in water_project.devices if device.id == "pump")
+        water_project.devices.append(pump.model_copy(update={"id": "unused_pump"}))
+        links = [("main", "unused_pump"), ("unused_pump", "extra")]
+    water_project.connections.extend(ConnectionInput(from_id=a, to_id=b, system="chilled_water") for a, b in links)
+    snapshot = run_project(water_project, ticks=2).snapshot
+    assert snapshot.chilled_flow_m3_h == baseline.chilled_flow_m3_h
+    assert all(snapshot.devices[key].values == reading.values for key, reading in baseline.devices.items())
+    assert next(node for node in snapshot.network.pipes if node.node_id == "extra").model_status == "disconnected"
+    assert not any(issue.code == "SIM_NETWORK_UNSUPPORTED" for issue in snapshot.network.issues)
+
+
+def test_unsupported_loop_does_not_change_an_independent_loop(water_project):
+    other = water_project.model_dump()
+    for collection in (other["rooms"], other["devices"], other["pipes"]):
+        for item in collection:
+            item["id"] = "b_" + item["id"]
+    for room in other["rooms"]:
+        room["device_ids"] = ["b_" + key for key in room["device_ids"]]
+    for edge in other["connections"]:
+        edge["from_id"], edge["to_id"] = "b_" + edge["from_id"], "b_" + edge["to_id"]
+    merged = water_project.model_dump()
+    for key in ("rooms", "devices", "pipes", "connections"):
+        merged[key].extend(other[key])
+    project = SystemEvaluateRequest.model_validate(merged)
+    baseline = run_project(project, ticks=2).snapshot
+    project.connections.append(ConnectionInput(from_id="main", to_id="return", system="chilled_water"))
+    snapshot = run_project(project, ticks=2).snapshot
+    for key, reading in baseline.devices.items():
+        if key.startswith("b_"):
+            assert snapshot.devices[key].values == reading.values
+    assert next(c for c in snapshot.network.circuits if "source" in c.source_ids).model_status == "unsupported"
+    assert next(c for c in snapshot.network.circuits if "b_source" in c.source_ids).model_status == "modeled"
+
+
+def test_a_closed_series_source_loop_is_not_misreported_as_open(water_project):
+    source = next(device for device in water_project.devices if device.id == "source")
+    water_project.devices.append(source.model_copy(update={"id": "source2"}))
+    water_project.connections = [e for e in water_project.connections if (e.from_id, e.to_id) != ("return", "source")]
+    water_project.connections.extend([
+        ConnectionInput(from_id="return", to_id="source2", system="chilled_water"),
+        ConnectionInput(from_id="source2", to_id="source", system="chilled_water"),
+    ])
+    snapshot = run_project(water_project, ticks=2).snapshot
+    assert snapshot.chilled_flow_m3_h == 0
+    assert all(c.model_status == "unsupported" for c in snapshot.network.circuits)
+    assert any(issue.code == "SIM_NETWORK_UNSUPPORTED" for issue in snapshot.network.issues)
+    assert not any(issue.code == "SIM_WATER_PATH_INCOMPLETE" for issue in snapshot.network.issues)
+
+
+def test_unsupported_topology_reaches_steady_rest_and_websocket(water_project):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    water_project.connections.append(ConnectionInput(from_id="main", to_id="return", system="chilled_water"))
+    with TestClient(app) as client:
+        steady = client.post("/api/v1/simulation/steady-state", json=water_project.model_dump())
+        assert steady.status_code == 200
+        assert any(issue["code"] == "SIM_NETWORK_UNSUPPORTED" for issue in steady.json()["issues"])
+        saved = client.post("/api/v1/projects", json={"name": "unsupported-loop", "project": water_project.model_dump()})
+        project_id = saved.json()["project_id"]
+        try:
+            started = client.post(f"/api/v1/realtime/simulate/start/{project_id}", json={"interval_seconds": 3600})
+            assert started.status_code == 200
+            state = client.get(f"/api/v1/realtime/state/{project_id}").json()
+            assert all(c["model_status"] == "unsupported" for c in state["network"]["circuits"])
+            pipes = client.get(f"/api/v1/realtime/pipes/{project_id}").json()["pipes"]
+            assert all(p["model_status"] == "unsupported" for p in pipes)
+            with client.websocket_connect(f"/ws/realtime/{project_id}") as socket:
+                assert socket.receive_json()["data"] == state
+        finally:
+            client.delete(f"/api/v1/projects/{project_id}")

@@ -13,6 +13,7 @@ import math
 from collections import defaultdict, deque
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
+from itertools import pairwise
 from typing import Literal
 
 from app.data.equipment import spec_for_device
@@ -248,6 +249,126 @@ def _components(graph: Mapping[str, tuple[str, ...]]) -> list[tuple[str, ...]]:
     return result
 
 
+def _strong_components(graph: Mapping[str, tuple[str, ...]]) -> list[set[str]]:
+    """Iterative Kosaraju traversal; long student pipe chains need no recursion."""
+    seen: set[str] = set()
+    order: list[str] = []
+    for start in graph:
+        if start in seen:
+            continue
+        pending = [(start, False)]
+        while pending:
+            node, finished = pending.pop()
+            if finished:
+                order.append(node)
+            elif node not in seen:
+                seen.add(node)
+                pending.append((node, True))
+                pending.extend((other, False) for other in graph[node] if other not in seen)
+    reverse = _reverse(graph)
+    assigned: set[str] = set()
+    result = []
+    for start in reversed(order):
+        if start in assigned:
+            continue
+        component = _reachable(start, reverse, assigned)
+        assigned.update(component)
+        result.append(component)
+    return result
+
+
+def _without_nodes(
+    graph: Mapping[str, tuple[str, ...]], removed: set[str],
+) -> dict[str, tuple[str, ...]]:
+    return {
+        key: tuple(other for other in neighbors if other not in removed)
+        for key, neighbors in graph.items() if key not in removed
+    }
+
+
+def _serial_pump_pair(
+    graph: Mapping[str, tuple[str, ...]], pumps: set[str],
+) -> tuple[str, str] | None:
+    """Find a directed route between distinct pumps after removing sources.
+
+    Parallel pumps cannot reach one another without passing a source. Series
+    pumps can, including one on supply and another on return. Keep at most two
+    origins at each node: if a later route ends at a pump, at least one of two
+    different origins differs from that pump. More origins add no evidence.
+    This bounds traversal by twice the graph size instead of enumerating paths.
+    """
+    origins: dict[str, set[str]] = {key: set() for key in graph}
+    pending: deque[tuple[str, str]] = deque()
+    for pump in sorted(pumps):
+        origins[pump].add(pump)
+        pending.append((pump, pump))
+    while pending:
+        node, origin = pending.popleft()
+        for other in graph[node]:
+            if other in pumps and other != origin:
+                return origin, other
+            if origin not in origins[other] and len(origins[other]) < 2:
+                origins[other].add(origin)
+                pending.append((other, origin))
+    return None
+
+
+def _water_structure_limitation(
+    graph: Mapping[str, tuple[str, ...]],
+    sources: set[str], pumps: set[str], targets: set[str],
+) -> str | None:
+    # A pump-driven cycle remaining after removal of every load/tower is a
+    # bypass regardless of pipe_type, even when it is only a connection edge.
+    unloaded = _without_nodes(graph, targets)
+    for component in _strong_components(unloaded):
+        cyclic = len(component) > 1 or any(key in unloaded[key] for key in component)
+        if cyclic and component & pumps:
+            names = "、".join(sorted(component & pumps))
+            return (
+                f"泵 {names} 存在绕过末端或冷却塔的闭合旁通；当前模型未求解旁通分流与混水，"
+                "此连通回路不可计算，请去掉旁通或拆分为明确的供回支路。"
+            )
+    # A pump on a dangling/incomplete branch is not a series-pump circuit.
+    # Only pumps mutually reachable with a source can participate in a loop.
+    for component in _strong_components(graph):
+        cycle_pumps = component & pumps
+        if not component & sources or len(cycle_pumps) < 2:
+            continue
+        local = {
+            key: tuple(other for other in graph[key] if other in component)
+            for key in sorted(component)
+        }
+        pair = _serial_pump_pair(_without_nodes(local, sources), cycle_pumps)
+        if pair is not None:
+            return (
+                f"泵 {pair[0]} 与 {pair[1]} 串联在同一供回通路上；当前模型未求解串联压升，"
+                "此连通回路不可计算，请改为支持的并联接法。"
+            )
+    return None
+
+
+def _uncovered_loop_edges(
+    graph: Mapping[str, tuple[str, ...]], sources: set[str], pumps: set[str],
+    covered: set[tuple[str, str]],
+) -> set[tuple[str, str]]:
+    """Every edge in a source/pump cycle must belong to a compiled route.
+
+    Edges leading to a dead end cannot return to the source, so they do not
+    invalidate other complete branches. This also catches unsupported series
+    sources/terminals instead of misreporting an actually closed graph as open.
+    """
+    missing: set[tuple[str, str]] = set()
+    for component in _strong_components(graph):
+        if not component & sources or not component & pumps:
+            continue
+        missing.update(
+            (node, other)
+            for node in component for other in graph[node]
+            if other in component and (node, other) not in covered
+        )
+    return missing
+
+
 def _water_paths(
     project: SystemEvaluateRequest,
     rated: Mapping[str, RatedSpec],
@@ -281,6 +402,7 @@ def _water_paths(
         d.id for d in project.devices if d.quantity > 1 and is_valve(rated[d.id].role)
     }
     for nodes in _components(graph):
+        issue_start = len(issues)
         members = set(nodes)
         sources = tuple(sorted(members & all_sources))
         pumps = tuple(sorted(members & all_pumps))
@@ -292,7 +414,6 @@ def _water_paths(
             or len(sources) * len(pumps) * len(ends) > MAX_ROUTE_COMBINATIONS
         ):
             status = "unsupported"
-            unsupported.update((system, node) for node in nodes)
             issues.append(
                 _issue(
                     "SIM_NETWORK_UNSUPPORTED",
@@ -310,8 +431,19 @@ def _water_paths(
                         circuit_id,
                     )
                 )
+        else:
+            limitation = _water_structure_limitation(
+                {key: graph[key] for key in nodes}, set(sources), set(pumps), set(ends),
+            )
+            if limitation is not None:
+                status = "unsupported"
+                issues.append(_issue("SIM_NETWORK_UNSUPPORTED", limitation, circuit_id))
+        circuit_paths: list[FlowPath] = []
+        covered_edges: set[tuple[str, str]] = set()
+        ambiguous_circuit = False
         for target in ends if status == "modeled" else ():
             target_paths = []
+            target_edges: set[tuple[str, str]] = set()
             ambiguous = False
             for source in sources:
                 for pump in pumps:
@@ -330,6 +462,8 @@ def _water_paths(
                     if set(supply[1:-1]) & set(ret[1:-1]):
                         ambiguous = True
                         continue
+                    target_edges.update(pairwise(supply))
+                    target_edges.update(pairwise(ret))
                     elements = tuple(
                         (system, key) for key in dict.fromkeys((*supply, *ret))
                     )
@@ -345,16 +479,17 @@ def _water_paths(
                         )
                     )
             if ambiguous:
-                unsupported.add((system, target))
+                ambiguous_circuit = True
                 issues.append(
                     _issue(
                         "SIM_NETWORK_UNSUPPORTED",
-                        "该支路存在多条替代路径或交叉连接，当前教学模型不做网状压力平衡。",
+                        "该支路存在替代路径或交叉连接，当前模型未求解网状压力平衡；此连通回路不可计算。",
                         target,
                     )
                 )
             elif target_paths:
-                paths.extend(target_paths)
+                circuit_paths.extend(target_paths)
+                covered_edges.update(target_edges)
             else:
                 issues.append(
                     _issue(
@@ -363,6 +498,33 @@ def _water_paths(
                         target,
                     )
                 )
+        if ambiguous_circuit:
+            status = "unsupported"
+        if status == "modeled":
+            missing = _uncovered_loop_edges(
+                {key: graph[key] for key in nodes}, set(sources), set(pumps), covered_edges,
+            )
+            if missing:
+                status = "unsupported"
+                closed_nodes = {key for edge in missing for key in edge}
+                issues[issue_start:] = [
+                    issue for issue in issues[issue_start:]
+                    if issue.code != "SIM_WATER_PATH_INCOMPLETE" or issue.target not in closed_nodes
+                ]
+                left, right = min(missing)
+                issues.append(_issue(
+                    "SIM_NETWORK_UNSUPPORTED",
+                    f"闭合通路中的连接 {left} → {right} 未被当前单源单泵末端模型覆盖；"
+                    "此连通回路不可计算，请拆分串联设备或交叉耦合通路。",
+                    f"{left}->{right}",
+                ))
+        if status == "unsupported":
+            # An omitted circulating branch changes pressure/flow allocation
+            # for its neighbours too. Do not publish the remaining subgraph as
+            # a successful solution of the complete connected water circuit.
+            unsupported.update((system, node) for node in nodes)
+        else:
+            paths.extend(circuit_paths)
         circuits.append(
             NetworkCircuit(circuit_id, system, nodes, sources, pumps, status)
         )

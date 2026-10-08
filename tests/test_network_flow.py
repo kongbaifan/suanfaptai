@@ -1,11 +1,16 @@
 """Hand-calculated hydraulic envelopes and conservative shared path flows."""
 
 import math
+from random import Random
 
 import pytest
 
 from app.simcore.network_flow import FlowDrive, FlowPath, allocate_paths
-from app.simcore.runtime_network import unique_route
+from app.simcore.runtime_network import (
+    _serial_pump_pair,
+    _strong_components,
+    unique_route,
+)
 
 
 def test_one_path_matches_pressure_flow_hand_calculation():
@@ -23,6 +28,32 @@ def test_one_path_matches_pressure_flow_hand_calculation():
     )
     assert result.path_flows["p"] == pytest.approx(2)
     assert result.pressure_by_path["p"] == pytest.approx(400)
+
+
+def test_structure_detection_matches_an_independent_reachability_reference():
+    rng = Random(721)
+    for _ in range(300):
+        nodes = [str(index) for index in range(8)]
+        graph = {a: tuple(b for b in nodes if rng.random() < 0.2) for a in nodes}
+        # Floyd-Warshall closure is intentionally different from the production
+        # SCC traversal and two-origin propagation, and is small enough here.
+        reach = {a: {a, *graph[a]} for a in nodes}
+        for via in nodes:
+            for start in nodes:
+                if via in reach[start]:
+                    reach[start].update(reach[via])
+        expected = {frozenset(b for b in nodes if b in reach[a] and a in reach[b]) for a in nodes}
+        assert {frozenset(component) for component in _strong_components(graph)} == expected
+        pumps = set(rng.sample(nodes, 3))
+        pair = _serial_pump_pair(graph, pumps)
+        assert (pair is not None) == any(a != b and b in reach[a] for a in pumps for b in pumps)
+        if pair is not None:
+            assert pair[0] != pair[1] and pair[1] in reach[pair[0]]
+
+
+def test_structure_detection_does_not_recurse_on_long_pipe_chains():
+    graph = {str(index): (str((index + 1) % 2000),) for index in range(2000)}
+    assert _strong_components(graph) == [set(graph)]
 
 
 def test_shared_main_uses_total_flow_once():

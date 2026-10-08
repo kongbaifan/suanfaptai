@@ -16,6 +16,7 @@ from app.calculators.water import calculate_water
 from app.data.catalog_import import import_catalog
 from app.data.catalog_quality import build_catalog_quality_report
 from app.data.equipment import (
+    CatalogValidationError,
     delete_equipment_item,
     load_equipment_catalog,
     save_equipment_catalog,
@@ -134,6 +135,16 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="HVAC Algorithm Support", version="0.1.0")
 STATIC_DIR = Path(__file__).with_name("static")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.exception_handler(CatalogValidationError)
+async def catalog_validation_exception_handler(
+    _request: Request, exc: CatalogValidationError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=422,
+        content={"detail": {"code": "CATALOG_ITEM_INVALID", "message": str(exc)}},
+    )
 
 
 @app.exception_handler(ProjectRoomBindingError)

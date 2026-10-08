@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import Any
 
 from app.data.equipment import (
-    BOOLEAN_CATALOG_FIELDS,
     NUMERIC_CATALOG_FIELDS,
+    CatalogValidationError,
     merge_equipment_catalog,
+    normalize_catalog_item,
 )
 from app.schemas import CatalogImportRequest, CatalogImportResult, Issue
 
@@ -54,6 +55,9 @@ def import_catalog(request: CatalogImportRequest) -> CatalogImportResult:
 
     valid_items = []
     for index, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            issues.append(Issue(level="error", code="CATALOG_ROW_INVALID", message=f"Row {index} must be an object."))
+            continue
         missing = REQUIRED_COLUMNS - set(item)
         if missing:
             issues.append(Issue(level="error", code="CATALOG_ROW_MISSING_COLUMNS", message=f"Row {index} misses columns: {', '.join(sorted(missing))}."))
@@ -64,12 +68,15 @@ def import_catalog(request: CatalogImportRequest) -> CatalogImportResult:
             issues.append(Issue(level="error", code="CATALOG_ROW_INVALID", message=f"Row {index}: {exc}"))
 
     if not any(issue.level == "error" for issue in issues):
-        merge_equipment_catalog(valid_items, replace=request.replace)
+        try:
+            merge_equipment_catalog(valid_items, replace=request.replace)
+        except CatalogValidationError as exc:
+            issues.append(Issue(level="error", code="CATALOG_ROW_INVALID", message=str(exc)))
 
     return CatalogImportResult(imported=len(valid_items) if not any(issue.level == "error" for issue in issues) else 0, total=len(items), replaced=request.replace, issues=issues)
 
 
-def _parse_json(raw: bytes) -> list[dict[str, Any]]:
+def _parse_json(raw: bytes) -> list[Any]:
     data = json.loads(raw.decode("utf-8-sig"))
     if isinstance(data, dict) and "items" in data:
         data = data["items"]
@@ -81,7 +88,9 @@ def _parse_json(raw: bytes) -> list[dict[str, Any]]:
         raise ValueError(  # noqa: TRY004
             "Catalog JSON must be a list or an object with an items list."
         )
-    return [dict(item) for item in data]
+    # Keep malformed rows intact so row validation can report their position;
+    # coercing dict(42) here would escape as a TypeError/HTTP 500.
+    return data
 
 
 def _parse_csv(raw: bytes) -> list[dict[str, Any]]:
@@ -115,18 +124,7 @@ def _parse_xlsx(raw: bytes) -> list[dict[str, Any]]:
 
 
 def _normalize_import_row(item: dict[str, Any]) -> dict[str, Any]:
-    normalized = dict(item)
     for key in REQUIRED_COLUMNS:
-        if normalized.get(key) in ("", None):
+        if item.get(key) in ("", None):
             raise ValueError(f"{key} is empty")
-    if isinstance(normalized.get("systems"), str):
-        normalized["systems"] = [part.strip() for part in normalized["systems"].replace("；", ";").replace(",", ";").split(";") if part.strip()]
-    for key in NUMERIC_COLUMNS:
-        if key in normalized and normalized[key] not in ("", None):
-            normalized[key] = float(normalized[key])
-        elif key in normalized:
-            normalized.pop(key)
-    for key in BOOLEAN_CATALOG_FIELDS:
-        if key in normalized and isinstance(normalized[key], str):
-            normalized[key] = normalized[key].strip().lower() in {"1", "true", "yes", "y", "是"}
-    return normalized
+    return normalize_catalog_item(item)

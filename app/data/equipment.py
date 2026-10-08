@@ -1,11 +1,21 @@
 import json
+import math
 from functools import lru_cache
 from pathlib import Path
+from threading import RLock
 from typing import Any
 
+from app.data.json_store import write_json_atomic
 from app.schemas import DeviceInput
 
 CATALOG_PATH = Path(__file__).with_name("equipment_catalog.json")
+_catalog_lock = RLock()
+
+
+class CatalogValidationError(ValueError):
+    """A catalogue edit is invalid and must not be committed."""
+
+
 NUMERIC_CATALOG_FIELDS = {
     "capacity_kw",
     "flow_m3_h",
@@ -62,19 +72,20 @@ UNITY_ENTRY_TEXT_FIELDS = ("device_name", "position", "position_offset", "image"
 
 @lru_cache(maxsize=1)
 def load_equipment_catalog() -> list[dict[str, Any]]:
-    with CATALOG_PATH.open("r", encoding="utf-8") as file:
-        data = json.load(file)
-    return list(data)
+    with _catalog_lock:
+        with CATALOG_PATH.open("r", encoding="utf-8") as file:
+            data = json.load(file)
+        return list(data)
 
 
 def save_equipment_catalog(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    normalized = [_normalize_catalog_item(item) for item in items]
-    _restore_unity_internals(normalized)
-    with CATALOG_PATH.open("w", encoding="utf-8") as file:
-        json.dump(normalized, file, ensure_ascii=False, indent=2)
-        file.write("\n")
-    load_equipment_catalog.cache_clear()
-    return load_equipment_catalog()
+    normalized = [normalize_catalog_item(item) for item in items]
+    with _catalog_lock:
+        _restore_unity_internals(normalized)
+        write_json_atomic(CATALOG_PATH, normalized)
+        # Publish the new cache only after the complete file was committed.
+        load_equipment_catalog.cache_clear()
+        return load_equipment_catalog()
 
 
 def _restore_unity_internals(items: list[dict[str, Any]]) -> None:
@@ -104,40 +115,43 @@ def strip_unity_internals(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def upsert_equipment_item(item: dict[str, Any]) -> dict[str, Any]:
-    normalized = _normalize_catalog_item(item)
-    catalog = load_equipment_catalog()
-    updated = False
-    for index, existing in enumerate(catalog):
-        if existing.get("type") == normalized.get("type") and existing.get("name") == normalized.get("name"):
-            catalog[index] = normalized
-            updated = True
-            break
-    if not updated:
-        catalog.append(normalized)
-    save_equipment_catalog(catalog)
-    return normalized
+    normalized = normalize_catalog_item(item)
+    with _catalog_lock:
+        # Never edit the cached list before persistence succeeds. Other readers
+        # and Unity metadata restoration must still see the previous version.
+        catalog = list(load_equipment_catalog())
+        for index, existing in enumerate(catalog):
+            if existing.get("type") == normalized.get("type") and existing.get("name") == normalized.get("name"):
+                catalog[index] = normalized
+                break
+        else:
+            catalog.append(normalized)
+        save_equipment_catalog(catalog)
+        return normalized
 
 
 def delete_equipment_item(device_type: str, name: str) -> bool:
-    catalog = load_equipment_catalog()
-    filtered = [item for item in catalog if not (item.get("type") == device_type and str(item.get("name")) == str(name))]
-    if len(filtered) == len(catalog):
-        return False
-    save_equipment_catalog(filtered)
-    return True
+    with _catalog_lock:
+        catalog = load_equipment_catalog()
+        filtered = [item for item in catalog if not (item.get("type") == device_type and str(item.get("name")) == str(name))]
+        if len(filtered) == len(catalog):
+            return False
+        save_equipment_catalog(filtered)
+        return True
 
 
 def merge_equipment_catalog(items: list[dict[str, Any]], replace: bool = False) -> list[dict[str, Any]]:
     if replace:
         return save_equipment_catalog(items)
 
-    merged: dict[tuple[str, str], dict[str, Any]] = {
-        (str(item.get("type", "")), str(item.get("name", ""))): item for item in load_equipment_catalog()
-    }
-    for item in items:
-        normalized = _normalize_catalog_item(item)
-        merged[(str(normalized.get("type", "")), str(normalized.get("name", "")))] = normalized
-    return save_equipment_catalog(list(merged.values()))
+    normalized_items = [normalize_catalog_item(item) for item in items]
+    with _catalog_lock:
+        merged: dict[tuple[str, str], dict[str, Any]] = {
+            (str(item.get("type", "")), str(item.get("name", ""))): item for item in load_equipment_catalog()
+        }
+        for normalized in normalized_items:
+            merged[(str(normalized.get("type", "")), str(normalized.get("name", "")))] = normalized
+        return save_equipment_catalog(list(merged.values()))
 
 
 # 历史/同义设备类型名 -> 目录现名。解析前统一归一，避免老项目静默退化成内置兜底参数。
@@ -352,6 +366,42 @@ def _normalize_unity_entries(value: Any) -> list[dict[str, Any]]:
                     entry[key] = str(value)
         entries.append(entry)
     return entries
+
+
+def normalize_catalog_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Shared validation for direct edits, bulk replacement and all imports."""
+    try:
+        if not isinstance(item.get("type"), str) or not item["type"].strip():
+            raise CatalogValidationError("设备类型 type 必须是非空文本。")
+        for field in NUMERIC_CATALOG_FIELDS:
+            if isinstance(item.get(field), bool):
+                raise CatalogValidationError(f"{field} 必须填写数值，不能使用布尔值。")
+        normalized = _normalize_catalog_item(item)
+        if not isinstance(normalized["systems"], list) or not all(
+            isinstance(system, str) for system in normalized["systems"]
+        ):
+            raise CatalogValidationError("systems 必须是系统名称列表，或用分号分隔的文本。")
+        for field in NUMERIC_CATALOG_FIELDS:
+            if field not in normalized:
+                continue
+            value = normalized[field]
+            if not math.isfinite(value):
+                raise CatalogValidationError(f"{field} 必须是有限数值，不能使用 NaN 或无穷大。")
+            # Operating temperatures may be below zero; sizes, capacities,
+            # powers and other magnitudes may not. Keep zero for explicit
+            # teaching/default entries; quality diagnostics still explain it.
+            if value < 0 and not field.endswith("_temp_c"):
+                raise CatalogValidationError(f"{field} 不能为负数。")
+            if field in {"efficiency", "motor_efficiency"} and value > 1:
+                raise CatalogValidationError(f"{field} 应使用 0 到 1 的比例。")
+        # Extra metadata is allowed, but cannot smuggle non-finite values into
+        # the document and make every later JSON response unserializable.
+        json.dumps(normalized, allow_nan=False)
+        return normalized
+    except CatalogValidationError:
+        raise
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise CatalogValidationError(f"设备参数格式无效，请检查数值和列表字段：{exc}") from exc
 
 
 def _normalize_catalog_item(item: dict[str, Any]) -> dict[str, Any]:

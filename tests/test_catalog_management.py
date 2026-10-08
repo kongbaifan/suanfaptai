@@ -1,6 +1,7 @@
 import base64
 from io import BytesIO
 
+import pytest
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
@@ -8,6 +9,7 @@ from app.data.equipment import load_equipment_catalog
 from app.main import app
 
 client = TestClient(app)
+pytestmark = pytest.mark.usefixtures("isolated_equipment_catalog")
 
 
 def test_catalog_template_endpoint_returns_import_columns():

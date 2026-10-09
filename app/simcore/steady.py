@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
@@ -24,6 +25,9 @@ from app.simcore.weather import PEAK_HOUR
 
 DEFAULT_MAX_TICKS = 500
 DEFAULT_TOLERANCE_C = 0.01
+# Relative-humidity percentage points, matching the humidity stability
+# acceptance bound. Do not combine kelvin and humidity in a single residual.
+DEFAULT_HUMIDITY_TOLERANCE_PCT = 0.05
 # 设计工况取日最高温时刻
 DESIGN_HOUR_OF_DAY = PEAK_HOUR
 # 收敛判据的窗口长度（tick 数）。
@@ -60,6 +64,7 @@ class SteadyResult:
     ticks: int
     converged: bool
     final_drift_c: float
+    final_humidity_drift_pct: float = 0.0
 
 
 def solve_steady(
@@ -69,6 +74,7 @@ def solve_steady(
     tolerance_c: float = DEFAULT_TOLERANCE_C,
     *,
     initial_controls: Mapping[str, Mapping[str, float]] | None = None,
+    humidity_tolerance_pct: float = DEFAULT_HUMIDITY_TOLERANCE_PCT,
 ) -> SteadyResult:
     """推进到房间与活动水回路温度收敛
 
@@ -84,8 +90,10 @@ def solve_steady(
     """
     if max_ticks <= 0:
         raise ValueError("max_ticks must be positive")
-    if tolerance_c <= 0.0:
+    if not math.isfinite(tolerance_c) or tolerance_c <= 0.0:
         raise ValueError("tolerance_c must be positive")
+    if not math.isfinite(humidity_tolerance_pct) or humidity_tolerance_pct <= 0.0:
+        raise ValueError("humidity_tolerance_pct must be finite and positive")
 
     # 室外气象随时间变化时房间温度会一直跟着摆动，不存在不动点。
     # 设计工况必须把气象冻结在固定时刻。
@@ -99,17 +107,23 @@ def solve_steady(
 
     # 保留最近 W 步的**单步漂移**，判据取其中的最大值
     recent_steps: deque[float] = deque(maxlen=STEADY_WINDOW_TICKS)
+    recent_humidity_steps: deque[float] = deque(maxlen=STEADY_WINDOW_TICKS)
     previous = session.snapshot
     snapshot = previous
     drift = float("inf")
+    humidity_drift = float("inf")
 
     for tick in range(1, max_ticks + 1):
         snapshot = session.step()
         step_drift = _temperature_drift(previous, snapshot)
+        recent_humidity_steps.append(max((
+            abs(room.relative_humidity_pct - previous.rooms[key].relative_humidity_pct)
+            for key, room in snapshot.rooms.items() if key in previous.rooms
+        ), default=0.0))
         previous = snapshot
         recent_steps.append(step_drift)
 
-        # 无房间且水侧无活动负荷时没有动态热状态，一步即达稳态
+        # 无房间且无通流水回路时没有动态热状态，一步即达稳态。
         if tick == 1 and _has_no_dynamic_state(snapshot):
             return SteadyResult(
                 snapshot=snapshot, ticks=tick, converged=True, final_drift_c=0.0
@@ -117,24 +131,34 @@ def solve_steady(
 
         if len(recent_steps) == STEADY_WINDOW_TICKS:
             drift = max(recent_steps)
-            if drift <= tolerance_c:
+            humidity_drift = max(recent_humidity_steps)
+            if drift <= tolerance_c and humidity_drift <= humidity_tolerance_pct:
                 return SteadyResult(
-                    snapshot=snapshot, ticks=tick, converged=True, final_drift_c=drift
+                    snapshot=snapshot, ticks=tick, converged=True, final_drift_c=drift,
+                    final_humidity_drift_pct=humidity_drift,
                 )
 
     return SteadyResult(
-        snapshot=snapshot, ticks=max_ticks, converged=False, final_drift_c=drift
+        snapshot=snapshot, ticks=max_ticks, converged=False, final_drift_c=drift,
+        final_humidity_drift_pct=humidity_drift,
     )
 
 
 def _has_no_dynamic_state(snapshot: PlantSnapshot) -> bool:
     """快照中是否存在任何动态热状态（房间温度或活动水回路温度）
 
-    没有房间、且冷冻/热水侧都无负荷流量时，`_temperature_drift` 恒为 0，
-    系统一步即达稳态——这与"极限环需要足够窗口才能排除"是两回事，
-    故不套用窗口等待。
+    没有房间且没有通流水回路时可以一步结束。纯旁通虽然没有末端负荷，
+    仍有水温动态，必须经过完整窗口验证。手工设备试验台（network=None）
+    沿用其活动负荷判定。
     """
     if snapshot.rooms:
+        return False
+    if snapshot.network is not None and any(
+        circuit.system != "air" and circuit.flow_m3_h > 0.0
+        for circuit in snapshot.network.circuits
+    ):
+        # A bypass can circulate with zero terminal load while its loop-water
+        # temperature is still moving. It is not a stateless empty plant.
         return False
     if snapshot.cooling_load_kw > 0.0 and snapshot.chilled_flow_m3_h > 0.0:
         return False

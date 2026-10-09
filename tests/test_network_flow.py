@@ -30,6 +30,58 @@ def test_one_path_matches_pressure_flow_hand_calculation():
     assert result.pressure_by_path["p"] == pytest.approx(400)
 
 
+def test_series_pump_heads_add_and_the_smaller_flow_limit_wins():
+    path = FlowPath(
+        "p", "water", "c", "source", "p1", "terminal", (("water", "pipe"),),
+        drive_ids=("p1", "p2"),
+    )
+    drives = {("water", "p1"): FlowDrive(10, 400), ("water", "p2"): FlowDrive(8, 500)}
+    caps = {("water", "terminal"): 10}
+    result = allocate_paths((path,), {("water", "pipe"): 100}, drives, caps, caps, {})
+    # (400+500) Pa = 100 * Q², hence Q=3 m³/h through BOTH pumps.
+    assert result.path_flows["p"] == pytest.approx(3)
+    assert result.drive_flows == pytest.approx({("water", "p1"): 3, ("water", "p2"): 3})
+    assert result.source_flows[("water", "source")] == pytest.approx(3)
+    assert result.pressure_by_path["p"] == pytest.approx(900)
+    drives[("water", "p2")] = FlowDrive(2, 500)
+    limited = allocate_paths((path,), {("water", "pipe"): 100}, drives, caps, caps, {})
+    assert limited.path_flows["p"] == pytest.approx(2)
+
+
+def test_bypass_competes_for_shared_pump_flow_and_can_be_closed():
+    paths = (
+        FlowPath("load", "water", "c", "s", "p", "terminal", (("water", "main"), ("water", "load"))),
+        FlowPath("bypass", "water", "c", "s", "p", "", (("water", "main"), ("water", "bypass")), bypass=True),
+    )
+    resistance = {("water", key): 1 for key in ("main", "load", "bypass")}
+    caps = {("water", "terminal"): 10}
+    drives = {("water", "p"): FlowDrive(10, 5)}
+    opened = allocate_paths(paths, resistance, drives, caps, caps, {})
+    # Equal reference capacities/resistance: Q_load=Q_bypass=q;
+    # shared-main plus branch loss = (2q)² + q² = 5 Pa -> q=1.
+    assert opened.path_flows == pytest.approx({"load": 1, "bypass": 1})
+    assert opened.source_flows[("water", "s")] == pytest.approx(2)
+    assert opened.target_flows == pytest.approx({("water", "terminal"): 1})
+    closed = allocate_paths(paths, resistance, drives, caps, caps, {("water", "bypass"): 0})
+    assert closed.path_flows["bypass"] == 0
+    assert closed.path_flows["load"] == pytest.approx(math.sqrt(5 / 2))
+
+
+def test_shared_bypass_valve_keeps_both_parallel_pump_budgets():
+    paths = tuple(
+        FlowPath(str(i), "water", "c", "s", f"p{i}", "", (("water", "valve"),), bypass=True)
+        for i in (1, 2)
+    )
+    drives = {("water", f"p{i}"): FlowDrive(5, 10000) for i in (1, 2)}
+    for opening, expected in ((1.0, 10.0), (0.5, 5.0)):
+        solved = allocate_paths(
+            paths, {("water", "valve"): 1}, drives, {}, {},
+            {("water", "valve"): opening}, {("water", "s"): 10},
+        )
+        assert solved.source_flows[("water", "s")] == pytest.approx(expected)
+        assert solved.drive_flows == pytest.approx({("water", "p1"): expected / 2, ("water", "p2"): expected / 2})
+
+
 def test_structure_detection_matches_an_independent_reachability_reference():
     rng = Random(721)
     for _ in range(300):

@@ -17,6 +17,7 @@ from app.simcore.hydronics import (
     branch_return_temperature,
     mixed_return_temperature,
     pipe_resistance_index,
+    source_supply_temperature,
 )
 from app.simcore.project import build_project_layout
 from app.simcore.rated import resolve_rated_spec_by_type
@@ -107,6 +108,14 @@ def test_temperature_response_moves_toward_target_without_overshoot():
     assert 16.0 < heating < 45.0
     assert advance_temperature(cooling, 7.0, 60.0, 300.0) < cooling
     assert advance_temperature(heating, 45.0, 60.0, 300.0) > heating
+
+
+@pytest.mark.parametrize("heating,return_c,outlet_c", [(False, 17.0, 7.0), (True, 35.0, 45.0)])
+def test_source_outlet_matches_hand_calculated_water_energy(heating, return_c, outlet_c):
+    # 3.6 m³/h = 1 kg/s; 41.87 kW / (1 kg/s × 4.187 kJ/kg/K) = 10 K.
+    assert source_supply_temperature(return_c, 3.6, 41.87, heating=heating) == pytest.approx(outlet_c)
+    assert source_supply_temperature(return_c, 3.6, 0.0, heating=heating) == return_c
+    assert source_supply_temperature(return_c, 0.0, 0.0, heating=heating) == return_c
 
 
 def test_temperature_response_is_stable_across_step_partitioning():

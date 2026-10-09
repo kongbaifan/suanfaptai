@@ -44,6 +44,7 @@ from app.simcore.hydronics import (
     HydronicThermalBranch,
     advance_temperature,
     mixed_return_temperature,
+    source_supply_temperature,
 )
 from app.simcore.network_flow import ElementKey, FlowDrive, FlowSolution, allocate_paths
 from app.simcore.runtime_network import (
@@ -74,6 +75,8 @@ def network_projection(
     resistance: Mapping[ElementKey, float] | None = None,
     temperatures: Mapping[str, tuple[float, float]] | None = None,
     extra_issues: tuple[Issue, ...] = (),
+    *,
+    device_temperatures: Mapping[ElementKey, tuple[float, float]] | None = None,
 ) -> RealtimeNetworkResult:
     """Project only the solved flows; never rediscover paths in a GET request."""
     element_flows = flow.element_flows if flow is not None else {}
@@ -86,7 +89,7 @@ def network_projection(
     for path in layout.paths:
         for key in path.elements:
             path_ids_by_node[key].append(path.path_id)
-            if path.system != "cooling_water":
+            if path.system != "cooling_water" and not path.bypass:
                 targets_by_node[key].add(
                     path.target_id if path.system != "air" else path.source_id
                 )
@@ -105,7 +108,9 @@ def network_projection(
             if supported
             else "disconnected"
         )
-        pair = (temperatures or {}).get(circuit.circuit_id) if circuit else None
+        pair = (device_temperatures or {}).get(key)
+        if pair is None:
+            pair = (temperatures or {}).get(circuit.circuit_id) if circuit else None
         pressure = (resistance or {}).get(key, element.resistance) * q * q
         item = RuntimeNetworkNode(
             node_id=key[1],
@@ -217,27 +222,29 @@ def solve_connected(session: SimulationSession, ambient: Ambient) -> _SolveResul
                 layout.fan_pressure_pa[path.drive_id] * ratio**2,
             )
             continue
-        pump = pump_state(
-            spec,
-            session._control(path.drive_id, "speed_pct", 100.0) / 100.0,
-            enabled=enabled,
-        )
         active = path.system == active_system or (
             path.system == "cooling_water" and cooling
         )
-        drives[(path.system, path.drive_id)] = FlowDrive(
-            pump.flow_m3_h if active else 0.0, pump.pressure_pa if active else 0.0
-        )
-        target_spec = rated[path.target_id]
-        cap = target_spec.flow_m3_h or 0.0
-        reference_caps[(path.system, path.target_id)] = cap
-        if path.system != "cooling_water":
-            cap *= session._control(path.target_id, "valve_opening_pct", 100.0) / 100.0
-            if not nodes[path.target_id].effective_room_ids:
+        for drive_id in path.drives:
+            pump = pump_state(
+                rated[drive_id],
+                session._control(drive_id, "speed_pct", 100.0) / 100.0,
+                enabled=session._enabled(drive_id),
+            )
+            drives[(path.system, drive_id)] = FlowDrive(
+                pump.flow_m3_h if active else 0.0, pump.pressure_pa if active else 0.0
+            )
+        if not path.bypass:
+            target_spec = rated[path.target_id]
+            cap = target_spec.flow_m3_h or 0.0
+            reference_caps[(path.system, path.target_id)] = cap
+            if path.system != "cooling_water":
+                cap *= session._control(path.target_id, "valve_opening_pct", 100.0) / 100.0
+                if not nodes[path.target_id].effective_room_ids:
+                    cap = 0.0
+            if not session._enabled(path.target_id):
                 cap = 0.0
-        if not session._enabled(path.target_id):
-            cap = 0.0
-        target_caps[(path.system, path.target_id)] = cap
+            target_caps[(path.system, path.target_id)] = cap
         source = rated[path.source_id]
         source_cap = (
             source.cooling_flow_m3_h
@@ -277,13 +284,18 @@ def solve_connected(session: SimulationSession, ambient: Ambient) -> _SolveResul
 
     water_circuits = [c for c in layout.circuits if c.system == active_system]
     terminal_circuit = {
-        p.target_id: p.circuit_id for p in layout.paths if p.system == active_system
+        p.target_id: p.circuit_id for p in layout.paths if p.system == active_system and not p.bypass
     }
     paths_by_circuit = {
         c.circuit_id: [p for p in layout.paths if p.circuit_id == c.circuit_id]
         for c in water_circuits
     }
     extra_issues = []
+    tower_flow_by_source = {
+        key: math.fsum(flow.path_flows[p.path_id] for p in layout.paths
+                       if p.system == "cooling_water" and p.source_id == key and not p.bypass)
+        for key in nodes
+    }
     source_capacity = {}
     for key, spec in rated.items():
         if spec.role not in {DeviceRole.CHILLER, DeviceRole.HEAT_SOURCE}:
@@ -294,7 +306,9 @@ def solve_connected(session: SimulationSession, ambient: Ambient) -> _SolveResul
         if not session._enabled(key):
             cap = 0.0
         if cooling and key in layout.water_cooled_source_ids:
-            condenser_flow = flow.source_flows.get(("cooling_water", key), 0.0)
+            # A condenser bypass circulates water but rejects no heat. Only
+            # the tower branch's actual flow provides heat-rejection capacity.
+            condenser_flow = tower_flow_by_source[key]
             # Q_reject = Q_cold * (1 + 1/COP). Use the SAME 20 K bound as
             # cooling_tower_state. A fraction of nameplate condenser flow is
             # not a cooling-capacity fraction: part-load operation legitimately
@@ -316,7 +330,7 @@ def solve_connected(session: SimulationSession, ambient: Ambient) -> _SolveResul
     supply = {}
     capacity_by_circuit = {}
     for circuit in water_circuits:
-        target_ids = {p.target_id for p in paths_by_circuit[circuit.circuit_id]}
+        target_ids = {p.target_id for p in paths_by_circuit[circuit.circuit_id] if not p.bypass}
         target_nodes = [nodes[key] for key in sorted(target_ids)]
         room_ids = {r for node in target_nodes for r in node.effective_room_ids}
         room_reference = _mean(
@@ -399,7 +413,8 @@ def solve_connected(session: SimulationSession, ambient: Ambient) -> _SolveResul
     returns = {}
     for _ in range(FIXED_POINT_ITERATIONS):
         for circuit in water_circuits:
-            ids = sorted({p.target_id for p in paths_by_circuit[circuit.circuit_id]})
+            circuit_paths = paths_by_circuit[circuit.circuit_id]
+            ids = sorted({p.target_id for p in circuit_paths if not p.bypass})
             demand = math.fsum(
                 terminals[key].cooling_kw if cooling else terminals[key].heating_kw
                 for key in ids
@@ -462,7 +477,7 @@ def solve_connected(session: SimulationSession, ambient: Ambient) -> _SolveResul
                     )
             returns[circuit.circuit_id] = mixed_return_temperature(
                 supply[circuit.circuit_id],
-                (
+                [
                     HydronicThermalBranch(
                         key,
                         terminals[key].water_flow_m3_h,
@@ -471,24 +486,40 @@ def solve_connected(session: SimulationSession, ambient: Ambient) -> _SolveResul
                         else terminals[key].heating_kw,
                     )
                     for key in ids
-                ),
+                ] + [
+                    HydronicThermalBranch(p.path_id, flow.path_flows[p.path_id], 0.0)
+                    for p in circuit_paths if p.bypass
+                ],
                 heating=heating,
             )
             for key in circuit.source_ids:
                 if key in chillers:
+                    cold_state = chillers[key]
                     chillers[key] = replace(
-                        chillers[key], return_temp_c=returns[circuit.circuit_id]
+                        cold_state,
+                        supply_temp_c=source_supply_temperature(
+                            returns[circuit.circuit_id], cold_state.flow_m3_h, cold_state.cooling_kw,
+                            heating=False,
+                        ),
+                        return_temp_c=returns[circuit.circuit_id],
                     )
                 elif key in heat_sources:
+                    heat_state = heat_sources[key]
                     heat_sources[key] = replace(
-                        heat_sources[key], return_temp_c=returns[circuit.circuit_id]
+                        heat_state,
+                        supply_temp_c=source_supply_temperature(
+                            returns[circuit.circuit_id], heat_state.flow_m3_h,
+                            heat_state.heating_kw if heating else heat_state.cooling_kw,
+                            heating=heating,
+                        ),
+                        return_temp_c=returns[circuit.circuit_id],
                     )
 
         tower_loads: dict[str, float] = defaultdict(float)
         for path in layout.paths:
-            if path.system != "cooling_water" or path.source_id not in chillers:
+            if path.system != "cooling_water" or path.bypass or path.source_id not in chillers:
                 continue
-            q = flow.source_flows.get(("cooling_water", path.source_id), 0.0)
+            q = tower_flow_by_source[path.source_id]
             if q > 0.0:
                 tower_loads[path.target_id] += (
                     chillers[path.source_id].heat_reject_kw
@@ -509,7 +540,7 @@ def solve_connected(session: SimulationSession, ambient: Ambient) -> _SolveResul
             pairs = [
                 (towers[p.target_id].entering_water_temp_c, flow.path_flows[p.path_id])
                 for p in layout.paths
-                if p.system == "cooling_water" and p.source_id == key
+                if p.system == "cooling_water" and p.source_id == key and not p.bypass
             ]
             condenser[key] = _mean(pairs, ambient.dry_bulb_c)
 
@@ -573,9 +604,11 @@ def solve_connected(session: SimulationSession, ambient: Ambient) -> _SolveResul
                 for p in layout.paths
                 if p.circuit_id == circuit.circuit_id and p.target_id in towers
             ]
+            hot_return = _mean(qr, ambient.wet_bulb_c)
+            bypass_flow = math.fsum(flow.path_flows[p.path_id] for p in layout.paths
+                                   if p.circuit_id == circuit.circuit_id and p.bypass)
             temperatures[circuit.circuit_id] = (
-                _mean(qs, ambient.wet_bulb_c),
-                _mean(qr, ambient.wet_bulb_c),
+                _mean([*qs, (hot_return, bypass_flow)], ambient.wet_bulb_c), hot_return,
             )
         elif circuit.system == "air" and circuit.source_ids[0] in terminals:
             key = circuit.source_ids[0]
@@ -583,12 +616,21 @@ def solve_connected(session: SimulationSession, ambient: Ambient) -> _SolveResul
                 terminals[key].supply_air_temp_c,
                 session._terminal_room_reference_temp(nodes[key]),
             )
+    source_temperatures = {
+        (active_system, key): (state.supply_temp_c, state.return_temp_c)
+        for key, state in chillers.items()
+    }
+    source_temperatures.update({
+        (active_system, key): (state.supply_temp_c, state.return_temp_c)
+        for key, state in heat_sources.items()
+    })
     network = network_projection(
-        layout, flow, resistance, temperatures, tuple(extra_issues)
+        layout, flow, resistance, temperatures, tuple(extra_issues),
+        device_temperatures=source_temperatures,
     )
     total_flow = {
         system: math.fsum(
-            value for (medium, _), value in flow.drive_flows.items() if medium == system
+            value for (medium, _), value in flow.source_flows.items() if medium == system
         )
         for system in ("chilled_water", "cooling_water", "hot_water")
     }

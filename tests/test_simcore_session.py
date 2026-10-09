@@ -1099,3 +1099,25 @@ class TestSteady:
             solve_steady(build_layout(), max_ticks=0)
         with pytest.raises(ValueError):
             solve_steady(build_layout(), tolerance_c=0.0)
+        with pytest.raises(ValueError):
+            solve_steady(build_layout(), humidity_tolerance_pct=math.nan)
+
+    def test_humidity_oscillation_prevents_convergence_with_stationary_temperatures(self, monkeypatch):
+        from app.simcore import steady as steady_module
+
+        class HumidSession(SimulationSession):
+            def step(self, transient_controls=None):
+                self._tick += 1
+                rh = 55.0 + 5.0 * math.cos(2.0 * math.pi * self._tick / 200.0)
+                self._snapshot = replace(
+                    self._snapshot, tick=self._tick,
+                    rooms={key: replace(room, temperature_c=24.0, relative_humidity_pct=rh)
+                           for key, room in self._snapshot.rooms.items()},
+                )
+                return self._snapshot
+
+        monkeypatch.setattr(steady_module, "SimulationSession", HumidSession)
+        result = solve_steady(build_layout(), SimulationConfig(), max_ticks=500)
+        assert result.converged is False
+        assert result.final_drift_c == 0.0
+        assert result.final_humidity_drift_pct > 0.05

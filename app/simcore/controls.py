@@ -31,10 +31,12 @@ class ControlSpec:
     default: float
     kind: ControlKind = "number"
 
-    def clamp(self, value: float) -> float:
+    def clamp(self, value: float, *, snap_to_step: bool = True) -> float:
         if not math.isfinite(value):
             raise ValueError(f"Control {self.name} must be finite")
         bounded = max(self.minimum, min(self.maximum, value))
+        if not snap_to_step and self.kind != "switch" and self.name != "active_count":
+            return bounded
         steps = math.floor((bounded - self.minimum) / self.step + 0.5)
         snapped = self.minimum + steps * self.step
         return max(self.minimum, min(self.maximum, snapped))
@@ -182,12 +184,13 @@ def default_controls(rated: RatedSpec, quantity: int = 1) -> dict[str, float]:
 
 
 def clamp_controls(
-    rated: RatedSpec, values: dict[str, float], quantity: int = 1
+    rated: RatedSpec, values: dict[str, float], quantity: int = 1,
+    *, snap_to_step: bool = True,
 ) -> dict[str, float]:
     """按可调范围钳制，并丢弃该设备不认识的参数名"""
     specs = {spec.name: spec for spec in controls_for(rated, quantity)}
     return {
-        name: specs[name].clamp(float(value))
+        name: specs[name].clamp(float(value), snap_to_step=snap_to_step)
         for name, value in values.items()
         if name in specs
     }

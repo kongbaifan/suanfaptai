@@ -22,6 +22,11 @@
     "fan_static_pressure_pa": 500.0,
     "minimum_valve_ratio": 0.02
   },
+  "automatic_control": {
+    "stage_hold_seconds": 600.0,
+    "stage_hysteresis_units": 0.5,
+    "dehumidification_release_seconds": 600.0
+  },
   "pressure_defaults": {
     "water_friction_factor": 0.025,
     "air_friction_factor": 0.02,

@@ -1,9 +1,9 @@
 """Compile project connections once for the bounded teaching runtime.
 
-Water routes require both supply and return and exactly one pump per route.
-Parallel pumps/source banks are distinct routes sharing terminal capacities.
-Bypasses, ambiguous alternative paths and serial pumps are diagnosed instead
-of selecting an arbitrary shortest route. Air roots stop at room outlets;
+Water routes require both supply and return with one or more pumps per route.
+Parallel routes share capacities; series pumps add pressure, and bypasses carry
+flow without a terminal load. Complex route searches have finite work budgets
+and reject incomplete coverage. Air roots stop at room outlets;
 indoor supply-to-return links do not turn a valid air system into a pipe cycle.
 """
 
@@ -38,6 +38,10 @@ GRAVITY = 9.80665
 # Compile-time work guards, not physical tuning parameters.
 MAX_ROUTE_COMBINATIONS = 4096
 MAX_GRAPH_NODES = 10000
+# Complex graphs are enumerated only at compile time under BOTH work and
+# output limits. Never publish a truncated route set as a solved network.
+MAX_COMPLEX_WATER_ROUTES = 128
+MAX_CYCLE_SEARCH_STEPS = 100000
 
 
 @dataclass(frozen=True, slots=True)
@@ -369,6 +373,67 @@ def _uncovered_loop_edges(
     return missing
 
 
+def _bounded_water_cycles(
+    graph: Mapping[str, tuple[str, ...]], system: str, circuit_id: str,
+    sources: set[str], pumps: set[str], targets: set[str],
+) -> tuple[list[FlowPath], set[tuple[str, str]], str | None]:
+    """Compile complete directed source cycles, including bypass/series pumps.
+
+    The thermal model mixes parallel sources and loads. A route may therefore
+    have one source, zero or one load, and several series pumps. Series thermal
+    devices need a different inlet-temperature model and remain diagnosed.
+    Search uses an explicit stack plus finite work/route budgets, not recursion
+    or unbounded all-simple-path enumeration.
+    """
+    paths: list[FlowPath] = []
+    covered: set[tuple[str, str]] = set()
+    work = 0
+    for source in sorted(sources):
+        route = [source]
+        positions = [0]
+        visited = {source}
+        while route:
+            node = route[-1]
+            neighbors = graph[node]
+            if positions[-1] >= len(neighbors):
+                visited.remove(route.pop())
+                positions.pop()
+                continue
+            other = neighbors[positions[-1]]
+            positions[-1] += 1
+            work += 1
+            if work > MAX_CYCLE_SEARCH_STEPS:
+                return [], set(), "复杂回路查找超出教学计算规模，未使用截断通路；请拆分管网。"
+            if other == source:
+                drive_ids = tuple(key for key in route if key in pumps)
+                if not drive_ids:
+                    continue
+                target_ids = tuple(key for key in route if key in targets)
+                if len(target_ids) > 1:
+                    return [], set(), "同一通路串联多个末端或冷却塔，需要逐级换热模型；请改为并联支路。"
+                if len(paths) >= MAX_COMPLEX_WATER_ROUTES:
+                    return [], set(), "闭合通路数超出教学计算规模，未使用截断通路；请拆分管网。"
+                paths.append(FlowPath(
+                    f"{system}/{source}/route/{len(paths):04d}", system, circuit_id,
+                    source, drive_ids[0], target_ids[0] if target_ids else "",
+                    tuple((system, key) for key in route),
+                    drive_ids=drive_ids, bypass=not target_ids,
+                ))
+                covered.update(pairwise((*route, source)))
+            elif other not in visited and other not in sources:
+                route.append(other)
+                positions.append(0)
+                visited.add(other)
+    missing = _uncovered_loop_edges(graph, sources, pumps, covered)
+    if missing:
+        left, right = min(missing)
+        return [], set(), (
+            f"闭合连接 {left} → {right} 未被单源通路覆盖；"
+            "请拆分串联冷热源或没有明确供回边界的局部循环。"
+        )
+    return paths, covered, None
+
+
 def _water_paths(
     project: SystemEvaluateRequest,
     rated: Mapping[str, RatedSpec],
@@ -409,15 +474,16 @@ def _water_paths(
         ends = tuple(sorted(members & targets))
         circuit_id = f"{system}:{nodes[0]}"
         status: NetworkStatus = "modeled"
+        expand = False
         if (
-            members & (bypasses | multi_valves)
+            members & multi_valves
             or len(sources) * len(pumps) * len(ends) > MAX_ROUTE_COMBINATIONS
         ):
             status = "unsupported"
             issues.append(
                 _issue(
                     "SIM_NETWORK_UNSUPPORTED",
-                    "此子系统包含旁通、位置不明的阀门组或超出有界求解规模，请拆分为明确的供回支路。",
+                    "此子系统包含位置不明的阀门组或超出有界求解规模，请拆分为明确的供回支路。",
                     circuit_id,
                 )
             )
@@ -435,13 +501,11 @@ def _water_paths(
             limitation = _water_structure_limitation(
                 {key: graph[key] for key in nodes}, set(sources), set(pumps), set(ends),
             )
-            if limitation is not None:
-                status = "unsupported"
-                issues.append(_issue("SIM_NETWORK_UNSUPPORTED", limitation, circuit_id))
+            expand = limitation is not None or bool(members & bypasses)
         circuit_paths: list[FlowPath] = []
         covered_edges: set[tuple[str, str]] = set()
         ambiguous_circuit = False
-        for target in ends if status == "modeled" else ():
+        for target in ends if status == "modeled" and not expand else ():
             target_paths = []
             target_edges: set[tuple[str, str]] = set()
             ambiguous = False
@@ -499,25 +563,30 @@ def _water_paths(
                     )
                 )
         if ambiguous_circuit:
-            status = "unsupported"
+            expand = True
         if status == "modeled":
             missing = _uncovered_loop_edges(
                 {key: graph[key] for key in nodes}, set(sources), set(pumps), covered_edges,
             )
             if missing:
+                expand = True
+        if expand and status == "modeled":
+            circuit_paths, covered_edges, error = _bounded_water_cycles(
+                {key: graph[key] for key in nodes}, system, circuit_id,
+                set(sources), set(pumps), set(ends),
+            )
+            issues[issue_start:] = []
+            if error is not None:
                 status = "unsupported"
-                closed_nodes = {key for edge in missing for key in edge}
-                issues[issue_start:] = [
-                    issue for issue in issues[issue_start:]
-                    if issue.code != "SIM_WATER_PATH_INCOMPLETE" or issue.target not in closed_nodes
-                ]
-                left, right = min(missing)
-                issues.append(_issue(
-                    "SIM_NETWORK_UNSUPPORTED",
-                    f"闭合通路中的连接 {left} → {right} 未被当前单源单泵末端模型覆盖；"
-                    "此连通回路不可计算，请拆分串联设备或交叉耦合通路。",
-                    f"{left}->{right}",
-                ))
+                issues.append(_issue("SIM_NETWORK_UNSUPPORTED", error, circuit_id))
+            else:
+                reached = {path.target_id for path in circuit_paths if not path.bypass}
+                for target in sorted(set(ends) - reached):
+                    issues.append(_issue(
+                        "SIM_WATER_PATH_INCOMPLETE",
+                        "未找到经过水泵的完整供回通路，请补齐供水、回水并检查方向。",
+                        target,
+                    ))
         if status == "unsupported":
             # An omitted circulating branch changes pressure/flow allocation
             # for its neighbours too. Do not publish the remaining subgraph as
@@ -925,16 +994,27 @@ def compile_runtime_network(
     for path in paths:
         if path.system not in {"chilled_water", "hot_water"}:
             continue
-        for device_id in (path.source_id, path.drive_id, path.target_id):
+        if path.bypass:
+            continue
+        for device_id in (path.source_id, *path.drives, path.target_id):
             control_rooms[(path.system, device_id)].update(
                 rooms_by_terminal[path.target_id]
             )
     for path in paths:
         if path.system == "cooling_water":
-            for device_id in (path.source_id, path.drive_id, path.target_id):
+            for device_id in (path.source_id, *path.drives, path.target_id):
                 control_rooms[("cooling_water", device_id)].update(
                     control_rooms[("chilled_water", path.source_id)]
                 )
+    for path in paths:
+        if not path.bypass:
+            continue
+        circuit_rooms = {
+            room_id for other in paths if other.circuit_id == path.circuit_id and not other.bypass
+            for room_id in control_rooms[(other.system, other.source_id)]
+        }
+        for device_id in (path.source_id, *path.drives):
+            control_rooms[(path.system, device_id)].update(circuit_rooms)
     issues = sorted(
         {
             (issue.level, issue.code, issue.target, issue.message): issue

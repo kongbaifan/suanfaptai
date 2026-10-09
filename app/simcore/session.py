@@ -19,6 +19,7 @@ from types import MappingProxyType
 from typing import Any, Literal
 from uuid import uuid4
 
+from app.data.rules import rule_value
 from app.schemas import RealtimeNetworkResult
 from app.simcore.controls import clamp_controls, default_controls
 from app.simcore.devices import (
@@ -401,6 +402,9 @@ class SimulationSession:
             for node in layout.devices
         }
         self._manual_overrides: set[str] = set()
+        self._bank_last_change_seconds: dict[str, float] = {}
+        self._dehumidifying_circuits: set[str] = set()
+        self._dehumidification_release_seconds: dict[str, float] = {}
         self._effective_controls: dict[str, dict[str, float]] = (
             self._mode_interlocked_controls(self._controls)
         )
@@ -479,6 +483,7 @@ class SimulationSession:
         self._controls[instance_id].update(accepted)
         if accepted:
             self._manual_overrides.add(instance_id)
+            self._bank_last_change_seconds.pop(instance_id, None)
             self.control_revision += 1
         return accepted
 
@@ -498,6 +503,10 @@ class SimulationSession:
                 node.rated, node.quantity
             )
             self._manual_overrides.discard(node.instance_id)
+            self._bank_last_change_seconds.pop(node.instance_id, None)
+        if instance_id is None:
+            self._dehumidifying_circuits.clear()
+            self._dehumidification_release_seconds.clear()
         self._effective_controls = self._mode_interlocked_controls(self._controls)
         self.control_revision += 1
 
@@ -510,6 +519,11 @@ class SimulationSession:
             raise ValueError("runtime initial temperature changes require a new session")
         if config.room_initial_states != self.config.room_initial_states:
             raise ValueError("runtime room initial state changes require a new session")
+        if (config.target_temp_c, config.target_humidity_pct) != (
+            self.config.target_temp_c, self.config.target_humidity_pct,
+        ):
+            self._dehumidifying_circuits.clear()
+            self._dehumidification_release_seconds.clear()
         self.config = config
         self._effective_controls = self._mode_interlocked_controls(self._controls)
 
@@ -1706,6 +1720,7 @@ class SimulationSession:
     # ---------- 辅助 ----------
 
     def _apply_automatic_controls(self) -> None:
+        self._update_dehumidification_requests()
         served_room_ids = {
             room_id
             for node in self.layout.devices
@@ -1748,6 +1763,8 @@ class SimulationSession:
                     system = "cooling_water"
                 controlled_rooms = self.layout.network.control_room_ids.get((system, node.instance_id), ())
                 demand = max((self._room_demand(room_id) for room_id in controlled_rooms), default=0.0)
+            if not is_terminal(role):
+                demand = max(demand, self._fresh_air_plant_demand(node))
             if self.config.mode is SimulationMode.VENTILATION:
                 demand = 0.5 if role in {DeviceRole.AHU, DeviceRole.FRESH_AIR_UNIT} else 0.0
             if is_pump(role):
@@ -1776,12 +1793,8 @@ class SimulationSession:
 
             if "active_count" in self._controls[node.instance_id]:
                 targets["active_count"] = (
-                    min(
-                        float(node.quantity),
-                        max(1.0, math.ceil(demand * node.quantity)),
-                    )
-                    if demand > 0.0
-                    else 0.0
+                    1.0 + (node.quantity - 1.0) * demand if is_terminal(role)
+                    else self._next_active_count(node, demand * node.quantity)
                 )
             if "speed_pct" in self._controls[node.instance_id]:
                 targets["speed_pct"] = (
@@ -1796,6 +1809,8 @@ class SimulationSession:
                     # 需求波动：房间温度到位后若把风机降速，新风量就不够了。
                     # 目标开度直接取"应送新风量 / 额定风量"。
                     targets["fan_speed_pct"] = self._fresh_air_fan_target(node)
+                    if targets["fan_speed_pct"] > 0.0:
+                        targets["enabled"] = 1.0
                 else:
                     targets["fan_speed_pct"] = (
                         AUTO_MIN_AIR_OUTPUT_PCT
@@ -1835,11 +1850,119 @@ class SimulationSession:
                 elif role is DeviceRole.HEAT_SOURCE:
                     targets["supply_temp_c"] = 35.0 + 10.0 * demand
 
+            if is_terminal(role) and node.quantity > 1:
+                self._controls[node.instance_id].update(
+                    self._terminal_bank_controls(node, targets)
+                )
+                continue
             bounded = {
                 name: self._slew_value(node, name, target)
                 for name, target in targets.items()
             }
             self._controls[node.instance_id].update(bounded)
+
+    def _next_active_count(self, node: DeviceNode, required_units: float) -> float:
+        """Stage up for capacity, stage down after a hold and a Schmitt margin.
+
+        Rules express the hold in seconds and hysteresis in equivalent units;
+        600 s is two loop-water time constants, allowing a stage to settle.
+        At most one unit changes per tick. A zero request remains an immediate
+        off command, including the room's hard overcooling interlock.
+        """
+        current = self._controls[node.instance_id].get("active_count", float(node.quantity))
+        if required_units <= 0.0:
+            result = 0.0
+        elif required_units > current:
+            result = min(float(node.quantity), current + 1.0)
+        else:
+            margin = float(rule_value("automatic_control.stage_hysteresis_units"))
+            hold = float(rule_value("automatic_control.stage_hold_seconds"))
+            elapsed = self._simulation_seconds - self._bank_last_change_seconds.get(
+                node.instance_id, -hold,
+            )
+            result = (
+                max(1.0, current - 1.0)
+                if required_units <= current - 1.0 - margin and elapsed >= hold
+                else current
+            )
+        if result != current:
+            self._bank_last_change_seconds[node.instance_id] = self._simulation_seconds
+        return result
+
+    def _terminal_bank_controls(
+        self, node: DeviceNode, targets: Mapping[str, float],
+    ) -> dict[str, float]:
+        """Slew the bank's total air/water command before splitting over units.
+
+        V_bank = quantity * V_rated * bank_ratio = count * V_rated * unit_ratio.
+        Replace ceil(quantity*demand) with a continuous equivalent count
+        1 + (quantity-1)*demand between the one-unit and full-bank endpoints.
+        Total requested air/water is independent of the selected integer count.
+        At a stage transfer redistribute the SAME flow; otherwise slew at
+        8 pp/tick of the installed bank. Drop a unit only after the remaining
+        units can carry the existing command with the stage margin.
+        """
+        controls = self._controls[node.instance_id]
+        if targets.get("enabled", 0.0) <= 0.0:
+            self._next_active_count(node, 0.0)
+            return {"enabled": 0.0, "active_count": 0.0,
+                    "valve_opening_pct": 0.0, "fan_speed_pct": 0.0}
+        current_count = controls["active_count"] if controls["enabled"] > 0.0 else 0.0
+        fresh_air = node.rated.role is DeviceRole.FRESH_AIR_UNIT
+        bank_values = {}
+        for name in ("valve_opening_pct", "fan_speed_pct"):
+            current = controls[name] * current_count / node.quantity
+            target = targets[name] if fresh_air else targets[name] * targets["active_count"] / node.quantity
+            change = max(-AUTO_MAX_PCT_CHANGE_PER_TICK, min(
+                AUTO_MAX_PCT_CHANGE_PER_TICK, target - current,
+            ))
+            bank_values[name] = max(0.0, min(100.0, current + change))
+        carried_units = current_count * max(controls["valve_opening_pct"], controls["fan_speed_pct"]) / 100.0
+        required_units = node.quantity * max(bank_values.values()) / 100.0
+        count = self._next_active_count(node, max(required_units, carried_units))
+        if count != current_count and current_count > 0.0:
+            bank_values = {name: controls[name] * current_count / node.quantity for name in bank_values}
+        return {
+            "enabled": targets["enabled"], "active_count": count,
+            **{name: min(100.0, value * node.quantity / count) if count else 0.0
+               for name, value in bank_values.items()},
+        }
+
+    def _fresh_air_plant_demand(self, node: DeviceNode) -> float:
+        """Keep the connected plant available for an active outdoor-air coil.
+
+        Room error can vanish while ventilation still imports heat/moisture.
+        The minimum plant command is that load's share of connected rated coil
+        water flow, a dimensionless ratio, rather than an arbitrary thermostat
+        floor or forcing every pump to full speed. Actual flow is still solved
+        by the network and bounded by each valve and source.
+        """
+        if self.config.mode is not SimulationMode.COOLING:
+            return 0.0
+        network = self.layout.network
+        if network is None:
+            terminal_ids = {n.instance_id for n in self.layout.devices if is_terminal(n.rated.role)}
+        else:
+            sources = {
+                p.source_id for p in network.paths if p.system == "cooling_water"
+                and node.instance_id in {p.source_id, *p.drives, p.target_id}
+            }
+            terminal_ids = {
+                p.target_id for p in network.paths if p.system == "chilled_water" and not p.bypass
+                and (node.instance_id in {p.source_id, *p.drives} or p.source_id in sources)
+            }
+        terminals = [n for n in self.layout.devices if n.instance_id in terminal_ids]
+        total = math.fsum((n.rated.flow_m3_h or 0.0) * n.quantity for n in terminals)
+        required = math.fsum(
+            (n.rated.flow_m3_h or 0.0) * n.quantity * self._fresh_air_coil_demand(n)
+            for n in terminals if n.rated.role is DeviceRole.FRESH_AIR_UNIT
+            and self._fresh_air_room_requirement_sum(n) > 0.0
+            and (n.instance_id not in self._manual_overrides or self._controls[n.instance_id]["enabled"] > 0.0)
+        )
+        return min(1.0, required / total) if total > 0.0 else 0.0
+
+    def _fresh_air_room_requirement_sum(self, node: DeviceNode) -> float:
+        return math.fsum(self._fresh_air_room_requirement(room_id) for room_id in node.effective_room_ids)
 
     def _fresh_air_fan_target(self, node: DeviceNode) -> float:
         """新风机组风机目标开度：按应送新风量占额定风量的比例。
@@ -1851,7 +1974,7 @@ class SimulationSession:
             self._fresh_air_room_requirement(room_id)
             for room_id in node.effective_room_ids
         )
-        rated = node.rated.airflow_m3_h or 0.0
+        rated = (node.rated.airflow_m3_h or 0.0) * node.quantity
         if required <= 0.0 or rated <= 0.0:
             return 0.0
         base = max(AUTO_MIN_AIR_OUTPUT_PCT, min(100.0, required / rated * 100.0))
@@ -1862,7 +1985,10 @@ class SimulationSession:
             # slew used by other actuators; the network caps delivery at demand.
             reading = self._snapshot.devices.get(node.instance_id)
             actual = reading.values.get("airflow_m3_h", 0.0) if reading else 0.0
-            current = self._controls[node.instance_id].get("fan_speed_pct", base)
+            controls = self._controls[node.instance_id]
+            current = controls.get("fan_speed_pct", base) * controls.get(
+                "active_count", float(node.quantity),
+            ) / node.quantity
             return max(base, min(100.0, current + (required - actual) / rated * 100.0))
         return base
 
@@ -1887,20 +2013,44 @@ class SimulationSession:
         return 0.0
 
     def _humidity_demand_is_active(self, node: DeviceNode) -> bool:
-        """系统内是否存在尚未满足的除湿需求
+        """Only a source's own chilled-water circuits may request cold water."""
+        if self.layout.network is None:
+            return "chilled" in self._dehumidifying_circuits
+        return any(
+            circuit.circuit_id in self._dehumidifying_circuits
+            for circuit in self.layout.network.circuits
+            if circuit.system == "chilled_water" and node.instance_id in circuit.source_ids
+        )
 
-        冷机出水温度对除湿能力影响极大（实测 7℃ vs 10℃ 相差约 9 个百分点
-        相对湿度），但出水温度目标只由聚合需求决定时，湿度偏差经等效相对湿度
-        归一后常年偏低，出水会停在偏暖侧、刚好不够除湿。
+    def _update_dehumidification_requests(self) -> None:
+        if self.config.mode is not SimulationMode.COOLING:
+            self._dehumidifying_circuits.clear()
+            self._dehumidification_release_seconds.clear()
+            return
+        network = self.layout.network
+        groups = (
+            {c.circuit_id: {room_id for source in c.source_ids
+                           for room_id in network.control_room_ids.get((c.system, source), ())}
+             for c in network.circuits if c.system == "chilled_water"}
+            if network is not None else {"chilled": {r.room_id for r in self.layout.rooms}}
+        )
+        hold = float(rule_value("automatic_control.dehumidification_release_seconds"))
+        for circuit_id, room_ids in groups.items():
+            error = max((self._room_humidity_error(room_id) for room_id in room_ids), default=0.0)
+            if error > AUTO_DEADBAND_RH_PCT:
+                self._dehumidifying_circuits.add(circuit_id)
+            if error < -AUTO_DEADBAND_RH_PCT:
+                elapsed = self._dehumidification_release_seconds.get(circuit_id, 0.0)
+                elapsed += self.config.step_seconds
+                self._dehumidification_release_seconds[circuit_id] = elapsed
+                if elapsed >= hold:
+                    self._dehumidifying_circuits.discard(circuit_id)
+            else:
+                self._dehumidification_release_seconds[circuit_id] = 0.0
 
-        这里判断"是否有房间的湿度需求显著大于其温度需求"，用于把出水压到
-        更能除湿的区间。取 `_room_humidity_demand` 与死区比较而非与 0 比较，
-        避免噪声触发。
-        """
-        for room in self.layout.rooms:
-            if self._room_humidity_demand(room.room_id) > AUTO_DEADBAND_RH_PCT / 100.0:
-                return True
-        return False
+    def _room_humidity_error(self, room_id: str | None) -> float:
+        ratio = humidity_ratio_from_rh(self._room_temp(room_id), self._room_humidity(room_id))
+        return rh_from_humidity_ratio(self.config.target_temp_c, ratio) - self.config.target_humidity_pct
 
     def _slew_value(self, node: DeviceNode, name: str, target: float) -> float:
         current = self._controls[node.instance_id][name]
@@ -1916,7 +2066,7 @@ class SimulationSession:
             )
             candidate = current + max(-limit, min(limit, target - current))
         return clamp_controls(
-            node.rated, {name: candidate}, node.quantity
+            node.rated, {name: candidate}, node.quantity, snap_to_step=False,
         ).get(name, current)
 
     def _room_demand(self, room_id: str | None) -> float:

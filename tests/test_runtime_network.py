@@ -163,12 +163,14 @@ def test_water_valve_cannot_be_used_as_an_air_damper():
     )
 
 
-def test_bypass_is_reported_as_unsupported_without_inventing_flow(water_project):
+def test_bypass_label_alone_does_not_change_the_actual_connections(water_project):
+    baseline = run_project(water_project).snapshot
     water_project.pipes[0].pipe_type = "bypass"
     snapshot = run_project(water_project).snapshot
-    assert snapshot.chilled_flow_m3_h == 0
-    assert any(c.model_status == "unsupported" for c in snapshot.network.circuits)
-    assert any(i.code == "SIM_NETWORK_UNSUPPORTED" for i in snapshot.network.issues)
+    assert snapshot.chilled_flow_m3_h == baseline.chilled_flow_m3_h
+    assert snapshot.devices == baseline.devices
+    assert all(c.model_status == "modeled" for c in snapshot.network.circuits)
+    assert not snapshot.network.issues
 
 
 def test_full_path_resistance_limits_flow(water_project):
@@ -322,6 +324,92 @@ def test_steady_drift_checks_independent_circuits_instead_of_their_mean(water_pr
     assert _temperature_drift(before, after) == pytest.approx(1)
 
 
+@pytest.mark.parametrize(
+    "mode,with_chiller",
+    [(SimulationMode.COOLING, False), (SimulationMode.HEATING, False),
+     (SimulationMode.COOLING, True)],
+)
+@pytest.mark.parametrize("second_source_enabled", [True, False])
+def test_parallel_sources_conserve_individual_and_mixed_water_energy(
+    water_project, mode, with_chiller, second_source_enabled,
+):
+    from app.simcore.hydronics import WATER_KW_PER_M3H_K
+    from app.simcore.steady import solve_steady
+
+    system = "hot_water" if mode is SimulationMode.HEATING else "chilled_water"
+    for pipe in water_project.pipes:
+        pipe.system = system
+    for edge in water_project.connections:
+        edge.system = system
+    water_project.devices.append(DeviceInput(
+        id="source_b", type="空气源热泵", name="SHAF-80H", quantity=2,
+    ))
+    water_project.connections.extend([
+        ConnectionInput(from_id="source_b", to_id="pump", system=system),
+        ConnectionInput(from_id="return", to_id="source_b", system=system),
+    ])
+    if with_chiller:
+        sample = SAMPLES["four_floor_fcu_fresh_air"]
+        chiller = next(d for d in sample["devices"] if d["id"] == "chiller_b1")
+        tower = next(d for d in sample["devices"] if d["type"] == "冷却塔")
+        water_project.devices[0] = DeviceInput(**{**chiller, "id": "source"})
+        water_project.devices.extend([
+            DeviceInput(id="cw_pump", type="循环泵", name="TPE3 65-150"),
+            DeviceInput(**{**tower, "id": "tower"}),
+        ])
+        water_project.connections.extend(
+            ConnectionInput(from_id=a, to_id=b, system="cooling_water")
+            for a, b in [("source", "cw_pump"), ("cw_pump", "tower"), ("tower", "source")]
+        )
+    controls = {"source_b": {"enabled": float(second_source_enabled)}}
+    initial = run_project(water_project, mode=mode, ticks=0)
+    # A 10 kW source alongside a larger one gives unequal Q/V. At this small
+    # test flow two large catalogue sources would both hit the same 20 K cap.
+    layout = replace(initial.layout, devices=tuple(
+        replace(node, rated=replace(node.rated, capacity_kw=10.0))
+        if node.instance_id == "source" else node
+        for node in initial.layout.devices
+    ))
+    session = SimulationSession(layout, initial.config)
+    for key, value in controls.items():
+        session.set_controls(key, value)
+    for _ in range(120):
+        session.step()
+    snapshot = session.snapshot
+    circuit = next(c for c in snapshot.network.circuits if c.system == system)
+    values = [snapshot.devices[key].values for key in ("source", "source_b")]
+    load_key = "heating_kw" if mode is SimulationMode.HEATING else "cooling_kw"
+    sign = 1.0 if mode is SimulationMode.HEATING else -1.0
+    projected = {n.node_id: n for n in snapshot.network.devices if n.system == system}
+    for key, reading in zip(("source", "source_b"), values, strict=True):
+        assert reading["flow_m3_h"] > 0
+        assert reading["return_temp_c"] == pytest.approx(circuit.return_temp_c)
+        assert reading[load_key] == pytest.approx(
+            sign * WATER_KW_PER_M3H_K * reading["flow_m3_h"]
+            * (reading["supply_temp_c"] - reading["return_temp_c"]), abs=1e-9,
+        )
+        assert projected[key].supply_temp_c == pytest.approx(reading["supply_temp_c"])
+        assert projected[key].return_temp_c == pytest.approx(reading["return_temp_c"])
+    total_flow = sum(v["flow_m3_h"] for v in values)
+    assert total_flow == pytest.approx(circuit.flow_m3_h)
+    mixed = sum(v["supply_temp_c"] * v["flow_m3_h"] for v in values) / total_flow
+    assert mixed == pytest.approx(circuit.supply_temp_c)
+    assert sum(v[load_key] for v in values) == pytest.approx(
+        snapshot.heating_load_kw if mode is SimulationMode.HEATING else snapshot.cooling_load_kw
+    )
+    assert abs(values[0]["supply_temp_c"] - values[1]["supply_temp_c"]) > 0.01
+    if not second_source_enabled:
+        assert values[1][load_key] == 0.0
+        assert values[1]["supply_temp_c"] == values[1]["return_temp_c"]
+
+    steady = solve_steady(
+        session.layout, session.config, max_ticks=120, initial_controls=controls,
+    )
+    assert steady.ticks == session.snapshot.tick
+    assert steady.snapshot.devices == snapshot.devices
+    assert steady.snapshot.network == snapshot.network
+
+
 def test_network_pipe_and_device_flows_are_the_same_result(water_project):
     insert_valve(water_project, "s1", "fcu1")
     snapshot = run_project(water_project).snapshot
@@ -376,7 +464,8 @@ def _use_water_medium(project, system):
 
 @pytest.mark.parametrize("system", ["chilled_water", "hot_water", "cooling_water"])
 @pytest.mark.parametrize("kind", ["unknown", "branch_supply", "direct", "local"])
-def test_actual_bypass_is_unsupported_for_every_water_medium(water_project, system, kind):
+def test_actual_bypass_splits_flow_and_mixes_return_for_every_water_medium(water_project, system, kind):
+    from app.simcore.hydronics import WATER_KW_PER_M3H_K
     mode = _use_water_medium(water_project, system)
     baseline = run_project(water_project, mode=mode, ticks=2).snapshot
     assert all(c.model_status == "modeled" and c.flow_m3_h > 0 for c in baseline.network.circuits)
@@ -390,14 +479,26 @@ def test_actual_bypass_is_unsupported_for_every_water_medium(water_project, syst
         links = [("s1", "extra"), ("extra", "rtn1")] if kind == "local" else [("main", "extra"), ("extra", "return")]
     water_project.connections.extend(ConnectionInput(from_id=a, to_id=b, system=system) for a, b in links)
     snapshot = run_project(water_project, mode=mode, ticks=2).snapshot
-    assert all(c.model_status == "unsupported" and c.flow_m3_h == 0 for c in snapshot.network.circuits)
-    assert all(node.model_status == "unsupported" and node.flow_m3_h == 0 for node in snapshot.network.pipes)
-    assert any(issue.code == "SIM_NETWORK_UNSUPPORTED" for issue in snapshot.network.issues)
+    circuit = snapshot.network.circuits[0]
+    assert circuit.model_status == "modeled"
+    nodes = {n.node_id: n for n in snapshot.network.devices}
+    load_flow = nodes["fcu1"].flow_m3_h + nodes["fcu2"].flow_m3_h
+    assert circuit.flow_m3_h > load_flow > 0
+    assert snapshot.devices["pump"].values["flow_m3_h"] == pytest.approx(circuit.flow_m3_h)
+    if kind != "direct":
+        bypass_flow = next(n.flow_m3_h for n in snapshot.network.pipes if n.node_id == "extra")
+        assert circuit.flow_m3_h == pytest.approx(load_flow + bypass_flow)
+    if system != "cooling_water":
+        heating = mode is SimulationMode.HEATING
+        load = snapshot.heating_load_kw if heating else snapshot.cooling_load_kw
+        delta = (circuit.supply_temp_c - circuit.return_temp_c) if heating else (circuit.return_temp_c - circuit.supply_temp_c)
+        assert load == pytest.approx(WATER_KW_PER_M3H_K * circuit.flow_m3_h * delta)
+    assert not snapshot.network.issues
 
 
 @pytest.mark.parametrize("system", ["chilled_water", "hot_water", "cooling_water"])
 @pytest.mark.parametrize("position", ["supply", "return", "mixed_parallel"])
-def test_series_pumps_are_unsupported_instead_of_missing_paths(water_project, system, position):
+def test_series_pumps_carry_the_same_flow_without_double_counting(water_project, system, position):
     mode = _use_water_medium(water_project, system)
     pump = next(device for device in water_project.devices if device.id == "pump")
     water_project.devices.append(pump.model_copy(update={"id": "pump2"}))
@@ -409,9 +510,19 @@ def test_series_pumps_are_unsupported_instead_of_missing_paths(water_project, sy
         links.extend([("source", "pump3"), ("pump3", "main")])
     water_project.connections.extend(ConnectionInput(from_id=a, to_id=b, system=system) for a, b in links)
     snapshot = run_project(water_project, mode=mode, ticks=2).snapshot
-    assert all(c.model_status == "unsupported" and c.flow_m3_h == 0 for c in snapshot.network.circuits)
-    assert any("串联" in issue.message for issue in snapshot.network.issues)
-    assert not any(issue.code == "SIM_WATER_PATH_INCOMPLETE" for issue in snapshot.network.issues)
+    circuit = snapshot.network.circuits[0]
+    q1 = snapshot.devices["pump"].values["flow_m3_h"]
+    q2 = snapshot.devices["pump2"].values["flow_m3_h"]
+    q3 = snapshot.devices["pump3"].values["flow_m3_h"] if position == "mixed_parallel" else 0.0
+    assert circuit.model_status == "modeled" and circuit.flow_m3_h > 0
+    assert q1 == pytest.approx(q2)
+    assert circuit.flow_m3_h == pytest.approx(q1 + q3)
+    assert getattr(snapshot, {"chilled_water": "chilled_flow_m3_h", "hot_water": "hot_water_flow_m3_h", "cooling_water": "cooling_flow_m3_h"}[system]) == pytest.approx(q1 + q3)
+    assert not snapshot.network.issues
+    stopped = run_project(water_project, {"pump2": {"enabled": 0}}, mode=mode, ticks=2).snapshot
+    assert stopped.devices["pump"].values["flow_m3_h"] == 0
+    assert stopped.devices["pump2"].values["flow_m3_h"] == 0
+    assert (stopped.network.circuits[0].flow_m3_h > 0) == (position == "mixed_parallel")
 
 
 def test_parallel_pumps_still_share_the_flow(water_project):
@@ -428,13 +539,101 @@ def test_parallel_pumps_still_share_the_flow(water_project):
     assert not snapshot.network.issues
 
 
-def test_cross_link_does_not_publish_only_the_surviving_branch(water_project):
+def test_cross_link_computes_all_alternative_routes_and_terminals(water_project):
     water_project.connections.append(ConnectionInput(from_id="s1", to_id="s2", system="chilled_water"))
     snapshot = run_project(water_project, ticks=2).snapshot
+    assert snapshot.chilled_flow_m3_h == pytest.approx(3.784)
+    q1 = snapshot.devices["fcu1"].values["water_flow_m3_h"]
+    q2 = snapshot.devices["fcu2"].values["water_flow_m3_h"]
+    assert q1 == pytest.approx(1.892) and q2 == pytest.approx(1.892)
+    assert next(p.flow_m3_h for p in snapshot.network.pipes if p.node_id == "s1") > q1
+    assert all(c.model_status == "modeled" for c in snapshot.network.circuits)
+    assert not snapshot.network.issues
+
+
+def test_closing_a_bypass_restores_terminal_flow_without_breaking_energy_balance(water_project):
+    from app.simcore.hydronics import WATER_KW_PER_M3H_K
+
+    next(p for p in water_project.pipes if p.id == "main").diameter_mm = 15
+    water_project.connections.append(ConnectionInput(from_id="main", to_id="return", system="chilled_water"))
+    insert_valve(water_project, "main", "return", "bypass_valve")
+    opened = run_project(water_project, ticks=30).snapshot
+    closed = run_project(water_project, {"bypass_valve": {"opening_pct": 0}}, ticks=30).snapshot
+    assert opened.devices["bypass_valve"].values["flow_m3_h"] > 0
+    assert closed.devices["bypass_valve"].values["flow_m3_h"] == 0
+    for key in ("fcu1", "fcu2"):
+        assert closed.devices[key].values["water_flow_m3_h"] > opened.devices[key].values["water_flow_m3_h"]
+    for snap in (opened, closed):
+        circuit = snap.network.circuits[0]
+        assert snap.cooling_load_kw == pytest.approx(
+            WATER_KW_PER_M3H_K * circuit.flow_m3_h * (circuit.return_temp_c - circuit.supply_temp_c)
+        )
+
+
+def test_bypass_only_flow_still_requires_water_temperature_to_settle(water_project):
+    from app.simcore.steady import solve_steady
+
+    water_project.rooms = []
+    water_project.connections.append(ConnectionInput(from_id="main", to_id="return", system="chilled_water"))
+    session = run_project(water_project, ticks=0)
+    early = solve_steady(session.layout, session.config, max_ticks=1)
+    assert early.snapshot.chilled_flow_m3_h > 0
+    assert early.snapshot.cooling_load_kw == 0
+    assert not early.converged
+    settled = solve_steady(session.layout, session.config, max_ticks=200)
+    assert settled.converged and settled.ticks > 1
+
+
+def test_condenser_bypass_cannot_replace_cooling_tower_heat_rejection():
+    project = SystemEvaluateRequest.model_validate(SAMPLES["four_floor_fcu_fresh_air"])
+    project.connections.append(ConnectionInput(
+        from_id="cw_pump_b1", to_id="chiller_b1", system="cooling_water",
+    ))
+    baseline = run_project(project).snapshot
+    assert baseline.devices["chiller_b1"].values["cooling_kw"] > 0
+    stopped = run_project(project, {"tower_roof": {"enabled": 0}}).snapshot
+    assert stopped.cooling_flow_m3_h > 0  # Water still circulates through the bypass.
+    assert stopped.devices["chiller_b1"].values["cooling_kw"] == 0
+    assert stopped.devices["chiller_b1"].values["power_kw"] == 0
+    assert any(i.code == "SIM_CONDENSER_FLOW_MISSING" for i in stopped.network.issues)
+
+
+@pytest.mark.parametrize("limit_name", ["MAX_COMPLEX_WATER_ROUTES", "MAX_CYCLE_SEARCH_STEPS"])
+def test_complex_route_limits_reject_the_whole_component_not_a_partial_solution(water_project, monkeypatch, limit_name):
+    from app.simcore import runtime_network
+
+    monkeypatch.setattr(runtime_network, limit_name, 1)
+    water_project.connections.append(ConnectionInput(from_id="main", to_id="return", system="chilled_water"))
+    snapshot = run_project(water_project, ticks=1).snapshot
     assert snapshot.chilled_flow_m3_h == 0
-    assert snapshot.devices["fcu1"].values["water_flow_m3_h"] == 0
-    assert snapshot.devices["fcu2"].values["water_flow_m3_h"] == 0
     assert all(c.model_status == "unsupported" for c in snapshot.network.circuits)
+    assert any("截断通路" in issue.message for issue in snapshot.network.issues)
+
+
+@pytest.mark.parametrize("kind", ["bypass", "series", "ring"])
+def test_complex_routes_are_order_independent_and_share_the_steady_core(water_project, kind):
+    from app.simcore.steady import solve_steady
+
+    if kind == "bypass":
+        links = [("main", "return")]
+    elif kind == "ring":
+        links = [("s1", "s2")]
+    else:
+        pump = next(d for d in water_project.devices if d.id == "pump")
+        water_project.devices.append(pump.model_copy(update={"id": "pump2"}))
+        water_project.connections = [e for e in water_project.connections if (e.from_id, e.to_id) != ("pump", "main")]
+        links = [("pump", "pump2"), ("pump2", "main")]
+    water_project.connections.extend(ConnectionInput(from_id=a, to_id=b, system="chilled_water") for a, b in links)
+    session = run_project(water_project, ticks=120)
+    snapshot = session.snapshot
+    steady = solve_steady(session.layout, session.config, max_ticks=120)
+    assert steady.snapshot == snapshot
+    shuffled = deepcopy(water_project)
+    for items in (shuffled.devices, shuffled.rooms, shuffled.pipes, shuffled.connections):
+        items.reverse()
+    reordered = run_project(shuffled, ticks=120).snapshot
+    assert reordered.devices == snapshot.devices
+    assert reordered.network == snapshot.network
 
 
 @pytest.mark.parametrize("with_pump", [False, True])
@@ -468,7 +667,8 @@ def test_unsupported_loop_does_not_change_an_independent_loop(water_project):
         merged[key].extend(other[key])
     project = SystemEvaluateRequest.model_validate(merged)
     baseline = run_project(project, ticks=2).snapshot
-    project.connections.append(ConnectionInput(from_id="main", to_id="return", system="chilled_water"))
+    insert_valve(project, "main", "s1")
+    next(d for d in project.devices if d.id == "valve").quantity = 2
     snapshot = run_project(project, ticks=2).snapshot
     for key, reading in baseline.devices.items():
         if key.startswith("b_"):
@@ -497,7 +697,8 @@ def test_unsupported_topology_reaches_steady_rest_and_websocket(water_project):
 
     from app.main import app
 
-    water_project.connections.append(ConnectionInput(from_id="main", to_id="return", system="chilled_water"))
+    insert_valve(water_project, "main", "s1")
+    next(d for d in water_project.devices if d.id == "valve").quantity = 2
     with TestClient(app) as client:
         steady = client.post("/api/v1/simulation/steady-state", json=water_project.model_dump())
         assert steady.status_code == 200

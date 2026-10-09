@@ -30,6 +30,12 @@ class FlowPath:
     target_id: str
     elements: tuple[ElementKey, ...]
     room_ids: tuple[str, ...] = ()
+    drive_ids: tuple[str, ...] = ()
+    bypass: bool = False
+
+    @property
+    def drives(self) -> tuple[str, ...]:
+        return self.drive_ids or (self.drive_id,)
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +56,15 @@ class FlowSolution:
 
 def _positive(value: float) -> float:
     return value if math.isfinite(value) and value > 0.0 else 0.0
+
+
+def _path_drive(path: FlowPath, drives: Mapping[ElementKey, FlowDrive]) -> FlowDrive:
+    """Series pumps carry the same flow; their available pressure rises add."""
+    members = [drives.get((path.system, key), FlowDrive(0.0, 0.0)) for key in path.drives]
+    return FlowDrive(
+        min(_positive(d.flow_limit_m3_h) for d in members),
+        math.fsum(_positive(d.pressure_limit_pa) for d in members),
+    )
 
 
 def allocate_paths(
@@ -76,22 +91,32 @@ def allocate_paths(
     groups: dict[tuple[str, str, str], set[str]] = defaultdict(set)
     limits: dict[tuple[str, str, str], float] = {}
     active: set[str] = set()
+    path_drives = {p.path_id: _path_drive(p, drives) for p in ordered}
+    bypass_caps = {
+        p.path_id: min(
+            path_drives[p.path_id].flow_limit_m3_h,
+            (source_caps or {}).get((p.system, p.source_id), math.inf),
+        ) for p in ordered if p.bypass
+    }
     for path in ordered:
-        drive = drives.get((path.system, path.drive_id), FlowDrive(0.0, 0.0))
+        drive = path_drives[path.path_id]
         target = (path.system, path.target_id)
         if (
             _positive(drive.flow_limit_m3_h) > 0.0
             and _positive(drive.pressure_limit_pa) > 0.0
-            and _positive(target_caps.get(target, 0.0)) > 0.0
+            and (path.bypass or _positive(target_caps.get(target, 0.0)) > 0.0)
             and all(valve_openings.get(key, 1.0) > 0.0 for key in path.elements)
         ):
             active.add(path.path_id)
         for key in path.elements:
             element_paths[key].add(path.path_id)
-        for kind, node_id, limit in (
-            ("drive", path.drive_id, drive.flow_limit_m3_h),
-            ("target", path.target_id, target_caps.get(target, 0.0)),
-        ):
+        bounds = [
+            ("drive", key, drives.get((path.system, key), FlowDrive(0.0, 0.0)).flow_limit_m3_h)
+            for key in path.drives
+        ]
+        if not path.bypass:
+            bounds.append(("target", path.target_id, target_caps.get(target, 0.0)))
+        for kind, node_id, limit in bounds:
             key_group = (kind, path.system, node_id)
             groups[key_group].add(path.path_id)
             limits[key_group] = _positive(limit)
@@ -103,20 +128,40 @@ def allocate_paths(
 
     for element, opening in sorted(valve_openings.items()):
         members = element_paths.get(element, set())
-        valve_targets = {(by_id[key].system, by_id[key].target_id) for key in members}
+        valve_targets = {(by_id[key].system, by_id[key].target_id)
+                         for key in members if not by_id[key].bypass}
+        bypass_routes: dict[ElementKey, list[FlowPath]] = defaultdict(list)
+        for path_id in sorted(members):
+            path = by_id[path_id]
+            if path.bypass:
+                bypass_routes[(path.system, path.source_id)].append(path)
+        bypass_sources = {}
+        for source, routes in bypass_routes.items():
+            # Every route crosses one first and one last pump. Distinct pumps
+            # at either cut add in parallel; a shared series pump is counted
+            # once. These cuts and the source give a finite reference envelope.
+            # Taking max(single-route capacity) would halve a two-pump bank
+            # even with its common bypass valve fully open.
+            cut_limits = [
+                math.fsum(drives.get((source[0], drive_id), FlowDrive(0.0, 0.0)).flow_limit_m3_h
+                          for drive_id in sorted({p.drives[index] for p in routes}))
+                for index in (0, -1)
+            ]
+            bypass_sources[source] = min(*cut_limits, (source_caps or {}).get(source, math.inf))
         key_group = ("valve", *element)
         groups[key_group] = members
-        limits[key_group] = math.fsum(
+        reference = math.fsum(
             _positive(reference_caps.get(t, 0.0)) for t in sorted(valve_targets)
-        ) * max(min(opening, 1.0), 0.0)
+        ) + math.fsum(bypass_sources.values())
+        limits[key_group] = reference * max(min(opening, 1.0), 0.0)
 
     route_counts: dict[ElementKey, int] = defaultdict(int)
     for path_id in sorted(active):
         path = by_id[path_id]
-        route_counts[(path.system, path.target_id)] += 1
+        route_counts[(path.system, path.source_id if path.bypass else path.target_id)] += 1
     weights = {
-        p.path_id: _positive(target_caps.get((p.system, p.target_id), 0.0))
-        / max(route_counts[(p.system, p.target_id)], 1)
+        p.path_id: (bypass_caps[p.path_id] if p.bypass else _positive(target_caps.get((p.system, p.target_id), 0.0)))
+        / max(route_counts[(p.system, p.source_id if p.bypass else p.target_id)], 1)
         / math.sqrt(
             max(math.fsum(_positive(resistance.get(e, 0.0)) for e in p.elements), 1.0)
         )
@@ -151,7 +196,7 @@ def allocate_paths(
         for path in ordered:
             if path.path_id not in active and flows[path.path_id] <= 0.0:
                 continue
-            drive = drives.get((path.system, path.drive_id), FlowDrive(0.0, 0.0))
+            drive = path_drives[path.path_id]
             a = math.fsum(
                 _positive(resistance.get(e, 0.0)) * node_slope[e] ** 2
                 for e in path.elements
@@ -196,8 +241,10 @@ def allocate_paths(
     pressure: dict[str, float] = {}
     for path in ordered:
         flow = flows[path.path_id]
-        targets[(path.system, path.target_id)] += flow
-        drive_flows[(path.system, path.drive_id)] += flow
+        if not path.bypass:
+            targets[(path.system, path.target_id)] += flow
+        for drive_id in path.drives:
+            drive_flows[(path.system, drive_id)] += flow
         sources[(path.system, path.source_id)] += flow
         pressure[path.path_id] = math.fsum(
             _positive(resistance.get(e, 0.0)) * elements[e] ** 2 for e in path.elements

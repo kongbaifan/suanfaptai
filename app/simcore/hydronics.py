@@ -133,6 +133,23 @@ def mixed_return_temperature(
     return _bounded_temperature(weighted_return / total_scaled_flow, supply)
 
 
+def source_supply_temperature(
+    return_temp_c: float, flow_m3_h: float, load_kw: float, *, heating: bool,
+) -> float:
+    """Outlet of one source receiving the common mixed return.
+
+    A terminal and a source exchange heat in opposite directions:
+    T_source,out = T_return + sign * Q / (rho*cp*V/3600), with sign +1 for
+    heating and -1 for cooling. Q is already capped by this source's capacity
+    and its actual flow times MAX_HYDRONIC_DELTA_T_C. Reuse the same bounded
+    water-temperature arithmetic; do not substitute the bank's mixed supply
+    for each source's own outlet. An idle source with through-flow has Q=0.
+    """
+    return branch_return_temperature(
+        return_temp_c, flow_m3_h, load_kw, heating=not heating,
+    )
+
+
 def pipe_resistance_index(
     length_m: float | None,
     diameter_mm: float | None,

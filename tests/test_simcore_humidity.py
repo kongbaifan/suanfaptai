@@ -80,26 +80,11 @@ def test_overcooling_stays_within_subcool_allowance():
     )
 
 
-@pytest.mark.xfail(
-    reason=(
-        "已知缺陷（尚未修复）：四层样例的湿度控制处于极限环。实测 3000 tick 后"
-        "末段 1500 tick 窗口内单步温度变化 0.0516 K、湿度 0.3616 个百分点，"
-        "湿度带宽 3.29 pp（49.8~53.1%），不衰减。"
-        "注意：本样例已能达标（均值 52.2%，目标 55%），残余的是小幅极限环，"
-        "不是目标不可达。"
-        "成因不在 `_room_humidity_demand` 的过冷闸门——该处的比例削减已修复"
-        "（提交 5530975，见 test_humidity_demand_is_not_throttled_by_subcool_headroom），"
-        "但触界硬截断本身是必需的（见 test_humidity_demand_stops_at_subcool_floor）。"
-        "残余振荡来自盘管出力与水阀/水温之间的离散耦合，属独立问题。"
-        "本测试保留为缺陷证据与修复验收条件；修复后去掉 xfail 即可。"
-    ),
-    strict=True,
-)
 def test_humidity_control_settles_instead_of_limit_cycling():
     """湿度控制必须收敛到不动点，不得持续振荡
 
     真实缺陷：四层样例在自动调节下持续振荡，室温与湿度都不平息，
-    3000 tick 后振幅仍不衰减（见 xfail 理由中的实测数据）。
+    固定天气后仍有台数切换与自动控制取整引发的持续振荡。
 
     本测试用与稳态收敛判据**无关**的方式复核：末段窗口内每步变化都必须足够小。
     它同时是这条缺陷的**验收条件**——修复后应当直接通过。
@@ -116,6 +101,7 @@ def test_humidity_control_settles_instead_of_limit_cycling():
             target_humidity_pct=55.0,
             outdoor_humidity_pct=70.0,
             automatic_control=True,
+            fixed_hour_of_day=14.0,
         ),
     )
 
@@ -124,15 +110,16 @@ def test_humidity_control_settles_instead_of_limit_cycling():
         session.step()
 
     # 再记录末段轨迹，检查是否真正停住
-    temperatures: list[float] = []
-    humidities: list[float] = []
+    temperatures: dict[str, list[float]] = {room.room_id: [] for room in layout.rooms}
+    humidities: dict[str, list[float]] = {room.room_id: [] for room in layout.rooms}
     for _ in range(200):
         snapshot = session.step()
-        temperatures.append(snapshot.rooms[ROOM_ID].temperature_c)
-        humidities.append(snapshot.rooms[ROOM_ID].relative_humidity_pct)
+        for room_id, room in snapshot.rooms.items():
+            temperatures[room_id].append(room.temperature_c)
+            humidities[room_id].append(room.relative_humidity_pct)
 
-    max_step_t = max(abs(b - a) for a, b in itertools.pairwise(temperatures))
-    max_step_rh = max(abs(b - a) for a, b in itertools.pairwise(humidities))
+    max_step_t = max(abs(b - a) for values in temperatures.values() for a, b in itertools.pairwise(values))
+    max_step_rh = max(abs(b - a) for values in humidities.values() for a, b in itertools.pairwise(values))
 
     assert max_step_t <= 0.01, (
         f"末段仍有 {max_step_t:.4f} K 的单步温度变化，湿度控制未收敛（疑似极限环）"

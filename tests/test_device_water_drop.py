@@ -8,8 +8,11 @@
 现口径（与实时侧一致）：
 - 冷机按系统取蒸发器 / 冷凝器压降，其余设备取 `water_pressure_drop_kpa`；
 - Δp = Δp_额定 × (Q / Q_额定)²，Q 取相邻管段设计流量，Q_额定 = 单台额定水量 × 台数；
-- 设备上写的 `pressure_drop_pa` 视为设计工况值，不折算；
-- 都没有时按 0 计入，并报 `DEVICE_WATER_DROP_MISSING`。
+- 设备上写的 `pressure_drop_pa` 视为设计工况值，不折算（写 0 即"没有水阻"）；
+- 目录与输入都没有时，取 `rules.json` `pressure_defaults.device_water_drop_kpa` 的
+  同类典型值，同样按 (Q/Q_额定)² 折算，报 info 级 `DEVICE_WATER_DROP_TYPICAL`；
+- 典型值也用不上（类型没登记，或拿不到额定水量）时按 0 计入，报
+  warning 级 `DEVICE_WATER_DROP_MISSING`。
 """
 from __future__ import annotations
 
@@ -17,7 +20,9 @@ import pytest
 
 from app.calculators.hydraulic_network import calculate_hydraulic_network
 from app.data.equipment import find_equipment_spec
+from app.samples import SAMPLES
 from app.schemas import SystemEvaluateRequest
+from app.simcore.project import build_runtime_layout
 
 # 100 kW、ΔT = 5 K → 0.86 × 100 / 5 = 17.2 m³/h；冷却水取 1.2 倍 = 20.64 m³/h。
 CHILLED_FLOW = 17.2
@@ -34,7 +39,8 @@ def _payload(chiller_name: str = "SCWE-90H+B", **chiller_overrides) -> dict:
             {"id": "pump", "type": "循环泵", "name": "EC80"},
             {"id": "cw_pump", "type": "循环泵", "name": "EC80"},
             {"id": "fcu", "type": "风机盘管", "name": "FP-85WA", "pressure_drop_pa": 15000},
-            {"id": "tower", "type": "冷却塔", "name": "S15E-1285-06JN"},
+            # 冷却塔显式声明 0：只让冷机的压降出现在冷却水环路上。
+            {"id": "tower", "type": "冷却塔", "name": "S15E-1285-06JN", "pressure_drop_pa": 0},
         ],
         "pipes": [
             {"id": "chw_s", "system": "chilled_water", **pipe},
@@ -106,29 +112,91 @@ def test_parallel_units_share_the_flow():
 
 
 def test_declared_device_drop_is_used_as_is():
-    """设备上写的压降不折算：FCU 声明 15 kPa 就按 15 kPa 计入它挂的那根管。"""
+    """设备上写的压降不折算：FCU 声明 15 kPa 与声明 0 的差就是 15 kPa。"""
     declared = _drops(_payload("LG340MCF"))
     payload = _payload("LG340MCF")
-    payload["devices"][3].pop("pressure_drop_pa")
-    undeclared = _drops(payload)
+    payload["devices"][3]["pressure_drop_pa"] = 0
+    zero = _drops(payload)
 
-    assert declared["chw_r"] - undeclared["chw_r"] == pytest.approx(15000, abs=1e-3)
+    assert declared["chw_r"] - zero["chw_r"] == pytest.approx(15000, abs=1e-3)
 
 
-def test_missing_drop_is_reported_per_system():
-    issues = _issues(_payload("LG340MCF"))["DEVICE_WATER_DROP_MISSING"]
+def test_typical_drop_applies_when_catalog_and_input_are_silent():
+    """手算：额定水量 = 设计流量时折算系数为 1，压降就是 rules.json 典型值本身。
 
-    by_target = {issue.target: issue for issue in issues}
-    assert set(by_target) == {"chilled_water", "cooling_water"}
-    assert all(issue.level == "warning" for issue in issues)
-    assert "chiller" in by_target["chilled_water"].message
-    # FCU 声明了压降，不在缺数据清单里；冷却塔目录没有水阻数据。
-    assert "fcu" not in by_target["chilled_water"].message
-    assert "tower" in by_target["cooling_water"].message
+    风机盘管 30 kPa，冷却塔 50 kPa（`pressure_defaults.device_water_drop_kpa`）。
+    """
+    payload = _payload("LG340MCF")
+    fcu, tower = payload["devices"][3], payload["devices"][4]
+    fcu.pop("pressure_drop_pa")
+    fcu["flow_m3_h"] = CHILLED_FLOW
+    tower.pop("pressure_drop_pa")
+    tower["flow_m3_h"] = COOLING_FLOW
+    typical = _drops(payload)
+
+    fcu["pressure_drop_pa"] = 0
+    tower["pressure_drop_pa"] = 0
+    zero = _drops(payload)
+
+    assert typical["chw_r"] - zero["chw_r"] == pytest.approx(30000, rel=1e-3)
+    tower_pipe = min("cw_s", "cw_r")  # 每台设备只挂到 id 最小的相邻管段
+    assert typical[tower_pipe] - zero[tower_pipe] == pytest.approx(50000, rel=1e-3)
+
+
+def test_typical_drop_scales_with_flow_ratio_squared():
+    """额定水量取设计流量的 2 倍 → 压降为典型值的 1/4。"""
+    payload = _payload("LG340MCF")
+    fcu = payload["devices"][3]
+    fcu.pop("pressure_drop_pa")
+    fcu["flow_m3_h"] = CHILLED_FLOW * 2
+    halved = _drops(payload)
+    fcu["pressure_drop_pa"] = 0
+    zero = _drops(payload)
+
+    assert halved["chw_r"] - zero["chw_r"] == pytest.approx(30000 / 4, rel=1e-3)
+
+
+def test_typical_and_missing_are_reported_separately():
+    """典型值报 info、彻底没数据报 warning；声明了压降（含 0）的设备两边都不列。"""
+    payload = _payload("LG340MCF")
+    payload["devices"][4].pop("pressure_drop_pa")
+    issues = _issues(payload)
+
+    missing = {issue.target: issue for issue in issues["DEVICE_WATER_DROP_MISSING"]}
+    typical = {issue.target: issue for issue in issues["DEVICE_WATER_DROP_TYPICAL"]}
+    assert all(issue.level == "warning" for issue in missing.values())
+    assert all(issue.level == "info" for issue in typical.values())
+    # LG340MCF 是只有布置信息的目录行：没有额定水量，典型值无从折算，只能报缺失。
+    assert set(missing) == {"chilled_water", "cooling_water"}
+    assert "chiller" in missing["chilled_water"].message
+    # 冷却塔有额定水量，用上了典型值。
+    assert set(typical) == {"cooling_water"}
+    assert "tower" in typical["cooling_water"].message
+    assert "tower" not in missing["cooling_water"].message
+    assert all("fcu" not in issue.message for issue in [*missing.values(), *typical.values()])
+
+
+def test_runtime_network_uses_the_same_typical_drops():
+    """实时侧与静态侧同一张表：R = Δp_典型 / (Q_额定 × 台数)²。
+
+    冷却塔曾被实时侧当成冷机去读冷凝器压降 `cooling_pressure_drop_kpa`
+    （字段按"在冷却水环路上"选，而非按冷机选），永远读到 0。
+    """
+    request = SystemEvaluateRequest.model_validate(SAMPLES["four_floor_fcu_fresh_air"])
+    elements = build_runtime_layout(request).layout.network.elements
+
+    tower = elements[("cooling_water", "tower_roof")]
+    assert tower.parameter_sources == ("default:water_pressure_drop_kpa",)
+    assert tower.resistance == pytest.approx(50000 / 107.65**2, rel=1e-6)
+
+    fcu = elements[("chilled_water", "fcu_f1")]
+    rated = find_equipment_spec("风机盘管", "FP-204WA")["water_flow_m3_h"] * 6
+    assert fcu.parameter_sources == ("default:water_pressure_drop_kpa",)
+    assert fcu.resistance == pytest.approx(30000 / rated**2, rel=1e-6)
+
+    chiller = elements[("cooling_water", "chiller_b1")]
+    assert chiller.parameter_sources == ("catalog:cooling_pressure_drop_kpa",)
 
 
 def test_no_missing_warning_when_every_device_has_a_drop():
-    payload = _payload("SCWE-90H+B")
-    payload["devices"][4]["pressure_drop_pa"] = 30000
-
-    assert "DEVICE_WATER_DROP_MISSING" not in _issues(payload)
+    assert "DEVICE_WATER_DROP_MISSING" not in _issues(_payload("SCWE-90H+B"))

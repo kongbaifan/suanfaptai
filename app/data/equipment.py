@@ -6,6 +6,7 @@ from threading import RLock
 from typing import Any
 
 from app.data.json_store import write_json_atomic
+from app.data.rules import rule_value
 from app.schemas import DeviceInput
 
 CATALOG_PATH = Path(__file__).with_name("equipment_catalog.json")
@@ -323,6 +324,31 @@ def catalog_number_for_device(device: DeviceInput, field: str, default: float = 
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def typical_water_drop_kpa(device_type: str | None, field: str) -> float:
+    """该类设备额定水量下的典型水侧压降（kPa），取自 `rules.json`
+    `pressure_defaults.device_water_drop_kpa`；没有登记时返回 0。
+
+    目录里没有该型号压降时才用它，属「默认回退」级降级来源。取值依据
+    （教学估算，不代替厂家样本）：
+
+    - 冷源机组 69.2 / 66.3：目录 SCWE 17 型蒸发器 / 冷凝器压降的中位数；
+    - 空气源 / 水源 / 地源热泵 68.7：目录 SHAF 20 型水侧压降的中位数；
+    - 风机盘管 30：常见样本 20~50 kPa 的中段；
+    - 组合式空调机组 40：盘管排数多于新风机组，目录新风机组压降 20.5~55.4、
+      中位数 33.8，取略高值；
+    - 冷却塔 50：开式塔进塔所需压力（喷淋压力 + 提升高度）常见 4~6 m 水柱。
+      提升高度本是与流量无关的静压，这里与其余设备一样按平方律折算，
+      低流量时偏小，属简化。
+    """
+    table = rule_value("pressure_defaults.device_water_drop_kpa", {}) or {}
+    entry = table.get(resolve_device_type(device_type)) or {}
+    try:
+        value = float(entry.get(field, 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    return value if math.isfinite(value) and value > 0 else 0.0
 
 
 def weighted_average_for_role(devices: list[DeviceInput], role: str, field: str, default: float) -> float:

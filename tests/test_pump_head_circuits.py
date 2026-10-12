@@ -8,9 +8,10 @@
 
 两个缺陷方向相反、互相抵消，必须同时修。
 
-NOTE 1: 本文件验证管道计算结构（供回水管阻力相等、流量守恒），冷机一律用目录里
-**没有**水侧压降的 LG340MCF，免得设备压降混进管道阻力。SCWE 系列已补蒸发器 /
-冷凝器压降，设备阻力的折算与求和见 `tests/test_device_water_drop.py`。
+NOTE 1: 本文件验证管道计算结构（供回水管阻力相等、流量守恒），要把设备压降排除在外：
+冷机用目录里**没有**额定水量与压降的 LG340MCF（典型值也无从折算），风机盘管显式
+声明 `pressure_drop_pa: 0`（否则会套 rules.json 的典型值）。设备阻力的折算与求和见
+`tests/test_device_water_drop.py`。
 
 NOTE 2: test_pump_head_matches_pipe_resistance_when_no_device_data 曾钉住
 "扬程 = 手算 1/4"的旧缺陷（供回水管被按连通分量均分成各一半流量）。
@@ -30,7 +31,7 @@ def test_supply_and_return_pipes_have_equal_resistance():
         "devices": [
             {"id": "chiller", "type": "冷源机组", "name": "LG340MCF"},
             {"id": "pump", "type": "循环泵", "name": "EC80"},
-            {"id": "fcu", "type": "风机盘管", "name": "FP-85WA"},
+            {"id": "fcu", "type": "风机盘管", "name": "FP-85WA", "pressure_drop_pa": 0},
         ],
         "pipes": [
             {
@@ -89,7 +90,7 @@ def test_pump_head_matches_pipe_resistance_when_no_device_data():
         "devices": [
             {"id": "chiller", "type": "冷源机组", "name": "LG340MCF"},
             {"id": "pump", "type": "循环泵", "name": "EC80"},
-            {"id": "fcu", "type": "风机盘管", "name": "FP-85WA"},
+            {"id": "fcu", "type": "风机盘管", "name": "FP-85WA", "pressure_drop_pa": 0},
         ],
         "pipes": [
             {

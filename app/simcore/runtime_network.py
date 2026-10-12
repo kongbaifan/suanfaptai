@@ -16,7 +16,7 @@ from dataclasses import dataclass, field, replace
 from itertools import pairwise
 from typing import Literal
 
-from app.data.equipment import spec_for_device
+from app.data.equipment import spec_for_device, typical_water_drop_kpa
 from app.data.rules import rule_value
 from app.schemas import Issue, PipeInput, SystemEvaluateRequest
 from app.simcore.devices import is_pump, is_terminal, is_valve
@@ -852,11 +852,13 @@ def _elements(
                 else spec.flow_m3_h
             )
             reference_flow = (flow or 0.0) * device.quantity
+            # 冷凝器压降只属于冷机；冷却塔等同在冷却水环路上的设备读自己的
+            # water_pressure_drop_kpa，与上面的额定流量取法一致。
             field_name = (
                 "air_pressure_drop_pa"
                 if air
                 else "cooling_pressure_drop_kpa"
-                if system == "cooling_water"
+                if system == "cooling_water" and spec.role is DeviceRole.CHILLER
                 else "chilled_pressure_drop_kpa"
                 if spec.role is DeviceRole.CHILLER
                 else "water_pressure_drop_kpa"
@@ -872,6 +874,11 @@ def _elements(
                     if device.pressure_drop_pa is not None
                     else "catalog:pressure_drop_pa"
                 )
+            if drop <= 0 and not air and device.pressure_drop_pa is None:
+                # 目录与输入都没有：退到同类典型值，与静态侧
+                # `hydraulic_network._device_water_drop_pa` 同一张表、同一降级链。
+                drop = typical_water_drop_kpa(device.type, field_name) * 1000.0
+                origin = f"default:{field_name}"
             resistance = drop / reference_flow**2 if reference_flow > 0 else 0.0
             sources = [origin] if resistance > 0 else []
             if valve or (spec.role is DeviceRole.AIR_OUTLET):

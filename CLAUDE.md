@@ -205,11 +205,18 @@ npm run build
   `(Q/Q_额定)²` 折算（`Q_额定 = 单台 × 台数`），口径与实时侧 `runtime_network` 一致；
   目录补入 `docs/设备样本参数.md` 的 SCWE 17 型蒸发器/冷凝器压降与 SHAF 20 型水侧压降
   （额定水量逐条与目录核对一致）；缺数据按系统报 `DEVICE_WATER_DROP_MISSING`。
-  **剩余**：风机盘管、组合式空调机组、冷却塔、LG 系列冷机、水/地源热泵在所有资料里都
-  没有水阻数据，仍按 0 计，所以除 `bad` 外 9 个样例都会报这条 warning，`PUMP_HEAD_HIGH`
-  也照报——样例冷机按目录最小型号超配，Q/Q_额定 只有 0.04~0.40，折算后压降很小，
-  泵确实选大了，这是选型结论。实时侧 `simulation` 段只有 `four_floor` 室温变化 0.004 ℃。
-  回归 `tests/test_device_water_drop.py`（6 项）
+  **后续**：风机盘管、组合式空调机组、冷却塔、水/地源热泵在所有资料里都没有水阻数据，
+  改为取 `rules.json` `pressure_defaults.device_water_drop_kpa` 的**同类典型值**
+  （`equipment.typical_water_drop_kpa`，静态与实时同一张表、同一降级链），报 info
+  `DEVICE_WATER_DROP_TYPICAL`。**这些是教学估算，不是厂家数据**——不要写进目录行
+  冒充实测值。取值依据见 `docs/算法深读.md` 4.2。LG 系列冷机目录行只有布置信息、
+  没有额定水量，典型值无从折算，仍报 warning `DEVICE_WATER_DROP_MISSING`。
+  同时修了实时侧一个字段错位：冷却塔被当成冷机去读 `cooling_pressure_drop_kpa`，永远读到 0。
+  实测：10 个样例实时读数（室温/湿度/流量/功率，1500+200 tick）**逐位不变**——流量由
+  阀位与额定上限约束、泵普遍超配，阻力只体现在压降读数上；静态扬程上升，如
+  `manifold_fcu` 0.20→10.33 m（MCW1000V 额定 1.89 m³/h 而两根支管设计流量 2.46 / 3.28 m³/h，平方律
+  放大，`TERMINAL_UNDERSIZED` 早已在报）、`air` 0.13→3.44 m。
+  回归 `tests/test_device_water_drop.py`（10 项）
 
 ### 楼层兜底：凭空造出一个不存在的楼层（**已修**）
 

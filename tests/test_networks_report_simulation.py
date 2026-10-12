@@ -1,5 +1,6 @@
 from copy import deepcopy
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.calculators.air_network import calculate_air_network
@@ -129,13 +130,26 @@ def test_parallel_device_quantity_does_not_multiply_single_path_resistance():
     parallel = calculate_hydraulic_network(
         SystemEvaluateRequest(**parallel_payload), cooling_load_kw=100
     )
+    single_drop = {pipe.pipe_id: pipe.pressure_drop_pa for pipe in single.pipes}
+    parallel_drop = {pipe.pipe_id: pipe.pressure_drop_pa for pipe in parallel.pipes}
 
-    assert {
-        pipe.pipe_id: pipe.pressure_drop_pa for pipe in single.pipes
-    } == {
-        pipe.pipe_id: pipe.pressure_drop_pa for pipe in parallel.pipes
+    # 并联台数分流，不能把阻力乘上去：任何管段（含挂着设备阻力的那根）都不能变大。
+    # 原先断言两者相等，只是因为该风机盘管目录里没有水阻；现在套用典型值后，
+    # 两台并联时 Q_额定 翻倍，设备压降降为 1/4。
+    assert all(parallel_drop[key] <= single_drop[key] + 1e-6 for key in single_drop)
+    assert parallel.required_pump_head_m <= single.required_pump_head_m
+    zero_payload = deepcopy(single_payload)
+    zero_payload["devices"][-1]["pressure_drop_pa"] = 0
+    pipe_only = {
+        pipe.pipe_id: pipe.pressure_drop_pa
+        for pipe in calculate_hydraulic_network(
+            SystemEvaluateRequest(**zero_payload), cooling_load_kw=100
+        ).pipes
     }
-    assert parallel.required_pump_head_m == single.required_pump_head_m
+    terminal_pipe = "chw_1"  # 末端挂在 id 最小的相邻管段上
+    assert parallel_drop[terminal_pipe] - pipe_only[terminal_pipe] == pytest.approx(
+        (single_drop[terminal_pipe] - pipe_only[terminal_pipe]) / 4, rel=1e-3
+    )
 
 
 def test_air_network_calculates_duct_pressure():

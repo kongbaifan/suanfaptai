@@ -31,6 +31,15 @@
     "water_friction_factor": 0.025,
     "air_friction_factor": 0.02,
     "water_local_k": 2.0,
-    "air_local_k": 1.5
+    "air_local_k": 1.5,
+    "device_water_drop_kpa": {
+      "冷源机组": {"chilled_pressure_drop_kpa": 69.2, "cooling_pressure_drop_kpa": 66.3},
+      "空气源热泵": {"water_pressure_drop_kpa": 68.7},
+      "水源热泵": {"water_pressure_drop_kpa": 68.7},
+      "地源热泵": {"water_pressure_drop_kpa": 68.7},
+      "风机盘管": {"water_pressure_drop_kpa": 30.0},
+      "组合式空调机组": {"water_pressure_drop_kpa": 40.0},
+      "冷却塔": {"water_pressure_drop_kpa": 50.0}
+    }
   }
 }

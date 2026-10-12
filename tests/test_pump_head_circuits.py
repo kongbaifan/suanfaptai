@@ -12,9 +12,9 @@ NOTE 1: 当前目录数据系统性缺口——30 个冷源、所有风盘、冷
 都是 None，只有 10 行新风机组有数据。无法构造带真实设备阻力的闭合回路测试。
 测试降级为验证管道计算结构（供回水管阻力相等、流量守恒），不验证设备阻力求和。
 
-NOTE 2: test_pump_head_matches_pipe_resistance_when_no_device_data 当前失败——
-实际扬程 0.564 m = 手算 2.254 m 的 1/4，且路径流量 8.6 = 总流量 17.2 的 1/2。
-这证实了"只算单程"缺陷确实存在。修复后此测试应通过。
+NOTE 2: test_pump_head_matches_pipe_resistance_when_no_device_data 曾钉住
+"扬程 = 手算 1/4"的旧缺陷（供回水管被按连通分量均分成各一半流量）。
+管段流量改为按末端需求路由后，扬程与手算 2.254 m 一致。
 """
 import math
 
@@ -80,8 +80,9 @@ def test_supply_and_return_pipes_have_equal_resistance():
 def test_pump_head_matches_pipe_resistance_when_no_device_data():
     """目录缺设备水阻时，泵扬程应等于管道阻力（不是零、不是无穷）
 
-    NOTE: 此测试当前预期失败——实际扬程约为手算值的 1/4，因为拓扑分析
-    把供回水管当成并联（各分一半流量）而非串联。修复后应通过。
+    曾钉在旧缺陷上（扬程约为手算值的 1/4：拓扑分析把串联的供回水管按连通
+    分量均分成各一半流量）。管段流量改为沿接线按末端需求路由后与手算一致，
+    见 `tests/test_pipe_flow_junctions.py`。
     """
     payload = {
         "rooms": [{"name": "r1", "area_m2": 100, "people": 10}],
@@ -135,11 +136,11 @@ def test_pump_head_matches_pipe_resistance_when_no_device_data():
     two_pipes_pa = 2 * (friction_per_pipe + local_per_pipe)
     expected_head_m = two_pipes_pa / (WATER_DENSITY_KG_M3 * GRAVITY_M_S2) * 1.1
 
-    # 当前缺陷导致扬程约为期望的 1/4（流量分半 → 阻力降为 1/4）
+    # 供回水管串联、各带全流量；旧实现按连通分量均分成一半，扬程只有 1/4。
     ratio = res.required_pump_head_m / expected_head_m
-    assert 0.2 < ratio < 0.3, (
-        f"扬程比值 {ratio:.3f} 应约 0.25（验证缺陷），"
-        f"实际 {res.required_pump_head_m:.3f} m vs 期望 {expected_head_m:.3f} m"
+    assert abs(ratio - 1.0) < 0.01, (
+        f"扬程比值 {ratio:.3f} 应为 1.0，"
+        f"实际 {res.required_pump_head_m:.3f} m vs 手算 {expected_head_m:.3f} m"
     )
 
 

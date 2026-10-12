@@ -48,17 +48,22 @@ def calculate_hydraulic_network(
     topology = analyze_topology(request, total_flow_by_system)
     pipes_by_system = {system: [pipe for pipe in water_pipes if pipe.system == system] for system in WATER_SYSTEMS}
     calculations: list[PipeCalculation] = []
-    # 设备阻力先一次性归到单根管段上，避免串联设备被供、回水管各计一次。
-    device_resistance = _water_resistance_by_pipe(request)
-
+    pipe_flows: dict[str, float] = {}
     for system, pipes in pipes_by_system.items():
-        if not pipes:
-            continue
         base_flow = total_flow_by_system.get(system, 0.0) or sum(pipe.flow_m3_h or 0.0 for pipe in pipes)
         if base_flow <= 0:
             base_flow = float(len(pipes))
         for pipe in pipes:
-            flow_m3_h = topology.pipe_flow_m3_h.get(pipe.id) or pipe.flow_m3_h or base_flow / max(len(pipes), 1)
+            pipe_flows[pipe.id] = topology.pipe_flow_m3_h.get(pipe.id) or pipe.flow_m3_h or base_flow / max(len(pipes), 1)
+    # 设备阻力先一次性归到单根管段上，避免串联设备被供、回水管各计一次。
+    # 压降按管段设计流量折算，所以要在管段流量定下之后算。
+    missing_drop_by_system: dict[str, list[str]] = {}
+    device_resistance = _water_resistance_by_pipe(request, pipe_flows, missing_drop_by_system)
+    issues.extend(_issues_from_missing_drops(missing_drop_by_system))
+
+    for system, pipes in pipes_by_system.items():
+        for pipe in pipes:
+            flow_m3_h = pipe_flows[pipe.id]
             connected_pressure_pa, connected_local_k = device_resistance.get(pipe.id, (0.0, 0.0))
             result = calculate_water_from_flow(
                 flow_m3_h=flow_m3_h,
@@ -198,13 +203,52 @@ def _build_pump_check(request: SystemEvaluateRequest, required_flow_m3_h: float,
 RESISTANCE_ROLES = {"water_accessory", "terminal", "cold_source", "heat_source", "cooling_tower"}
 
 
-def _water_resistance_by_pipe(request: SystemEvaluateRequest) -> dict[str, tuple[float, float]]:
+def _rated_drop_field(role: str | None, system: str) -> str:
+    """该设备在该水系统里的额定水侧压降字段，口径与 `simcore.runtime_network` 一致。
+
+    冷机两侧是两台换热器：蒸发器走冷冻水、冷凝器走冷却水，压降与额定水量各自独立。
+    """
+    if role == "cold_source":
+        return "cooling_pressure_drop_kpa" if system == "cooling_water" else "chilled_pressure_drop_kpa"
+    return "water_pressure_drop_kpa"
+
+
+def _device_water_drop_pa(device, role: str | None, system: str, flow_m3_h: float) -> float | None:
+    """设备在设计流量下的水侧压降（Pa）；目录与输入都没有压降数据时返回 None。
+
+    目录压降是**额定水量**下的值。设备内阻力近似平方律 Δp ∝ Q²，故按
+    Δp = Δp_额定 × (Q / Q_额定)² 折算，Q_额定 = 单台额定水量 × 台数（并联台数
+    均分流量）。拿不到额定水量时无从折算，按额定压降原值计入（偏保守）。
+    用户在设备上写的 `pressure_drop_pa` 视为设计工况实测值，不折算。
+    """
+    rated_kpa = catalog_number_for_device(device, _rated_drop_field(role, system), 0.0)
+    if rated_kpa > 0:
+        rated_flow = flow_for_device(device, system)
+        scale = (flow_m3_h / rated_flow) ** 2 if rated_flow > 0 and flow_m3_h > 0 else 1.0
+        return rated_kpa * 1000.0 * scale
+    if device.pressure_drop_pa is not None:
+        return device.pressure_drop_pa
+    catalog_pa = catalog_number_for_device(device, "pressure_drop_pa", 0.0)
+    return catalog_pa if catalog_pa > 0 else None
+
+
+def _water_resistance_by_pipe(
+    request: SystemEvaluateRequest,
+    pipe_flows: dict[str, float],
+    missing_by_system: dict[str, list[str]] | None = None,
+) -> dict[str, tuple[float, float]]:
     """把设备水侧阻力归到**一根**相邻管段上
 
     串联设备（正常接法）同时挨着供水管和回水管。原先按"逐根相邻管各加一次"
     摊派，环路把两根管一起累加时，同一台设备的压降就被算了两遍。
     这里每台设备在每个系统里只挂到一根管上（按 id 排序取首根，保证确定性），
     环路求和即为真实值。
+
+    设备设计流量取相邻管段流量的最大值：串联设备两侧管段流量相等；分集水器
+    接着一根总管和若干支管，总管那根才是穿过它的流量。
+
+    既无压降也无局部阻力系数的设备按 0 计，但追加到 `missing_by_system`，
+    由调用方显式告警——泵扬程会因此偏小。
     """
     devices = {device.id: device for device in request.devices}
     pipe_systems = {pipe.id: pipe.system for pipe in request.pipes}
@@ -220,14 +264,17 @@ def _water_resistance_by_pipe(request: SystemEvaluateRequest) -> dict[str, tuple
                 adjacent[(node, connection.system)].append(other)
 
     resistance: dict[str, tuple[float, float]] = {}
-    for (device_id, _system), pipe_ids in adjacent.items():
+    for (device_id, system), pipe_ids in adjacent.items():
         device = devices[device_id]
-        if role_for_device(device) not in RESISTANCE_ROLES:
+        role = role_for_device(device)
+        if role not in RESISTANCE_ROLES:
             continue
-        pressure_pa = catalog_number_for_device(device, "water_pressure_drop_kpa", 0.0) * 1000.0
-        pressure_pa += catalog_number_for_device(device, "pressure_drop_pa", 0.0)
+        flow_m3_h = max(pipe_flows.get(pipe_id, 0.0) for pipe_id in pipe_ids)
+        pressure_pa = _device_water_drop_pa(device, role, system, flow_m3_h) or 0.0
         local_k = catalog_number_for_device(device, "local_resistance_coefficient", 0.0)
         if pressure_pa <= 0.0 and local_k <= 0.0:
+            if missing_by_system is not None:
+                missing_by_system.setdefault(system, []).append(device_id)
             continue
         # pipe_ids 由 defaultdict(list) 的 .append 唯一构造，且此处遍历的是
         # 已存在的键，故必非空，min() 与 sorted()[0] 等价。
@@ -235,6 +282,27 @@ def _water_resistance_by_pipe(request: SystemEvaluateRequest) -> dict[str, tuple
         previous = resistance.get(target, (0.0, 0.0))
         resistance[target] = (previous[0] + pressure_pa, previous[1] + local_k)
     return resistance
+
+
+def _issues_from_missing_drops(missing_by_system: dict[str, list[str]]) -> list[Issue]:
+    issues = []
+    for system in WATER_SYSTEMS:
+        device_ids = sorted(set(missing_by_system.get(system, [])))
+        if not device_ids:
+            continue
+        issues.append(
+            Issue(
+                level="warning",
+                code="DEVICE_WATER_DROP_MISSING",
+                message=(
+                    f"{system} 环路中 {len(device_ids)} 台设备没有水侧压降数据（{', '.join(device_ids)}），"
+                    "按 0 计入环路阻力，所需泵扬程偏小。可在设备上填写 pressure_drop_pa，"
+                    "或在设备目录补充额定水侧压降。"
+                ),
+                target=system,
+            )
+        )
+    return issues
 
 
 def _issues_from_pump_check(check: PumpCheckResult | None) -> list[Issue]:

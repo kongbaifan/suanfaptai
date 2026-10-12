@@ -199,6 +199,17 @@ npm run build
   （`three_floor` 4.976→3.497 m、`four_floor` 6.026→4.524 m、`complete` 0.023→0.092 m），
   两个 manifold 样例支管不再均分、按房间面积分流后新增 `HYDRAULIC_IMBALANCE`（真实并联
   差异）。回归 `tests/test_pipe_flow_junctions.py`（17 项）
+- 泵扬程漏算设备水侧压降（静态侧只读 `water_pressure_drop_kpa`，目录只有 10 台新风机组有；
+  冷机蒸发器/冷凝器压降在静态侧一概按 0，且不报降级；新风机组额定压降按常数整额计入）
+  —— **部分修复**：`hydraulic_network._device_water_drop_pa` 改按系统取字段、按
+  `(Q/Q_额定)²` 折算（`Q_额定 = 单台 × 台数`），口径与实时侧 `runtime_network` 一致；
+  目录补入 `docs/设备样本参数.md` 的 SCWE 17 型蒸发器/冷凝器压降与 SHAF 20 型水侧压降
+  （额定水量逐条与目录核对一致）；缺数据按系统报 `DEVICE_WATER_DROP_MISSING`。
+  **剩余**：风机盘管、组合式空调机组、冷却塔、LG 系列冷机、水/地源热泵在所有资料里都
+  没有水阻数据，仍按 0 计，所以除 `bad` 外 9 个样例都会报这条 warning，`PUMP_HEAD_HIGH`
+  也照报——样例冷机按目录最小型号超配，Q/Q_额定 只有 0.04~0.40，折算后压降很小，
+  泵确实选大了，这是选型结论。实时侧 `simulation` 段只有 `four_floor` 室温变化 0.004 ℃。
+  回归 `tests/test_device_water_drop.py`（6 项）
 
 ### 楼层兜底：凭空造出一个不存在的楼层（**已修**）
 

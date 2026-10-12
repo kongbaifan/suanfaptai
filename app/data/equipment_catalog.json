@@ -1012,7 +1012,9 @@
     "iplv": 6.82,
     "power_kw": 52.49,
     "chilled_flow_m3_h": 53.02,
-    "cooling_flow_m3_h": 66.28
+    "chilled_pressure_drop_kpa": 40.9,
+    "cooling_flow_m3_h": 66.28,
+    "cooling_pressure_drop_kpa": 53.4
   },
   {
     "type": "冷源机组",
@@ -1030,7 +1032,9 @@
     "iplv": 7.08,
     "power_kw": 57.41,
     "chilled_flow_m3_h": 57.42,
-    "cooling_flow_m3_h": 71.77
+    "chilled_pressure_drop_kpa": 37.4,
+    "cooling_flow_m3_h": 71.77,
+    "cooling_pressure_drop_kpa": 54.1
   },
   {
     "type": "冷源机组",
@@ -1048,7 +1052,9 @@
     "iplv": 7.07,
     "power_kw": 65.38,
     "chilled_flow_m3_h": 65.26,
-    "cooling_flow_m3_h": 81.57
+    "chilled_pressure_drop_kpa": 46.9,
+    "cooling_flow_m3_h": 81.57,
+    "cooling_pressure_drop_kpa": 53.9
   },
   {
     "type": "冷源机组",
@@ -1066,7 +1072,9 @@
     "iplv": 6.64,
     "power_kw": 79.76,
     "chilled_flow_m3_h": 79.5,
-    "cooling_flow_m3_h": 99.38
+    "chilled_pressure_drop_kpa": 56.5,
+    "cooling_flow_m3_h": 99.38,
+    "cooling_pressure_drop_kpa": 69.2
   },
   {
     "type": "冷源机组",
@@ -1084,7 +1092,9 @@
     "iplv": 6.87,
     "power_kw": 88.88,
     "chilled_flow_m3_h": 90.89,
-    "cooling_flow_m3_h": 113.6
+    "chilled_pressure_drop_kpa": 48.5,
+    "cooling_flow_m3_h": 113.6,
+    "cooling_pressure_drop_kpa": 70.4
   },
   {
     "type": "冷源机组",
@@ -1102,7 +1112,9 @@
     "iplv": 7.07,
     "power_kw": 100.9,
     "chilled_flow_m3_h": 104.4,
-    "cooling_flow_m3_h": 130.5
+    "chilled_pressure_drop_kpa": 62.1,
+    "cooling_flow_m3_h": 130.5,
+    "cooling_pressure_drop_kpa": 74.6
   },
   {
     "type": "冷源机组",
@@ -1120,7 +1132,9 @@
     "iplv": 7.01,
     "power_kw": 114.7,
     "chilled_flow_m3_h": 118.6,
-    "cooling_flow_m3_h": 148.3
+    "chilled_pressure_drop_kpa": 69.2,
+    "cooling_flow_m3_h": 148.3,
+    "cooling_pressure_drop_kpa": 68.6
   },
   {
     "type": "冷源机组",
@@ -1138,7 +1152,9 @@
     "iplv": 7.06,
     "power_kw": 125.5,
     "chilled_flow_m3_h": 130.5,
-    "cooling_flow_m3_h": 163.2
+    "chilled_pressure_drop_kpa": 59.8,
+    "cooling_flow_m3_h": 163.2,
+    "cooling_pressure_drop_kpa": 83.5
   },
   {
     "type": "冷源机组",
@@ -1156,7 +1172,9 @@
     "iplv": 7.14,
     "power_kw": 137.4,
     "chilled_flow_m3_h": 142.4,
-    "cooling_flow_m3_h": 178.0
+    "chilled_pressure_drop_kpa": 69.9,
+    "cooling_flow_m3_h": 178.0,
+    "cooling_pressure_drop_kpa": 69.4
   },
   {
     "type": "冷源机组",
@@ -1174,7 +1192,9 @@
     "iplv": 7.3,
     "power_kw": 132.6,
     "chilled_flow_m3_h": 137.1,
-    "cooling_flow_m3_h": 171.3
+    "chilled_pressure_drop_kpa": 66.7,
+    "cooling_flow_m3_h": 171.3,
+    "cooling_pressure_drop_kpa": 36.1
   },
   {
     "type": "冷源机组",
@@ -1192,7 +1212,9 @@
     "iplv": 7.23,
     "power_kw": 143.4,
     "chilled_flow_m3_h": 148.4,
-    "cooling_flow_m3_h": 185.5
+    "chilled_pressure_drop_kpa": 71.1,
+    "cooling_flow_m3_h": 185.5,
+    "cooling_pressure_drop_kpa": 38.2
   },
   {
     "type": "冷源机组",
@@ -1210,7 +1232,9 @@
     "iplv": 7.28,
     "power_kw": 151.0,
     "chilled_flow_m3_h": 156.1,
-    "cooling_flow_m3_h": 195.2
+    "chilled_pressure_drop_kpa": 77.9,
+    "cooling_flow_m3_h": 195.2,
+    "cooling_pressure_drop_kpa": 41.9
   },
   {
     "type": "冷源机组",
@@ -1228,7 +1252,9 @@
     "iplv": 7.21,
     "power_kw": 175.2,
     "chilled_flow_m3_h": 181.6,
-    "cooling_flow_m3_h": 227.0
+    "chilled_pressure_drop_kpa": 81.8,
+    "cooling_flow_m3_h": 227.0,
+    "cooling_pressure_drop_kpa": 41.8
   },
   {
     "type": "冷源机组",
@@ -1246,7 +1272,9 @@
     "iplv": 7.31,
     "power_kw": 202.0,
     "chilled_flow_m3_h": 209.5,
-    "cooling_flow_m3_h": 261.8
+    "chilled_pressure_drop_kpa": 96.8,
+    "cooling_flow_m3_h": 261.8,
+    "cooling_pressure_drop_kpa": 62.0
   },
   {
     "type": "冷源机组",
@@ -1264,7 +1292,9 @@
     "iplv": 7.39,
     "power_kw": 229.4,
     "chilled_flow_m3_h": 237.2,
-    "cooling_flow_m3_h": 296.5
+    "chilled_pressure_drop_kpa": 96.9,
+    "cooling_flow_m3_h": 296.5,
+    "cooling_pressure_drop_kpa": 66.5
   },
   {
     "type": "冷源机组",
@@ -1282,7 +1312,9 @@
     "iplv": 7.4,
     "power_kw": 248.5,
     "chilled_flow_m3_h": 261.1,
-    "cooling_flow_m3_h": 326.4
+    "chilled_pressure_drop_kpa": 92.1,
+    "cooling_flow_m3_h": 326.4,
+    "cooling_pressure_drop_kpa": 66.3
   },
   {
     "type": "冷源机组",
@@ -1300,7 +1332,9 @@
     "iplv": 7.48,
     "power_kw": 271.9,
     "chilled_flow_m3_h": 284.9,
-    "cooling_flow_m3_h": 356.1
+    "chilled_pressure_drop_kpa": 96.6,
+    "cooling_flow_m3_h": 356.1,
+    "cooling_pressure_drop_kpa": 72.1
   },
   {
     "type": "空气源热泵",
@@ -1320,6 +1354,7 @@
     "heating_capacity_kw": 270.7,
     "heating_power_kw": 79.6,
     "flow_m3_h": 45.4,
+    "water_pressure_drop_kpa": 50.2,
     "cooling_capacity_kw": 191.1,
     "cooling_power_kw": 79.6,
     "eer": 2.4,
@@ -1347,6 +1382,7 @@
     "heating_capacity_kw": 379.1,
     "heating_power_kw": 110.5,
     "flow_m3_h": 64.6,
+    "water_pressure_drop_kpa": 53.8,
     "cooling_capacity_kw": 268.6,
     "cooling_power_kw": 110.5,
     "eer": 2.43,
@@ -1374,6 +1410,7 @@
     "heating_capacity_kw": 455.9,
     "heating_power_kw": 133.9,
     "flow_m3_h": 77.1,
+    "water_pressure_drop_kpa": 54.7,
     "cooling_capacity_kw": 322.0,
     "cooling_power_kw": 133.9,
     "eer": 2.4,
@@ -1401,6 +1438,7 @@
     "heating_capacity_kw": 492.4,
     "heating_power_kw": 144.0,
     "flow_m3_h": 85.8,
+    "water_pressure_drop_kpa": 54.7,
     "cooling_capacity_kw": 348.4,
     "cooling_power_kw": 144.0,
     "eer": 2.42,
@@ -1428,6 +1466,7 @@
     "heating_capacity_kw": 571.4,
     "heating_power_kw": 167.1,
     "flow_m3_h": 100.4,
+    "water_pressure_drop_kpa": 70.9,
     "cooling_capacity_kw": 404.3,
     "cooling_power_kw": 167.1,
     "eer": 2.42,
@@ -1455,6 +1494,7 @@
     "heating_capacity_kw": 588.4,
     "heating_power_kw": 171.8,
     "flow_m3_h": 108.4,
+    "water_pressure_drop_kpa": 66.4,
     "cooling_capacity_kw": 416.6,
     "cooling_power_kw": 171.8,
     "eer": 2.42,
@@ -1482,6 +1522,7 @@
     "heating_capacity_kw": 703.1,
     "heating_power_kw": 205.6,
     "flow_m3_h": 126.1,
+    "water_pressure_drop_kpa": 75.0,
     "cooling_capacity_kw": 497.5,
     "cooling_power_kw": 205.6,
     "eer": 2.42,
@@ -1509,6 +1550,7 @@
     "heating_capacity_kw": 767.4,
     "heating_power_kw": 225.0,
     "flow_m3_h": 137.2,
+    "water_pressure_drop_kpa": 79.4,
     "cooling_capacity_kw": 542.4,
     "cooling_power_kw": 225.0,
     "eer": 2.41,
@@ -1536,6 +1578,7 @@
     "heating_capacity_kw": 835.0,
     "heating_power_kw": 244.4,
     "flow_m3_h": 141.7,
+    "water_pressure_drop_kpa": 53.8,
     "cooling_capacity_kw": 590.6,
     "cooling_power_kw": 244.4,
     "eer": 2.42,
@@ -1563,6 +1606,7 @@
     "heating_capacity_kw": 911.8,
     "heating_power_kw": 267.8,
     "flow_m3_h": 154.3,
+    "water_pressure_drop_kpa": 53.8,
     "cooling_capacity_kw": 644.0,
     "cooling_power_kw": 267.8,
     "eer": 2.4,
@@ -1590,6 +1634,7 @@
     "heating_capacity_kw": 948.3,
     "heating_power_kw": 277.9,
     "flow_m3_h": 162.9,
+    "water_pressure_drop_kpa": 54.7,
     "cooling_capacity_kw": 670.4,
     "cooling_power_kw": 277.9,
     "eer": 2.41,
@@ -1617,6 +1662,7 @@
     "heating_capacity_kw": 984.8,
     "heating_power_kw": 288.7,
     "flow_m3_h": 171.6,
+    "water_pressure_drop_kpa": 54.7,
     "cooling_capacity_kw": 696.1,
     "cooling_power_kw": 288.7,
     "eer": 2.41,
@@ -1644,6 +1690,7 @@
     "heating_capacity_kw": 1064.0,
     "heating_power_kw": 311.1,
     "flow_m3_h": 186.2,
+    "water_pressure_drop_kpa": 70.9,
     "cooling_capacity_kw": 752.9,
     "cooling_power_kw": 311.1,
     "eer": 2.42,
@@ -1671,6 +1718,7 @@
     "heating_capacity_kw": 1143.0,
     "heating_power_kw": 334.2,
     "flow_m3_h": 208.8,
+    "water_pressure_drop_kpa": 70.9,
     "cooling_capacity_kw": 808.8,
     "cooling_power_kw": 334.2,
     "eer": 2.42,
@@ -1698,6 +1746,7 @@
     "heating_capacity_kw": 1190.0,
     "heating_power_kw": 338.9,
     "flow_m3_h": 208.9,
+    "water_pressure_drop_kpa": 70.9,
     "cooling_capacity_kw": 851.1,
     "cooling_power_kw": 338.9,
     "eer": 2.51,
@@ -1725,6 +1774,7 @@
     "heating_capacity_kw": 1177.0,
     "heating_power_kw": 343.6,
     "flow_m3_h": 216.9,
+    "water_pressure_drop_kpa": 66.4,
     "cooling_capacity_kw": 833.4,
     "cooling_power_kw": 343.6,
     "eer": 2.43,
@@ -1752,6 +1802,7 @@
     "heating_capacity_kw": 1292.0,
     "heating_power_kw": 379.4,
     "flow_m3_h": 234.6,
+    "water_pressure_drop_kpa": 75.0,
     "cooling_capacity_kw": 912.6,
     "cooling_power_kw": 379.4,
     "eer": 2.41,
@@ -1779,6 +1830,7 @@
     "heating_capacity_kw": 1406.0,
     "heating_power_kw": 411.2,
     "flow_m3_h": 252.2,
+    "water_pressure_drop_kpa": 75.0,
     "cooling_capacity_kw": 994.8,
     "cooling_power_kw": 411.2,
     "eer": 2.42,
@@ -1806,6 +1858,7 @@
     "heating_capacity_kw": 1471.0,
     "heating_power_kw": 430.6,
     "flow_m3_h": 263.4,
+    "water_pressure_drop_kpa": 79.4,
     "cooling_capacity_kw": 1040.4,
     "cooling_power_kw": 430.6,
     "eer": 2.42,
@@ -1833,6 +1886,7 @@
     "heating_capacity_kw": 1535.0,
     "heating_power_kw": 450.0,
     "flow_m3_h": 274.5,
+    "water_pressure_drop_kpa": 79.4,
     "cooling_capacity_kw": 1085.0,
     "cooling_power_kw": 450.0,
     "eer": 2.41,

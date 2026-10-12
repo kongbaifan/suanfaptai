@@ -8,9 +8,9 @@
 
 两个缺陷方向相反、互相抵消，必须同时修。
 
-NOTE 1: 当前目录数据系统性缺口——30 个冷源、所有风盘、冷却塔的 water_pressure_drop_kpa
-都是 None，只有 10 行新风机组有数据。无法构造带真实设备阻力的闭合回路测试。
-测试降级为验证管道计算结构（供回水管阻力相等、流量守恒），不验证设备阻力求和。
+NOTE 1: 本文件验证管道计算结构（供回水管阻力相等、流量守恒），冷机一律用目录里
+**没有**水侧压降的 LG340MCF，免得设备压降混进管道阻力。SCWE 系列已补蒸发器 /
+冷凝器压降，设备阻力的折算与求和见 `tests/test_device_water_drop.py`。
 
 NOTE 2: test_pump_head_matches_pipe_resistance_when_no_device_data 曾钉住
 "扬程 = 手算 1/4"的旧缺陷（供回水管被按连通分量均分成各一半流量）。
@@ -28,7 +28,7 @@ def test_supply_and_return_pipes_have_equal_resistance():
     payload = {
         "rooms": [{"name": "r1", "area_m2": 100, "people": 10}],
         "devices": [
-            {"id": "chiller", "type": "冷源机组", "name": "SCWE-90H+B"},
+            {"id": "chiller", "type": "冷源机组", "name": "LG340MCF"},
             {"id": "pump", "type": "循环泵", "name": "EC80"},
             {"id": "fcu", "type": "风机盘管", "name": "FP-85WA"},
         ],
@@ -87,7 +87,7 @@ def test_pump_head_matches_pipe_resistance_when_no_device_data():
     payload = {
         "rooms": [{"name": "r1", "area_m2": 100, "people": 10}],
         "devices": [
-            {"id": "chiller", "type": "冷源机组", "name": "SCWE-90H+B"},
+            {"id": "chiller", "type": "冷源机组", "name": "LG340MCF"},
             {"id": "pump", "type": "循环泵", "name": "EC80"},
             {"id": "fcu", "type": "风机盘管", "name": "FP-85WA"},
         ],

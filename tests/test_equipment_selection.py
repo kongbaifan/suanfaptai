@@ -507,6 +507,74 @@ def test_deterministic_ties_use_device_type_then_model_name(
     assert [candidate.rank for candidate in first.candidates] == [1, 2, 3]
 
 
+def _terminal_row(name: str, capacity: float, water: float, airflow: float) -> dict:
+    return {
+        "type": "组合式空调机组", "name": name, "role": "terminal",
+        "capacity_kw": capacity, "water_flow_m3_h": water, "airflow_m3_h": airflow,
+        "fan_power_kw": 1.0,
+    }
+
+
+def test_equal_compliance_prefers_fewer_units_over_a_closer_margin(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """越界条数相同时，台数少者优先，即使裕量距离稍远
+
+    组合式机组按风量定台数，容量裕量全部越界（都带 CAPACITY_MARGIN_HIGH）。
+    旧排序只比裕量距离，小机组凑台数更贴近需求风量，于是总选出一堆小机组：
+    171 kW 的商场选了 13 台 `AHU-07-10`。
+
+        需求 100 kW / 10 m³/h / 10000 m³/h，容量裕量区间 [1.0, 1.35]
+        SMALL × 3：容量 3×60 = 180 → 1.80，风量 3×3500 = 10500 → 1.05
+        BIG   × 1：容量 190 → 1.90，风量 11000 → 1.10
+    两者都带 1 条 CAPACITY_MARGIN_HIGH；SMALL 距离更近，旧排序选 SMALL × 3。
+    """
+    _stub_project_selection(
+        monkeypatch,
+        [
+            _terminal_row("SMALL", 60.0, 4.0, 3500.0),
+            _terminal_row("BIG", 190.0, 12.0, 11000.0),
+        ],
+        _requirements(cooling=100.0, flow=10.0, airflow=10_000.0),
+    )
+
+    result = recommend_equipment("project", "terminal")
+    small = next(c for c in result.candidates if c.model_name == "SMALL")
+    big = next(c for c in result.candidates if c.model_name == "BIG")
+
+    assert (small.quantity, big.quantity) == (3, 1)
+    assert [r.code for r in small.reasons] == [r.code for r in big.reasons] == [
+        "CAPACITY_MARGIN_HIGH"
+    ]
+    assert small.margins.capacity < big.margins.capacity  # SMALL 更贴近需求
+    assert [c.model_name for c in result.candidates] == ["BIG", "SMALL"]
+
+
+def test_compliance_still_outranks_unit_count(monkeypatch: pytest.MonkeyPatch):
+    """台数不能压过规则符合度：落在裕量区间里的多台方案，排在越界的单台方案前面
+
+        需求 100 kW / 10 m³/h / 10000 m³/h
+        PAIR × 2：容量 2×60 = 120 → 1.20（区间内），风量 2×5500 → 1.10
+        HUGE × 1：容量 200 → 2.00（越界 CAPACITY_MARGIN_HIGH）
+    """
+    _stub_project_selection(
+        monkeypatch,
+        [
+            _terminal_row("PAIR", 60.0, 6.0, 5500.0),
+            _terminal_row("HUGE", 200.0, 20.0, 12000.0),
+        ],
+        _requirements(cooling=100.0, flow=10.0, airflow=10_000.0),
+    )
+
+    result = recommend_equipment("project", "terminal")
+
+    assert [(c.model_name, c.quantity) for c in result.candidates] == [
+        ("PAIR", 2), ("HUGE", 1)
+    ]
+    assert result.candidates[0].reasons == []
+    assert [r.code for r in result.candidates[1].reasons] == ["CAPACITY_MARGIN_HIGH"]
+
+
 @pytest.mark.parametrize(
     "role", ["cold_source", "heat_source", "pump", "terminal"]
 )

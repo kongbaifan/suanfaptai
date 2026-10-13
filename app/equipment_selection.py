@@ -655,10 +655,23 @@ def _ranked_candidate(
 
 
 def _ranking_key(item: _RankedCandidate) -> tuple[Any, ...]:
+    """候选排序：合格 → 越界条数 → **台数** → 裕量距离 → 超出量 → 型号
+
+    台数排在越界条数之后、裕量距离之前。越界条数决定规则符合度，所以台数只在
+    符合度相同的候选之间比较：落在裕量区间里的候选，总排在所有越界候选前面，
+    不会为了少一台而选一台严重超配的机组。符合度相同时，台数少意味着管路、
+    阀门和控制点都少，再按裕量距离取最贴近需求的那台。
+
+    旧排序不看台数，裕量距离又天然偏向小机组：小机组凑台数，总送风量更容易
+    贴近需求。组合式机组的容量裕量全部越界（风量定台数，容量必然富余），越界
+    条数分不出高下，于是一层 171 kW 的商场选出 13 台 `AHU-07-10`。能单台满足
+    的 `AHU-25-34-4排` 排在第 19 位。
+    """
     candidate = item.candidate
     return (
         not candidate.eligible,
         len(candidate.reasons),
+        candidate.quantity,
         item.normalized_distance,
         item.overage,
         candidate.device_type,

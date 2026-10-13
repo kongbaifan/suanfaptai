@@ -297,6 +297,30 @@ def test_all_air_unit_is_sized_on_total_load_including_fresh_air():
     assert _by_type(low, _AHU) != _by_type(high, _AHU), "组合式机组应随新风量变化"
 
 
+def test_all_air_picks_one_unit_per_zone_instead_of_a_bank_of_small_ones():
+    """组合式机组不该被选成一堆小机组
+
+    旧排序不看台数，组合式机组又按风量定台数、容量裕量全部越界，越界条数分不出
+    高下，只剩裕量距离——小机组凑台数更贴近需求风量，于是一层 3×400 m² 的商场
+    （171 kW）选出 13 台 `AHU-07-10-4排`，能单台满足的 `AHU-25-34-4排` 排第 19。
+    """
+    mall = {
+        "floors": [{"id": "F1", "name": "一层", "level": 1, "elevation_m": 0.0, "height_m": 5.0}],
+        "rooms": [
+            {"id": f"hall_{i}", "floor_id": "F1", "name": f"大厅{i}", "area_m2": 400,
+             "people": 80, "purpose": "mall"}
+            for i in range(3)
+        ],
+    }
+    project = _build(mall, "all_air", include_heating=False).project
+    assert _by_type(project, _AHU) == {("AHU-25-34-4排", 1)}
+
+    body = client.post("/api/v1/system/evaluate", json=project.model_dump(mode="json")).json()
+    assert [i["code"] for i in body["issues"] if i["level"] == "error"] == []
+    # 单台送风量仍覆盖需求，机组没有被选小
+    assert _installed_airflow(project, _AHU) >= body["air"]["airflow_m3_h"]
+
+
 def test_multi_floor_all_air_evaluates_without_errors():
     """多层全空气建筑必须能无 error 评估
 

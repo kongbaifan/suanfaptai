@@ -13,13 +13,34 @@ from collections import defaultdict
 
 from app.building import implicit_floor_id, normalized_floors, room_floor_id
 from app.data.design_defaults import ORIENTATION_SOLAR_W_M2, PURPOSE_DEFAULTS
-from app.schemas import FloorLoadResult, Issue, LoadRequest, LoadResult, RoomLoadResult
+from app.schemas import (
+    FloorLoadResult,
+    Issue,
+    LoadFactorBreakdown,
+    LoadRequest,
+    LoadResult,
+    RoomInput,
+    RoomLoadBreakdownResult,
+    RoomLoadBreakdownRow,
+    RoomLoadResult,
+)
 from app.simcore.psychrometrics import VAPORIZATION_HEAT_KJ_KG, humidity_ratio_from_rh
 
 AIR_DENSITY_KG_M3 = 1.2
 AIR_CP_KJ_KG_K = 1.005
 # 玻璃遮阳系数与得热修正的合并值（教学口径）
 SOLAR_GAIN_FACTOR = 0.55
+# 逐房间冷负荷表的列顺序：人员 / 照明 / 设备 / 太阳辐射 / 围护 / 新风显热 / 新风潜热。
+# 与 `components_kw` 的插入顺序不同，故显式声明；七项之和恒等于 `cooling_kw`。
+COOLING_COMPONENT_KEYS = (
+    "people",
+    "lighting",
+    "equipment",
+    "solar",
+    "envelope_cooling",
+    "fresh_air_cooling",
+    "latent_cooling",
+)
 
 
 def _round(value: float) -> float:
@@ -199,3 +220,152 @@ def _floor_load_results(floor_meta, floor_stats, total_cooling_kw, simultaneity_
             )
         )
     return sorted(results, key=lambda item: (item.level, item.floor_id))
+
+
+def _load_index_w_m2(cooling_kw: float, area_m2: float | None) -> float | None:
+    """单位面积冷负荷指标，W/m²。面积缺失或为 0 时没有意义，返回 None。"""
+    if not area_m2 or area_m2 <= 0:
+        return None
+    return round(cooling_kw / area_m2 * 1000.0, 1)
+
+
+def build_room_load_breakdown(request: LoadRequest) -> RoomLoadBreakdownResult:
+    """把分项法结果摊平成"逐房间 → 楼层小计 → 全楼合计 → 修正后"的表格。
+
+    不重算任何公式：房间行的分项直接取自 `calculate_load` 的 `components_kw`，
+    小计行是各房间**已四舍五入的分项**之和（与 `_floor_load_results` 同口径），
+    所以表面上的数字可以直接相加核对，不会出现"表里加起来对不上合计"。
+
+    行序：楼层按 `level → id` 排序，房间沿用请求顺序，每个楼层后面紧跟它的小计，
+    最后是全楼合计与修正后（逐分项乘 同时使用系数 × 安全系数）。
+    """
+    result = calculate_load(request)
+    floor_meta = {floor.id: floor for floor in normalized_floors(request)}
+    combined_factor = request.simultaneity_factor * request.safety_factor
+
+    # 房间负荷与房间输入一一对应（calculate_load 按请求顺序输出），用序号兜底生成稳定 key。
+    by_floor: defaultdict[str, list[tuple[str, RoomInput, RoomLoadResult]]] = defaultdict(list)
+    for position, room_load in enumerate(result.rooms):
+        source = request.rooms[position]
+        by_floor[room_load.floor_id].append(
+            (room_load.id or f"room_{position}", source, room_load)
+        )
+
+    floor_order = [
+        floor.id for floor in sorted(floor_meta.values(), key=lambda floor: (floor.level, floor.id))
+    ]
+    floor_order.extend(floor_id for floor_id in by_floor if floor_id not in floor_meta)
+
+    rows: list[RoomLoadBreakdownRow] = []
+    totals = {key: 0.0 for key in COOLING_COMPONENT_KEYS}
+    total_area_m2 = 0.0
+    total_people = 0
+    total_cooling_kw = 0.0
+
+    for floor_id in floor_order:
+        entries = by_floor.get(floor_id, [])
+        if not entries:
+            continue
+        floor = floor_meta.get(floor_id)
+        floor_name = (floor.name or floor_id) if floor is not None else floor_id
+        subtotal = {key: 0.0 for key in COOLING_COMPONENT_KEYS}
+        floor_area_m2 = 0.0
+        floor_people = 0
+        floor_cooling_kw = 0.0
+
+        for key, source, room_load in entries:
+            components = {
+                component: room_load.components_kw.get(component, 0.0)
+                for component in COOLING_COMPONENT_KEYS
+            }
+            rows.append(
+                RoomLoadBreakdownRow(
+                    row_type="room",
+                    key=key,
+                    name=room_load.name,
+                    floor_id=floor_id,
+                    floor_name=floor_name,
+                    area_m2=source.area_m2,
+                    people=source.people,
+                    components_kw=components,
+                    cooling_kw=room_load.cooling_kw,
+                    cooling_index_w_m2=_load_index_w_m2(room_load.cooling_kw, source.area_m2),
+                    adjusted_cooling_kw=_round(room_load.cooling_kw * combined_factor),
+                    fresh_air_m3_h=room_load.fresh_air_m3_h,
+                    index_estimate_kw=room_load.index_estimate_kw,
+                    index_deviation_pct=room_load.index_deviation_pct,
+                )
+            )
+            for component in COOLING_COMPONENT_KEYS:
+                subtotal[component] += components[component]
+            floor_area_m2 += source.area_m2
+            floor_people += source.people
+            floor_cooling_kw += room_load.cooling_kw
+
+        floor_area = _round(floor_area_m2)
+        floor_cooling = _round(floor_cooling_kw)
+        rows.append(
+            RoomLoadBreakdownRow(
+                row_type="floor_subtotal",
+                key=floor_id,
+                name=f"{floor_name}小计",
+                floor_id=floor_id,
+                floor_name=floor_name,
+                area_m2=floor_area,
+                people=floor_people,
+                components_kw={
+                    component: _round(subtotal[component]) for component in COOLING_COMPONENT_KEYS
+                },
+                cooling_kw=floor_cooling,
+                # 指标按**行里显示的**合计与面积算，客户端自己除一遍能得到同一个数。
+                cooling_index_w_m2=_load_index_w_m2(floor_cooling, floor_area),
+                adjusted_cooling_kw=_round(floor_cooling_kw * combined_factor),
+            )
+        )
+        for component in COOLING_COMPONENT_KEYS:
+            totals[component] += subtotal[component]
+        total_area_m2 += floor_area_m2
+        total_people += floor_people
+        total_cooling_kw += floor_cooling_kw
+
+    total_area = _round(total_area_m2)
+    total_cooling = _round(total_cooling_kw)
+    rows.append(
+        RoomLoadBreakdownRow(
+            row_type="building_total",
+            key="ALL",
+            name="全楼合计",
+            area_m2=total_area,
+            people=total_people,
+            components_kw={component: _round(totals[component]) for component in COOLING_COMPONENT_KEYS},
+            cooling_kw=total_cooling,
+            cooling_index_w_m2=_load_index_w_m2(total_cooling, total_area),
+            adjusted_cooling_kw=_round(total_cooling_kw * combined_factor),
+        )
+    )
+    rows.append(
+        RoomLoadBreakdownRow(
+            row_type="adjusted_total",
+            key="ALL_ADJUSTED",
+            name=f"修正后（× {combined_factor:.3f}）",
+            components_kw={
+                component: _round(totals[component] * combined_factor)
+                for component in COOLING_COMPONENT_KEYS
+            },
+            # 修正后行的合计就是修正后口径，不再重复给 adjusted_cooling_kw。
+            cooling_kw=_round(total_cooling_kw * combined_factor),
+        )
+    )
+
+    return RoomLoadBreakdownResult(
+        component_keys=list(COOLING_COMPONENT_KEYS),
+        factors=LoadFactorBreakdown(
+            simultaneity_factor=request.simultaneity_factor,
+            safety_factor=request.safety_factor,
+            combined_factor=_round(combined_factor),
+        ),
+        total_area_m2=_round(total_area_m2),
+        total_people=total_people,
+        rows=rows,
+        issues=result.issues,
+    )

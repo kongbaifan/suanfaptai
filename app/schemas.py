@@ -99,6 +99,83 @@ class LoadResult(BaseModel):
     issues: list[Issue] = []
 
 
+class LoadFactorBreakdown(BaseModel):
+    """逐房间冷负荷表回显的系数：修正后 = 合计 × 同时使用系数 × 安全系数。"""
+
+    simultaneity_factor: float
+    safety_factor: float
+    combined_factor: float
+
+
+class RoomLoadBreakdownRow(BaseModel):
+    """逐房间冷负荷表的一行。
+
+    行类型决定哪些字段有值：`room` 有面积/人数/指标校核值，`floor_subtotal` 有
+    面积/人数，`building_total` 只有全楼合计，`adjusted_total` 是逐分项乘系数后的口径
+    （它的 `cooling_kw` 就是修正后合计）。小计/合计行的分项是各房间**已四舍五入的
+    分项**之和，因此表里的数字可以直接相加核对。
+    """
+
+    row_type: Literal["room", "floor_subtotal", "building_total", "adjusted_total"]
+    # 客户端选中行的稳定标识：房间用房间 id（无 id 时 `room_{序号}`），小计用楼层 id，
+    # 合计用 `ALL`，修正后用 `ALL_ADJUSTED`。
+    key: str
+    name: str
+    floor_id: str | None = None
+    floor_name: str | None = None
+    area_m2: float | None = None
+    people: int | None = None
+    # 冷负荷分项，键与顺序见 RoomLoadBreakdownResult.component_keys。
+    components_kw: dict[str, float] = {}
+    cooling_kw: float = 0.0
+    # 合计 ÷ 面积，W/m²；面积缺失时为 null。
+    cooling_index_w_m2: float | None = None
+    # 合计 × 同时使用系数 × 安全系数（修正后口径）。
+    adjusted_cooling_kw: float | None = None
+    # 以下三项只有房间行有值，供"点一行看手算过程"取输入。
+    fresh_air_m3_h: float | None = None
+    index_estimate_kw: float | None = None
+    index_deviation_pct: float | None = None
+
+
+class RoomLoadBreakdownResult(BaseModel):
+    """逐房间冷负荷表：房间行 → 楼层小计 → 全楼合计 → 修正后，按 `rows` 顺序渲染。
+
+    口径与 `/api/v1/load/calculate` 完全一致（分项法，合计未乘系数），只是把结果摊平成表。
+    """
+
+    # 列顺序：人员 / 照明 / 设备 / 太阳辐射 / 围护 / 新风显热 / 新风潜热。
+    component_keys: list[str]
+    factors: LoadFactorBreakdown
+    total_area_m2: float
+    total_people: int
+    rows: list[RoomLoadBreakdownRow]
+    issues: list[Issue] = []
+
+
+class RoomLoadOverride(BaseModel):
+    """项目级表格接口的房间改动：只允许改面积与人数。
+
+    `room_id` 与 `index` 至少给一个，两个都给时按 `index` 定位并校验 `room_id` 一致。
+    """
+
+    room_id: str | None = None
+    index: int | None = Field(default=None, ge=0)
+    area_m2: float | None = Field(default=None, gt=0)
+    people: int | None = Field(default=None, ge=0)
+
+
+class RoomLoadBreakdownOverrides(BaseModel):
+    """项目级表格接口的请求体，整体可选：不给就用项目原值。
+
+    改动只在本次计算里生效，不写回项目——要落库请用 `PUT /api/v1/projects/{project_id}`。
+    """
+
+    rooms: list[RoomLoadOverride] = []
+    simultaneity_factor: float | None = Field(default=None, gt=0, le=1.0)
+    safety_factor: float | None = Field(default=None, gt=0)
+
+
 class AirRequest(BaseModel):
     cooling_load_kw: float = Field(gt=0)
     supply_return_delta_t_c: float = Field(default=10.0, gt=0)

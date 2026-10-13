@@ -9,7 +9,7 @@ from app.calculators.air import calculate_air
 from app.calculators.air_network import calculate_air_network
 from app.calculators.energy import simulate_energy
 from app.calculators.hydraulic_network import calculate_hydraulic_network
-from app.calculators.load import calculate_load
+from app.calculators.load import build_room_load_breakdown, calculate_load
 from app.calculators.simulation import simulate_steady_state
 from app.calculators.topology import analyze_topology
 from app.calculators.water import calculate_water
@@ -104,6 +104,10 @@ from app.schemas import (
     RealtimeSystemState,
     RealtimeUpdateRequest,
     ReportResult,
+    RoomInput,
+    RoomLoadBreakdownOverrides,
+    RoomLoadBreakdownResult,
+    RoomLoadOverride,
     SelectionRecommendationRequest,
     SelectionRecommendationResult,
     SteadyStateSimulationResult,
@@ -337,6 +341,95 @@ def projects_evaluate(project_id: str) -> SystemEvaluateResult:
         # it calculates. Do not recreate that project or turn this into a 500.
         raise HTTPException(status_code=404, detail="Project not found.") from exc
     return result
+
+
+@app.post(
+    "/api/v1/projects/{project_id}/load/room-breakdown",
+    response_model=RoomLoadBreakdownResult,
+    responses={404: {"description": "Project not found."}},
+)
+def projects_load_room_breakdown(
+    project_id: str,
+    overrides: RoomLoadBreakdownOverrides | None = None,
+) -> RoomLoadBreakdownResult:
+    """读已保存项目，出逐房间冷负荷表；请求体可选，用来改面积/人数与两个系数。
+
+    改动只作用于本次计算，**不写回项目**——要落库请用 `PUT /api/v1/projects/{project_id}`。
+    这样界面可以边调面积/人数边看表，不用先保存（教学里改一个数看指标变化是常用动作）。
+    """
+    try:
+        record = get_project(project_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found.") from exc
+    project = record.project
+    simultaneity_factor = project.simultaneity_factor
+    safety_factor = project.safety_factor
+    rooms = list(project.rooms)
+    if overrides is not None:
+        rooms = _apply_room_load_overrides(rooms, overrides.rooms)
+        if overrides.simultaneity_factor is not None:
+            simultaneity_factor = overrides.simultaneity_factor
+        if overrides.safety_factor is not None:
+            safety_factor = overrides.safety_factor
+    return build_room_load_breakdown(
+        LoadRequest(
+            rooms=rooms,
+            floors=project.floors,
+            simultaneity_factor=simultaneity_factor,
+            safety_factor=safety_factor,
+        )
+    )
+
+
+def _apply_room_load_overrides(
+    rooms: list[RoomInput], overrides: list[RoomLoadOverride]
+) -> list[RoomInput]:
+    """按 `room_id` 或 `index` 覆盖面积/人数。
+
+    定位不到就 422：静默忽略会让界面显示"改了但没变"，比报错更难查。
+    """
+    if not overrides:
+        return list(rooms)
+    updated = list(rooms)
+    for override in overrides:
+        position = _room_override_position(updated, override)
+        changes: dict[str, float | int] = {}
+        if override.area_m2 is not None:
+            changes["area_m2"] = override.area_m2
+        if override.people is not None:
+            changes["people"] = override.people
+        if not changes:
+            raise HTTPException(
+                status_code=422,
+                detail="Each room override must change 'area_m2' or 'people'.",
+            )
+        updated[position] = updated[position].model_copy(update=changes)
+    return updated
+
+
+def _room_override_position(rooms: list[RoomInput], override: RoomLoadOverride) -> int:
+    if override.index is not None:
+        if override.index >= len(rooms):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Room index {override.index} is out of range ({len(rooms)} rooms).",
+            )
+        if override.room_id is not None and rooms[override.index].id != override.room_id:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Room index {override.index} is not room '{override.room_id}'."
+                ),
+            )
+        return override.index
+    if override.room_id is None:
+        raise HTTPException(
+            status_code=422, detail="Each room override needs 'room_id' or 'index'."
+        )
+    for position, room in enumerate(rooms):
+        if room.id == override.room_id:
+            return position
+    raise HTTPException(status_code=422, detail=f"Unknown room id '{override.room_id}'.")
 
 
 @app.get("/api/v1/projects/{project_id}/history", response_model=list[ProjectHistoryEntry])
@@ -763,6 +856,15 @@ def rules():
 @app.post("/api/v1/load/calculate", response_model=LoadResult)
 def load_calculate(request: LoadRequest) -> LoadResult:
     return calculate_load(request)
+
+
+@app.post("/api/v1/load/room-breakdown", response_model=RoomLoadBreakdownResult)
+def load_room_breakdown(request: LoadRequest) -> RoomLoadBreakdownResult:
+    """逐房间冷负荷表：房间行 + 楼层小计 + 全楼合计 + 修正后。
+
+    请求体与 `/api/v1/load/calculate` 同构，面积与人数直接写在 `rooms` 里，改完即算。
+    """
+    return build_room_load_breakdown(request)
 
 
 @app.post("/api/v1/air/calculate", response_model=AirResult)

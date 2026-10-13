@@ -127,16 +127,19 @@ def test_fan_coil_only_rooms_take_outdoor_air_sensible_when_fans_run():
         assert reading.ventilation_kw == pytest.approx(expected, rel=1e-9)
 
 
-def test_heating_holds_rooms_near_target_once_fresh_air_cools_them():
-    """新风机组按卫生新风量常开：制热时房间被新风冷却，由风机盘管补热到目标附近
-
-    修复前同一工况为 24.7~36.8 ℃（目标 20 ℃），内部得热无处可去。
-
-    注：`multi_zone_all_air`（组合式机组兼管新风）此处**不适用**——组合式机组的风机
-    跟随房间需求启停，房间一旦高于目标就整机停下，新风随之中断，房间靠内部得热
-    停在 26~37 ℃。修复前后一致，属控制律缺口，见 CLAUDE.md 已知缺陷。
-    """
-    session = _session("four_floor_fcu_fresh_air", SimulationMode.HEATING, 20.0, 0.0)
+@pytest.mark.parametrize(
+    ("name", "low", "high"),
+    [
+        # 新风机组按卫生新风量常开。补上新风显热前为 24.7~36.8 ℃。
+        ("four_floor_fcu_fresh_air", 18.5, 21.0),
+        # 组合式机组兼管新风。修复风机新风下限前，房间一高于目标机组就整机停下、
+        # 新风中断，房间停在 26.0 / 36.7 / 33.5 ℃ 再也不重启。
+        ("multi_zone_all_air", 19.0, 21.5),
+    ],
+)
+def test_heating_holds_rooms_near_target_once_fresh_air_cools_them(name: str, low: float, high: float):
+    """制热时新风持续进入房间、把房间冷却，末端补热到目标附近（目标 20 ℃，室外 4 ℃）"""
+    session = _session(name, SimulationMode.HEATING, 20.0, 0.0)
     for _ in range(1200):
         session.step()
     means: dict[str, list[float]] = {room.room_id: [] for room in session.layout.rooms}
@@ -147,7 +150,45 @@ def test_heating_holds_rooms_near_target_once_fresh_air_cools_them():
         assert sum(r.ventilation_kw for r in snapshot.rooms.values()) < 0.0
 
     for room_id, values in means.items():
-        assert 18.5 <= statistics.fmean(values) <= 21.0, (room_id, statistics.fmean(values))
+        assert low <= statistics.fmean(values) <= high, (room_id, statistics.fmean(values))
+
+
+def test_ahu_handling_fresh_air_keeps_hygienic_airflow_with_zero_room_demand():
+    """组合式机组承担新风时，房间需求为 0 也要按卫生新风量开风机，水阀则关闭
+
+    下限与新风机组同口径：max(AUTO_MIN_AIR_OUTPUT_PCT, 应送新风量 / 额定风量)。
+    """
+    session = _session("multi_zone_all_air", SimulationMode.HEATING, 20.0, 0.0)
+    # 每步都把房间钉在目标以上 → 温度需求恒为 0（制热时湿度需求恒为 0）；
+    # 执行器每步最多变 8 pp，走足够多步让开度落到目标。
+    for _ in range(20):
+        for room_id in session._room_temps:
+            session._room_temps[room_id] = 25.0
+        session.step()
+
+    controls = session.controls["ahu_f1"]
+    node = next(n for n in session.layout.devices if n.instance_id == "ahu_f1")
+    assert session._fresh_air_duty_m3_h(node) == pytest.approx(2850.0)
+    assert controls["enabled"] == 1.0
+    assert controls["fan_speed_pct"] > 0.0
+    assert controls["valve_opening_pct"] == 0.0
+    assert session.snapshot.devices["ahu_f1"].values["airflow_m3_h"] >= 2850.0
+    assert sum(r.ventilation_kw for r in session.snapshot.rooms.values()) < 0.0
+
+
+def test_ahu_without_fresh_air_duty_still_stops_at_zero_demand():
+    """同一房间另有新风机组时，新风归新风机组；组合式机组只是循环风，可以停"""
+    session = _session("multi_zone_all_air", SimulationMode.HEATING, 20.0, 0.0)
+    node = next(n for n in session.layout.devices if n.instance_id == "ahu_f1")
+    session._fresh_air_handlers = dict  # type: ignore[method-assign]
+    assert session._fresh_air_duty_m3_h(node) == 0.0
+    for _ in range(20):
+        for room_id in session._room_temps:
+            session._room_temps[room_id] = 25.0
+        session.step()
+
+    assert session.controls["ahu_f1"]["enabled"] == 0.0
+    assert session.controls["ahu_f1"]["fan_speed_pct"] == 0.0
 
 
 def test_heating_without_heat_source_settles_where_losses_balance_gains():

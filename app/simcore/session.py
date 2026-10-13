@@ -1903,6 +1903,24 @@ class SimulationSession:
                         if demand > 0.0
                         else 0.0
                     )
+                    if role is DeviceRole.AHU:
+                        # 组合式机组承担房间新风时，风机不能随房间需求归零：
+                        # 风机一停新风就断了。制热时房间高于目标即 demand = 0，
+                        # 旧实现整机停下、新风中断，房间靠内部得热停在 26~37 ℃，
+                        # 再也不会重启。风机下限取卫生新风量（与新风机组同一口径），
+                        # 水阀仍只跟随房间需求——到位后只送新风、不加热也不制冷。
+                        #
+                        # 多台机组时 fan_speed_pct 是单台开度，`_terminal_bank_controls`
+                        # 会乘 active_count/quantity 折成整组；下限是整组开度，
+                        # 这里先反折回单台口径。
+                        floor_pct = self._fresh_air_fan_target(node)
+                        count = targets.get("active_count", float(node.quantity))
+                        if floor_pct > 0.0 and count > 0.0:
+                            targets["fan_speed_pct"] = max(
+                                targets["fan_speed_pct"],
+                                floor_pct * node.quantity / count,
+                            )
+                            targets["enabled"] = 1.0
             if "valve_opening_pct" in self._controls[node.instance_id]:
                 if role is DeviceRole.FRESH_AIR_UNIT:
                     # 新风机组的风机常开送新风，盘管必须同步处理这份新风，
@@ -2049,16 +2067,31 @@ class SimulationSession:
     def _fresh_air_room_requirement_sum(self, node: DeviceNode) -> float:
         return math.fsum(self._fresh_air_room_requirement(room_id) for room_id in node.effective_room_ids)
 
+    def _fresh_air_duty_m3_h(self, node: DeviceNode) -> float:
+        """该机组必须送入的卫生新风量 [m³/h]
+
+        新风机组按其服务的全部房间计。组合式机组只计**由它承担新风**的房间
+        （`_fresh_air_handlers`）：同一房间若另有新风机组，新风归新风机组，
+        组合式机组只是循环风，不需要为新风保持风量。
+        """
+        if node.rated.role is DeviceRole.FRESH_AIR_UNIT:
+            room_ids: Iterable[str] = node.effective_room_ids
+        else:
+            handlers = self._fresh_air_handlers()
+            room_ids = (
+                room_id for room_id in node.effective_room_ids
+                if handlers.get(room_id) == node.instance_id
+            )
+        return math.fsum(self._fresh_air_room_requirement(room_id) for room_id in room_ids)
+
     def _fresh_air_fan_target(self, node: DeviceNode) -> float:
-        """新风机组风机目标开度：按应送新风量占额定风量的比例。
+        """承担新风的机组的风机目标开度：按应送新风量占额定风量的比例。
 
         专用新风机组承担卫生新风，风量不随房间冷热需求变化；房间温度达标就
-        降速会导致新风不足。
+        降速会导致新风不足。组合式机组承担新风时，这个值是它风机的**下限**
+        （见 `_apply_automatic_controls`）。
         """
-        required = math.fsum(
-            self._fresh_air_room_requirement(room_id)
-            for room_id in node.effective_room_ids
-        )
+        required = self._fresh_air_duty_m3_h(node)
         rated = (node.rated.airflow_m3_h or 0.0) * node.quantity
         if required <= 0.0 or rated <= 0.0:
             return 0.0

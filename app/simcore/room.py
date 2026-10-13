@@ -12,6 +12,7 @@ import math
 from dataclasses import dataclass
 
 from app.simcore.psychrometrics import (
+    DRY_AIR_CP_KJ_KG_K,
     LATENT_HEAT_KJ_KG,
     MIN_HUMIDITY_RATIO,
     humidity_ratio_from_rh,
@@ -86,6 +87,8 @@ class RoomBalance:
     cooling_kw: float
     heating_kw: float
     net_kw: float
+    ventilation_kw: float = 0.0
+    """新风显热得热（正为加热房间）：经机组送入的新风 + 未经处理直接进入的新风"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +119,7 @@ def step_room_humidity(
     *,
     fresh_air_m3_h: float = 0.0,
     fresh_air_latent_capacity_kw: float = 0.0,
+    ventilation_latent_kw: float = 0.0,
 ) -> RoomHumidityBalance:
     """推进一个时间步的房间湿度
 
@@ -131,6 +135,10 @@ def step_room_humidity(
 
     新的相对湿度用 `next_temp_c` 反算——同一含湿量下降温会抬高相对湿度，
     这是制冷时室内偏湿的直接原因，教学上必须体现。
+
+    `ventilation_latent_kw` 是**经机组送入**的新风带来的湿量（已由调用方按
+    `ṁ_送 · (w_混 − w_室) · r` 算好，可正可负）；`fresh_air_m3_h` 只用于没有机组
+    承担、按室外状态直接进入房间的新风。两者合计为新风湿负荷，不会重叠。
     """
     air_mass_kg = config.air_mass_kg
     current_ratio = humidity_ratio_from_rh(current_temp_c, current_rh_pct)
@@ -156,7 +164,9 @@ def step_room_humidity(
         if raw_fresh_air_latent_kw > 0.0
         else raw_fresh_air_latent_kw
     )
-    infiltration_latent_kw = treated_fresh_air_latent_kw
+    infiltration_latent_kw = treated_fresh_air_latent_kw + (
+        ventilation_latent_kw if math.isfinite(ventilation_latent_kw) else 0.0
+    )
     internal_latent_kw = config.latent_gain_kw
     # 非有限的冷量不能污染分项读数：RH 有钳制兜底，但分项会原样带出去
     dehumidification_kw = (
@@ -194,15 +204,37 @@ def step_room_temperature(
     step_seconds: float,
     *,
     heating_kw: float = 0.0,
+    ventilation_kw: float = 0.0,
+    fresh_air_m3_h: float = 0.0,
 ) -> RoomBalance:
     """推进一个时间步
 
-    显式欧拉积分：`ΔT = (围护得热 + 室内得热 - 制冷量) · Δt / 热容`。
-    冷热量均为末端设备实际提供的正值，净热流明确使用 `+ heating - cooling`。
+    显式欧拉积分：
+
+        ΔT = (围护 + 室内得热 + 新风显热 + 制热量 − 制冷量) · Δt / 热容
+
+    冷热量是末端**盘管**实际提供的显热（正值）。新风显热单列，分两部分：
+
+    - `ventilation_kw`：经机组送入的新风，调用方按 `ṁ_送 · c_p · (T_混 − T_室)`
+      算好（组合式机组混风、新风机组 100% 室外风；风机盘管处理回风，此项为 0）；
+    - `fresh_air_m3_h`：没有任何机组承担、按室外状态直接进入房间的新风，
+      这里按 `ṁ · c_p · (T_室外 − T_室)` 计入，与湿平衡 `step_room_humidity`
+      用同一风量，保证同一股风的显热与湿量一并进账。
+
+    旧实现没有这一项，新风只进了湿平衡：制热时新风机组送 −7 ℃ 的风，房间却
+    感受不到，被内部得热顶到 30~40 ℃。
     """
     envelope_kw = config.envelope_conductance_kw_k * (outdoor_temp_c - current_temp_c)
     internal_kw = config.internal_gain_kw
-    net_kw = envelope_kw + internal_kw + heating_kw - cooling_kw
+    untreated_kg_s = (
+        max(fresh_air_m3_h, 0.0) * AIR_DENSITY_KG_M3 / 3600.0
+        if math.isfinite(fresh_air_m3_h)
+        else 0.0
+    )
+    total_ventilation_kw = (
+        ventilation_kw if math.isfinite(ventilation_kw) else 0.0
+    ) + untreated_kg_s * DRY_AIR_CP_KJ_KG_K * (outdoor_temp_c - current_temp_c)
+    net_kw = envelope_kw + internal_kw + total_ventilation_kw + heating_kw - cooling_kw
 
     next_temp = current_temp_c + net_kw * step_seconds / config.thermal_capacity_kj_k
     return RoomBalance(
@@ -212,6 +244,7 @@ def step_room_temperature(
         cooling_kw=cooling_kw,
         heating_kw=heating_kw,
         net_kw=net_kw,
+        ventilation_kw=total_ventilation_kw,
     )
 
 

@@ -157,17 +157,19 @@ def test_design_outdoor_conditions_average_rooms_and_clamp_humidity():
 
 # 修复前四个样例分别是 37.44 / 38.88 / 37.17 / 38.53 ℃。
 # 只修房间显热时是 27.88 / 26.80 / 28.92 / 30.12 ℃：剩余偏高来自稳态室外取默认
-# 气象 37 ℃/70%，而静态负荷按 35 ℃/65%。两处都对齐后为下表。
+# 气象 37 ℃/70%，而静态负荷按 35 ℃/65%。两处都对齐后是 25.045 / 23.434 / 25.969 /
+# 27.164 ℃。补上新风显热之后（`test_room_ventilation.py`），三个新风机组样例又升了
+# 0.01~0.15 K：末端封顶后新风机组送风 25.5 ℃，比会议室还热，旧实现把这份加热截成 0。
 # 与设计室内 26 ℃ 的剩余偏差（−2.6 ~ +1.2 K）尚未逐项拆解。可能的来源：末端封顶
 # 按比例分摊到新风盘管与房间盘管、稳态手动控制下阀门不随室温调节、仿真核的房间
 # 得热与静态负荷的分项口径不完全一致。
 @pytest.mark.parametrize(
     ("name", "expected_room_temp_c"),
     [
-        ("four_floor_fcu_fresh_air", 25.045),
+        ("four_floor_fcu_fresh_air", 25.198),
         ("multi_zone_all_air", 23.434),
-        ("ducted_fresh_air", 25.969),
-        ("three_floor_twelve_room", 27.164),
+        ("ducted_fresh_air", 26.040),
+        ("three_floor_twelve_room", 27.177),
     ],
 )
 def test_steady_room_temperature_is_pinned_near_design(name: str, expected_room_temp_c: float):

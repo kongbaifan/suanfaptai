@@ -16,13 +16,17 @@ from dataclasses import replace
 import pytest
 
 from app.calculators.load import calculate_load
-from app.calculators.simulation import design_room_sensible_kw
+from app.calculators.simulation import (
+    design_outdoor_conditions,
+    design_room_sensible_kw,
+)
 from app.main import _evaluate
 from app.samples import SAMPLES
 from app.schemas import LoadRequest, LoadResult, RoomInput, SystemEvaluateRequest
 from app.simcore.project import build_project_layout
 from app.simcore.room import PERSON_SENSIBLE_KW
 from app.simcore.session import SimulationConfig, SimulationSession
+from app.simcore.weather import DEFAULT_SWING_C, PEAK_HOUR, ambient_at
 
 
 def _single_office_request() -> SystemEvaluateRequest:
@@ -122,26 +126,56 @@ def test_design_room_sensible_must_be_finite():
         replace(SimulationConfig(), design_room_sensible_kw=-1.0)
 
 
+def test_design_outdoor_conditions_reproduce_static_design_point():
+    """稳态设计时刻的室外 = 静态负荷用的室外（35 ℃ / 65%）
+
+    稳态固定在 `PEAK_HOUR`，`ambient_at` 在该时刻给出 基准 + 振幅，
+    所以反解出的基准必须让 `_ambient()` 精确回到设计干球。
+    """
+    request = SystemEvaluateRequest(**SAMPLES["four_floor_fcu_fresh_air"])
+    outdoor = design_outdoor_conditions(request)
+    assert outdoor is not None
+    base_c, humidity_pct = outdoor
+
+    ambient = ambient_at(PEAK_HOUR * 3600.0, base_c, humidity_pct)
+    assert ambient.dry_bulb_c == pytest.approx(35.0)
+    assert ambient.relative_humidity_pct == pytest.approx(65.0)
+
+
+def test_design_outdoor_conditions_average_rooms_and_clamp_humidity():
+    rooms = [
+        RoomInput(id="a", area_m2=50.0, outdoor_summer_c=34.0, outdoor_relative_humidity=0.0),
+        RoomInput(id="b", area_m2=50.0, outdoor_summer_c=36.0, outdoor_relative_humidity=0.0),
+    ]
+    base_c, humidity_pct = design_outdoor_conditions(SystemEvaluateRequest(rooms=rooms)) or (0.0, 0.0)
+
+    assert base_c + DEFAULT_SWING_C == pytest.approx(35.0)
+    # 静态侧允许 0%，仿真核只接受 [5, 99] %
+    assert humidity_pct == pytest.approx(5.0)
+    assert design_outdoor_conditions(SystemEvaluateRequest()) is None
+
+
 # 修复前四个样例分别是 37.44 / 38.88 / 37.17 / 38.53 ℃。
-# 剩余的 1~4 K 高于 26 ℃ 来自另一处独立的口径差：稳态仿真的设计时刻室外是
-# 37 ℃/70%（`SimulationConfig` 默认气象），而静态负荷按房间的 35 ℃/65% 计算；
-# 实测把仿真室外对齐到 35/65 后四个样例均值为 25.05 / 23.43 / 25.97 / 27.16 ℃。
-# 对齐室外工况时这里的期望值会一并下降，届时按新实测更新。
+# 只修房间显热时是 27.88 / 26.80 / 28.92 / 30.12 ℃：剩余偏高来自稳态室外取默认
+# 气象 37 ℃/70%，而静态负荷按 35 ℃/65%。两处都对齐后为下表。
+# 与设计室内 26 ℃ 的剩余偏差（−2.6 ~ +1.2 K）尚未逐项拆解。可能的来源：末端封顶
+# 按比例分摊到新风盘管与房间盘管、稳态手动控制下阀门不随室温调节、仿真核的房间
+# 得热与静态负荷的分项口径不完全一致。
 @pytest.mark.parametrize(
     ("name", "expected_room_temp_c"),
     [
-        ("four_floor_fcu_fresh_air", 27.883),
-        ("multi_zone_all_air", 26.800),
-        ("ducted_fresh_air", 28.923),
-        ("three_floor_twelve_room", 30.117),
+        ("four_floor_fcu_fresh_air", 25.045),
+        ("multi_zone_all_air", 23.434),
+        ("ducted_fresh_air", 25.969),
+        ("three_floor_twelve_room", 27.164),
     ],
 )
-def test_steady_room_temperature_is_pinned_below_outdoor(name: str, expected_room_temp_c: float):
+def test_steady_room_temperature_is_pinned_near_design(name: str, expected_room_temp_c: float):
     result = _evaluate(SystemEvaluateRequest(**SAMPLES[name]))
     simulation = result.simulation
     assert simulation is not None
 
     assert simulation.estimated_room_temp_c == pytest.approx(expected_room_temp_c, abs=0.01)
-    # 设计工况下末端在运行，房间绝不能比室外（37 ℃）还热
-    assert simulation.estimated_room_temp_c < 32.0
+    # 设计工况下末端在运行，房间温度必须落在设计室内温度附近
+    assert abs(simulation.estimated_room_temp_c - 26.0) < 3.0
     assert simulation.supply_air_temp_c < simulation.estimated_room_temp_c

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 from app.calculators.load import calculate_load
 from app.schemas import (
@@ -18,6 +19,7 @@ from app.simcore.project import build_project_layout
 from app.simcore.room import PERSON_SENSIBLE_KW
 from app.simcore.session import SimulationConfig
 from app.simcore.steady import solve_steady
+from app.simcore.weather import DEFAULT_SWING_C
 
 # 进入房间显热平衡的设计负荷分项（见 `calculators/load.py` 的 components_kw）。
 # `fresh_air_cooling`（新风显热）由承担新风的盘管在机组侧处理，`latent_cooling`
@@ -68,6 +70,31 @@ def design_room_sensible_kw(
     return total_kw * min(sensible_kw / itemized_kw, 1.0)
 
 
+def design_outdoor_conditions(request: SystemEvaluateRequest) -> tuple[float, float] | None:
+    """稳态设计时刻的室外条件，与静态负荷同源：(日均基准干球 ℃, 相对湿度 %)
+
+    静态负荷按房间的 `outdoor_summer_c` / `outdoor_relative_humidity` 计算，
+    稳态仿真若沿用 `SimulationConfig` 的默认气象（基准 33 ℃ + 日振幅 4 ℃ → 峰值
+    37 ℃、70%），同一份设计负荷就在两个不同的室外工况下被解释。
+
+    稳态固定在 `PEAK_HOUR`，此时 `ambient_at` 的余弦项为 1，干球 = 基准 + 振幅，
+    故反解：基准 = 设计干球 − `DEFAULT_SWING_C`。多房间取算术平均（与
+    `project_humidity_pct` 同口径），用 fsum 保证与房间顺序无关。
+    相对湿度钳到 `SimulationConfig` 的合法范围 [5, 99] %——静态侧允许 0~1，
+    超出部分仿真核本就不接受。
+
+    没有房间时返回 None，沿用默认气象。
+    """
+    if not request.rooms:
+        return None
+    count = len(request.rooms)
+    dry_bulb_c = math.fsum(room.outdoor_summer_c for room in request.rooms) / count
+    humidity_pct = (
+        math.fsum(room.outdoor_relative_humidity for room in request.rooms) / count * 100.0
+    )
+    return dry_bulb_c - DEFAULT_SWING_C, min(max(humidity_pct, 5.0), 99.0)
+
+
 def simulate_steady_state(
     request: SystemEvaluateRequest,
     load: LoadResult | None,
@@ -81,14 +108,17 @@ def simulate_steady_state(
     )  # Network results are calculated separately and kept in the response.
     cooling_load_kw = load.adjusted_cooling_kw if load else 0.0
     resolved = build_project_layout(request)
-    result = solve_steady(
-        resolved.layout,
-        SimulationConfig(
-            step_seconds=300.0,
-            design_cooling_load_kw=cooling_load_kw,
-            design_room_sensible_kw=design_room_sensible_kw(request, load),
-        ),
+    config = SimulationConfig(
+        step_seconds=300.0,
+        design_cooling_load_kw=cooling_load_kw,
+        design_room_sensible_kw=design_room_sensible_kw(request, load),
     )
+    outdoor = design_outdoor_conditions(request)
+    if outdoor is not None:
+        config = replace(
+            config, outdoor_base_temp_c=outdoor[0], outdoor_humidity_pct=outdoor[1]
+        )
+    result = solve_steady(resolved.layout, config)
     snapshot = result.snapshot
 
     issues: list[Issue] = list(snapshot.network.issues) if snapshot.network else []

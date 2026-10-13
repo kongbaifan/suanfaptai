@@ -236,6 +236,15 @@ class SimulationConfig:
     room_initial_states: tuple[RoomInitialState, ...] = ()
     fixed_hour_of_day: float | None = None
     design_cooling_load_kw: float | None = None
+    """设计总冷负荷（含新风显热与潜热），只用于给末端冷量封顶"""
+    design_room_sensible_kw: float | None = None
+    """设计负荷中由房间显热得热构成的部分（人员显热 + 照明 + 设备 + 太阳辐射 + 围护）
+
+    稳态用它改写房间得热。不能直接用 `design_cooling_load_kw`：新风显热由承担
+    新风的盘管在机组侧处理（混风/新风进盘管），潜热走房间湿平衡，两者都不是
+    房间的显热得热。把总负荷整份记成房间得热，会让房间同时多背新风与潜热两份
+    负荷，而末端冷量又被封顶在总负荷，稳态室温因此被推到室外温度附近。
+    """
     chiller_capacity_multiplier: float = 1.0
     automatic_control: bool = False
     """冻结室外气象于指定时刻
@@ -271,6 +280,16 @@ class SimulationConfig:
             )
         ):
             raise ValueError("design cooling load must be finite and non-negative")
+        if (
+            self.design_room_sensible_kw is not None
+            and (
+                not math.isfinite(self.design_room_sensible_kw)
+                or self.design_room_sensible_kw < 0.0
+            )
+        ):
+            raise ValueError(
+                "design room sensible load must be finite and non-negative"
+            )
         if (
             not math.isfinite(self.chiller_capacity_multiplier)
             or not 0.0 < self.chiller_capacity_multiplier <= 1.0
@@ -1448,9 +1467,10 @@ class SimulationSession:
         # 与"谁不用再往房间注入新风"判断一致。
         fresh_handler_by_room = self._fresh_air_handlers()
         design_gain_adjustments: dict[str, float] = {}
+        room_sensible_kw = self.config.design_room_sensible_kw
         if (
             self.config.mode is SimulationMode.COOLING
-            and self.config.design_cooling_load_kw is not None
+            and room_sensible_kw is not None
             and self.layout.rooms
         ):
             connected_terminals = [
@@ -1458,10 +1478,22 @@ class SimulationSession:
                 for node in self.layout.devices
                 if is_terminal(node.rated.role)
             ]
-            effective_design_gain_kw = min(
-                self.config.design_cooling_load_kw,
-                self._terminal_design_load(connected_terminals),
+            # 末端装机不足以覆盖设计总负荷时，房间显热按同一覆盖率折减：
+            #   覆盖率 = min(1, 末端可用冷量 / 设计总冷负荷)
+            # 末端冷量被封顶在设计总负荷（见 `_solve`），其中新风与潜热那部分
+            # 不进入房间显热平衡，所以折减的是显热份额，而不是拿显热直接去比总冷量。
+            design_total_kw = self.config.design_cooling_load_kw
+            if design_total_kw is None or design_total_kw <= 0.0:
+                design_total_kw = room_sensible_kw
+            coverage = (
+                min(
+                    1.0,
+                    self._terminal_design_load(connected_terminals) / design_total_kw,
+                )
+                if design_total_kw > 0.0
+                else 0.0
             )
+            effective_design_gain_kw = room_sensible_kw * coverage
             target_gains = {
                 room.room_id: max(
                     room.thermal.envelope_conductance_kw_k
@@ -1494,8 +1526,8 @@ class SimulationSession:
             thermal = room.thermal
             adjustment_kw = design_gain_adjustments.get(room.room_id, 0.0)
             if adjustment_kw != 0.0:
-                # The external design load replaces the target-condition total
-                # room gain while preserving the normal envelope temperature slope.
+                # 设计房间显热替换目标工况下的房间总显热得热，
+                # 围护随室温变化的斜率保持不变。
                 thermal = replace(
                     thermal,
                     equipment_w=thermal.equipment_w + adjustment_kw * 1000.0,

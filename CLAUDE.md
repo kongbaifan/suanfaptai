@@ -199,6 +199,19 @@ npm run build
   （`three_floor` 4.976→3.497 m、`four_floor` 6.026→4.524 m、`complete` 0.023→0.092 m），
   两个 manifold 样例支管不再均分、按房间面积分流后新增 `HYDRAULIC_IMBALANCE`（真实并联
   差异）。回归 `tests/test_pipe_flow_junctions.py`（17 项）
+- 稳态评估把整份设计冷负荷记成房间显热得热：`session._advance_rooms` 的
+  `design_gain_adjustments` 用 `adjusted_cooling_kw` 改写房间得热，而这个总数含新风显热与潜热。
+  `four_floor` 的房间得热因此从 33.7 kW 抬到 106.5 kW，评估页与总览页的「估算房温」在四个
+  完整样例上是 37~39 ℃，高于设计室外。这个问题从首次提交起就存在。**已修复**：新增
+  `SimulationConfig.design_room_sensible_kw`，只取照明 + 设备 + 太阳辐射 + 围护 + 人员显热；
+  总负荷仍只用于末端封顶。现在室温是 26.8~30.1 ℃。剩余偏高是因为稳态室外 37 ℃/70% 与
+  静态 35 ℃/65% 不一致，这一项**未修**。口径见 `docs/算法深读.md` 第 6 节，回归测试见
+  `tests/test_steady_room_sensible.py`（9 项；反向验证 4 项失败）
+- **未修**：房间温度方程 `room.step_room_temperature` 没有新风显热项，新风只进了湿平衡。
+  制热、通风两种模式，以及制冷下只配风机盘管的房间都受影响（制热实测每个房间漏算 6~15 kW，
+  房间被内部得热顶到 30~40 ℃）。制冷下有新风机组或组合式机组的房间不受影响，因为新风已经
+  穿过盘管，经「送风 − 室内」状态差计入。同类问题：制热时盘管进风取室温而不是混风温度
+  （`_terminal_air_entering_state` 只在制冷分支调用）
 - 泵扬程漏算设备水侧压降（静态侧只读 `water_pressure_drop_kpa`，目录只有 10 台新风机组有；
   冷机蒸发器/冷凝器压降在静态侧一概按 0，且不报降级；新风机组额定压降按常数整额计入）
   —— **部分修复**：`hydraulic_network._device_water_drop_pa` 改按系统取字段、按
@@ -465,6 +478,16 @@ for port in ports:
 钉住该行为：**不要**靠扩大风管表或静默钳位把它"修掉"。
 
 ### 湿度目标不可达：根因、已修部分与剩余缺口
+
+> **2026-10-12 复核：本节 `complete` / `air` / `multi_floor` / `manifold_fcu`(_dual_water)
+> 的实时数字已失效。** 它们测于 `efa3775`（连接驱动动态仿真，2026-10-08）之前。新模型
+> 按实际接线判断冷却水：这 5 个样例没有完整冷却水回路（`complete`/`air` 没有冷却水泵，
+> `multi_floor` 的冷却塔没接线，两个 manifold 根本没有冷却塔），水冷冷机按设计联锁
+> 停机（`SIM_CONDENSER_FLOW_MISSING`，实时告警 `no_cold_source`），房间升到上限
+> `MAX_ROOM_TEMP_C = 40`、RH 100%。这是 `docs/连接驱动动态仿真.md` 第 25 行写明的预期
+> 行为，**不是回归**。下文这些样例的 RH、"补新风机组 → 57%"等替换实验都要先补齐冷却水
+> 回路才能复现；仍可用的完整样例是 `four_floor_fcu_fresh_air`、`ducted_fresh_air`、
+> `three_floor_twelve_room`（实测仍 56~57%）。
 
 **结论先行**：55% 目标在十个内置样例中只有部分可达。已修的是**模型口径与
 控制律**缺陷（实测值 2~5 个百分点）；**剩余 10~17 个百分点不是控制问题，

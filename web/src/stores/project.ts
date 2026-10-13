@@ -34,6 +34,12 @@ export const SAMPLE_OPTIONS = [
     label: "三层十二房间教学样例（未保存）",
     defaultProjectName: "三层十二房间教学项目",
   },
+  {
+    name: "three_floor_retail",
+    selectionKey: "sample:three_floor_retail",
+    label: "三层商业楼夏季样例（未保存）",
+    defaultProjectName: "三层商业楼夏季项目",
+  },
 ] as const;
 
 export type SampleName = (typeof SAMPLE_OPTIONS)[number]["name"];

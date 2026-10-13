@@ -520,6 +520,28 @@ for port in ports:
 `tests/test_three_floor_twelve_room_sample.py::test_duct_oversize_warning_is_expected_and_pinned`
 钉住该行为：**不要**靠扩大风管表或静默钳位把它"修掉"。
 
+### 样例：three_floor_retail（三层商业楼，按 Unity 平面截图建模，只做夏季）
+
+`app/samples.py` 的 `THREE_FLOOR_RETAIL_SAMPLE`，数据在 `app/data/sample_three_floor_retail.json`。
+楼层为 B1F 机房 + F1~F3 商业 + RF 屋面。
+
+- **建筑来自图纸**：五张俯视截图都没有标尺寸。按电梯井约 2.5 m、中跨柱距反推，整栋约
+  36.6 × 21.3 m（约 28.5 px/m，误差约 ±15%）。房间是各层隔墙围出来的分区，扣除了核心筒、
+  楼梯和中庭开洞，用像素连通分区量出面积：一层 2 区（只有一道南北分隔墙）、二层 5 区、三层
+  4 区，共 1722 m²。用户确认不给一层凭空加隔墙，所以每层不是统一 4 间。全部按 `mall`，
+  人员密度取 GB 50189 商场建筑的 8 m²/人，共 215 人。截图没有指北，按图上方为北定各区朝向。
+- **系统由生成器产出后冻结**，不是手写的：`build_system`，`fcu_fresh_air`，
+  `include_heating=False`。选出的设备：冷机 `SCWE-90H+B`，冷却塔 `S15E-110`，冷却水泵
+  `TPE3 80-200`；每层 6 台风机盘管加 1 台 `MKS02D4Y/C` 新风机组。
+  `test_three_floor_retail_sample.py` 会用同一份楼层和房间重新生成，再与冻结结果逐字段比对。
+  **改了生成器、这条测试失败时，先确认新结果合理，再按该测试 docstring 重新冻结**，
+  不要手改 JSON。
+- 实测（burn-in 4000 + 窗口 400，24 ℃ / 55%，室外 70%）：冷机开机 400/400，RH@24 为
+  54.8~55.7%，室温 25.4~25.9 ℃。风机盘管水阀只开 45~50%，没有饱和，室温比目标高约 1.5 K
+  来自自动控制的比例带（见「末端超配与自动控制律强耦合」），不是选小了。
+- 预期警告：`energy_balance_violation`（没有热源，制热缺口如实报出）和
+  `DUCT_OVERSIZE_REQUIRED`（末端总风量超过标准风管表最大档，与 `three_floor_twelve_room` 同类）。
+
 ### 湿度目标不可达：根因、已修部分与剩余缺口
 
 > **2026-10 复核**：`efa3775`（连接驱动动态仿真）之后，`complete` / `air` / `multi_floor` /

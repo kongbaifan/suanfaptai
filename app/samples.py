@@ -1,4 +1,6 @@
+import json
 from copy import deepcopy
+from pathlib import Path
 from typing import Any
 
 COMPLETE_SYSTEM_SAMPLE: dict[str, Any] = {
@@ -1152,6 +1154,24 @@ for _room in MULTI_ZONE_ALL_AIR_SAMPLE["rooms"]:
     _room["return_air_outlet_ids"] = [_outlet]
 
 
+# 三层商业楼（按 Unity 平面截图建模，只做夏季）：B1F 机房 + F1~F3 商业 + RF 屋面。
+#
+# 建筑部分来自平面图。没有标注尺寸，按电梯井约 2.5 m、中跨柱距反推，整栋约
+# 36.6 × 21.3 m（约 28.5 px/m，误差约 ±15%）。房间就是各层隔墙围出的分区，
+# 扣除了核心筒、楼梯和中庭开洞：一层 2 区（隔墙一道，南北分）、二层 5 区、
+# 三层 4 区，共 1722 m²。全部按商场（`mall`），人员密度取 GB 50189 商场建筑
+# 的 8 m²/人。截图未标指北，按图上方为北取各区朝向。
+#
+# 系统部分不是手写的，是骨架生成器 `system_builder.build_system`
+# （`fcu_fresh_air`、`include_heating=False`）生成后冻结成 JSON，选型依据见生成器的
+# decisions。`tests/test_three_floor_retail_sample.py` 用同一份楼层与房间重新生成
+# 并与冻结结果比对；生成器改动导致结果变化时，按测试失败信息重新冻结。
+_THREE_FLOOR_RETAIL_PATH = Path(__file__).with_name("data") / "sample_three_floor_retail.json"
+THREE_FLOOR_RETAIL_SAMPLE: dict[str, Any] = json.loads(
+    _THREE_FLOOR_RETAIL_PATH.read_text(encoding="utf-8")
+)
+
+
 SAMPLES = {
     "complete": COMPLETE_SYSTEM_SAMPLE,
     "air": AIR_SYSTEM_SAMPLE,
@@ -1163,4 +1183,5 @@ SAMPLES = {
     "multi_zone_all_air": MULTI_ZONE_ALL_AIR_SAMPLE,
     "ducted_fresh_air": DUCTED_FRESH_AIR_SAMPLE,
     "three_floor_twelve_room": THREE_FLOOR_TWELVE_ROOM_SAMPLE,
+    "three_floor_retail": THREE_FLOOR_RETAIL_SAMPLE,
 }

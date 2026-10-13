@@ -60,6 +60,7 @@ describe("sample-to-project creation", () => {
     ["multi_zone_all_air", "多区域全空气教学项目"],
     ["ducted_fresh_air", "新风机组送回风管教学项目"],
     ["three_floor_twelve_room", "三层十二房间教学项目"],
+    ["three_floor_retail", "三层商业楼夏季项目"],
   ] as const)("uses a stable default name for %s", async (sampleName, defaultName) => {
     const store = useProjectStore();
     activateSample(store, sampleName);

@@ -216,6 +216,7 @@ def test_isolated_port_counts_match_the_measured_baseline():
         "multi_zone_all_air": 0,
         "ducted_fresh_air": 0,
         "three_floor_twelve_room": 0,
+        "three_floor_retail": 0,
     }
     actual = {}
     for name, sample in SAMPLES.items():

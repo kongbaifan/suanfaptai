@@ -1,0 +1,1032 @@
+{
+ "floors": [
+  {
+   "id": "B1F",
+   "name": "地下一层机房",
+   "level": -1,
+   "elevation_m": -4.5,
+   "height_m": 4.5
+  },
+  {
+   "id": "F1",
+   "name": "一层",
+   "level": 1,
+   "height_m": 4.2
+  },
+  {
+   "id": "F2",
+   "name": "二层",
+   "level": 2,
+   "elevation_m": 4.2,
+   "height_m": 3.9
+  },
+  {
+   "id": "F3",
+   "name": "三层",
+   "level": 3,
+   "elevation_m": 8.1,
+   "height_m": 3.9
+  },
+  {
+   "id": "RF",
+   "name": "屋面",
+   "level": 4,
+   "elevation_m": 12.0,
+   "height_m": 3.0
+  }
+ ],
+ "rooms": [
+  {
+   "id": "f1_north",
+   "floor_id": "F1",
+   "name": "一层北区（扶梯）",
+   "device_ids": [
+    "fau_f1",
+    "fcu_f1"
+   ],
+   "supply_air_outlet_ids": [
+    "outlet_f1"
+   ],
+   "return_air_outlet_ids": [
+    "outlet_f1"
+   ],
+   "area_m2": 264.0,
+   "people": 33,
+   "purpose": "mall",
+   "orientation": "north"
+  },
+  {
+   "id": "f1_south",
+   "floor_id": "F1",
+   "name": "一层南区",
+   "device_ids": [
+    "fau_f1",
+    "fcu_f1"
+   ],
+   "supply_air_outlet_ids": [
+    "outlet_f1"
+   ],
+   "return_air_outlet_ids": [
+    "outlet_f1"
+   ],
+   "area_m2": 338.0,
+   "people": 42,
+   "purpose": "mall"
+  },
+  {
+   "id": "f2_hall",
+   "floor_id": "F2",
+   "name": "二层中庭",
+   "device_ids": [
+    "fau_f2",
+    "fcu_f2"
+   ],
+   "supply_air_outlet_ids": [
+    "outlet_f2"
+   ],
+   "return_air_outlet_ids": [
+    "outlet_f2"
+   ],
+   "area_m2": 175.0,
+   "people": 22,
+   "purpose": "mall",
+   "orientation": "north"
+  },
+  {
+   "id": "f2_south",
+   "floor_id": "F2",
+   "name": "二层南区",
+   "device_ids": [
+    "fau_f2",
+    "fcu_f2"
+   ],
+   "supply_air_outlet_ids": [
+    "outlet_f2"
+   ],
+   "return_air_outlet_ids": [
+    "outlet_f2"
+   ],
+   "area_m2": 139.0,
+   "people": 17,
+   "purpose": "mall"
+  },
+  {
+   "id": "f2_east",
+   "floor_id": "F2",
+   "name": "二层东区",
+   "device_ids": [
+    "fau_f2",
+    "fcu_f2"
+   ],
+   "supply_air_outlet_ids": [
+    "outlet_f2"
+   ],
+   "return_air_outlet_ids": [
+    "outlet_f2"
+   ],
+   "area_m2": 111.0,
+   "people": 14,
+   "purpose": "mall",
+   "orientation": "east"
+  },
+  {
+   "id": "f2_northwest",
+   "floor_id": "F2",
+   "name": "二层西北区",
+   "device_ids": [
+    "fau_f2",
+    "fcu_f2"
+   ],
+   "supply_air_outlet_ids": [
+    "outlet_f2"
+   ],
+   "return_air_outlet_ids": [
+    "outlet_f2"
+   ],
+   "area_m2": 69.0,
+   "people": 9,
+   "purpose": "mall",
+   "orientation": "west"
+  },
+  {
+   "id": "f2_southwest",
+   "floor_id": "F2",
+   "name": "二层西南区",
+   "device_ids": [
+    "fau_f2",
+    "fcu_f2"
+   ],
+   "supply_air_outlet_ids": [
+    "outlet_f2"
+   ],
+   "return_air_outlet_ids": [
+    "outlet_f2"
+   ],
+   "area_m2": 67.0,
+   "people": 8,
+   "purpose": "mall",
+   "orientation": "west"
+  },
+  {
+   "id": "f3_hall",
+   "floor_id": "F3",
+   "name": "三层中庭",
+   "device_ids": [
+    "fau_f3",
+    "fcu_f3"
+   ],
+   "supply_air_outlet_ids": [
+    "outlet_f3"
+   ],
+   "return_air_outlet_ids": [
+    "outlet_f3"
+   ],
+   "area_m2": 167.0,
+   "people": 21,
+   "purpose": "mall",
+   "orientation": "north"
+  },
+  {
+   "id": "f3_west",
+   "floor_id": "F3",
+   "name": "三层西区",
+   "device_ids": [
+    "fau_f3",
+    "fcu_f3"
+   ],
+   "supply_air_outlet_ids": [
+    "outlet_f3"
+   ],
+   "return_air_outlet_ids": [
+    "outlet_f3"
+   ],
+   "area_m2": 139.0,
+   "people": 17,
+   "purpose": "mall",
+   "orientation": "west"
+  },
+  {
+   "id": "f3_south",
+   "floor_id": "F3",
+   "name": "三层南区",
+   "device_ids": [
+    "fau_f3",
+    "fcu_f3"
+   ],
+   "supply_air_outlet_ids": [
+    "outlet_f3"
+   ],
+   "return_air_outlet_ids": [
+    "outlet_f3"
+   ],
+   "area_m2": 136.0,
+   "people": 17,
+   "purpose": "mall"
+  },
+  {
+   "id": "f3_east",
+   "floor_id": "F3",
+   "name": "三层东区",
+   "device_ids": [
+    "fau_f3",
+    "fcu_f3"
+   ],
+   "supply_air_outlet_ids": [
+    "outlet_f3"
+   ],
+   "return_air_outlet_ids": [
+    "outlet_f3"
+   ],
+   "area_m2": 117.0,
+   "people": 15,
+   "purpose": "mall",
+   "orientation": "east"
+  }
+ ],
+ "devices": [
+  {
+   "id": "chiller_plant",
+   "type": "冷源机组",
+   "name": "SCWE-90H+B",
+   "floor_id": "B1F",
+   "location_type": "equipment_room"
+  },
+  {
+   "id": "chw_pump_plant",
+   "type": "循环泵",
+   "name": "TPE3 80-150",
+   "floor_id": "B1F",
+   "location_type": "equipment_room"
+  },
+  {
+   "id": "fcu_f1",
+   "type": "风机盘管",
+   "name": "FP-238WA",
+   "floor_id": "F1",
+   "air_connection_mode": "ducted",
+   "quantity": 6
+  },
+  {
+   "id": "fau_f1",
+   "type": "新风机组",
+   "name": "MKS02D4Y/C",
+   "floor_id": "F1"
+  },
+  {
+   "id": "outlet_f1",
+   "type": "送风口",
+   "floor_id": "F1"
+  },
+  {
+   "id": "fcu_f2",
+   "type": "风机盘管",
+   "name": "FP-204WA",
+   "floor_id": "F2",
+   "air_connection_mode": "ducted",
+   "quantity": 6
+  },
+  {
+   "id": "fau_f2",
+   "type": "新风机组",
+   "name": "MKS02D4Y/C",
+   "floor_id": "F2"
+  },
+  {
+   "id": "outlet_f2",
+   "type": "送风口",
+   "floor_id": "F2"
+  },
+  {
+   "id": "fcu_f3",
+   "type": "风机盘管",
+   "name": "FP-204WA",
+   "floor_id": "F3",
+   "air_connection_mode": "ducted",
+   "quantity": 6
+  },
+  {
+   "id": "fau_f3",
+   "type": "新风机组",
+   "name": "MKS02D4Y/C",
+   "floor_id": "F3"
+  },
+  {
+   "id": "outlet_f3",
+   "type": "送风口",
+   "floor_id": "F3"
+  },
+  {
+   "id": "cw_pump_plant",
+   "type": "循环泵",
+   "name": "TPE3 80-200",
+   "floor_id": "B1F",
+   "location_type": "equipment_room"
+  },
+  {
+   "id": "tower_roof",
+   "type": "冷却塔",
+   "name": "S15E-110",
+   "floor_id": "RF",
+   "location_type": "roof"
+  }
+ ],
+ "pipes": [
+  {
+   "id": "chw_main_supply",
+   "system": "chilled_water",
+   "pipe_type": "main_supply",
+   "floor_id": "B1F",
+   "length_m": 20.0
+  },
+  {
+   "id": "chw_main_return",
+   "system": "chilled_water",
+   "pipe_type": "main_return",
+   "floor_id": "B1F",
+   "length_m": 20.0
+  },
+  {
+   "id": "chw_supply_riser",
+   "system": "chilled_water",
+   "pipe_type": "riser_supply",
+   "from_floor_id": "B1F",
+   "to_floor_id": "F3",
+   "length_m": 12.0
+  },
+  {
+   "id": "chw_return_riser",
+   "system": "chilled_water",
+   "pipe_type": "riser_return",
+   "from_floor_id": "F3",
+   "to_floor_id": "B1F",
+   "length_m": 12.0
+  },
+  {
+   "id": "chw_branch_supply_f1",
+   "system": "chilled_water",
+   "pipe_type": "branch_supply",
+   "floor_id": "F1",
+   "length_m": 24.536
+  },
+  {
+   "id": "chw_branch_return_f1",
+   "system": "chilled_water",
+   "pipe_type": "branch_return",
+   "floor_id": "F1",
+   "length_m": 24.536
+  },
+  {
+   "id": "chw_branch_supply_f2",
+   "system": "chilled_water",
+   "pipe_type": "branch_supply",
+   "floor_id": "F2",
+   "length_m": 23.685
+  },
+  {
+   "id": "chw_branch_return_f2",
+   "system": "chilled_water",
+   "pipe_type": "branch_return",
+   "floor_id": "F2",
+   "length_m": 23.685
+  },
+  {
+   "id": "chw_branch_supply_f3",
+   "system": "chilled_water",
+   "pipe_type": "branch_supply",
+   "floor_id": "F3",
+   "length_m": 23.643
+  },
+  {
+   "id": "chw_branch_return_f3",
+   "system": "chilled_water",
+   "pipe_type": "branch_return",
+   "floor_id": "F3",
+   "length_m": 23.643
+  },
+  {
+   "id": "outdoor_air_intake",
+   "system": "air",
+   "floor_id": "RF",
+   "length_m": 6.0,
+   "flow_m3_h": 6000.0,
+   "width_mm": 630.0,
+   "height_mm": 400.0
+  },
+  {
+   "id": "outdoor_air_riser",
+   "system": "air",
+   "pipe_type": "riser_supply",
+   "from_floor_id": "F3",
+   "to_floor_id": "F1",
+   "length_m": 7.8,
+   "flow_m3_h": 6000.0,
+   "width_mm": 630.0,
+   "height_mm": 400.0
+  },
+  {
+   "id": "chw_fcu_supply_f1",
+   "system": "chilled_water",
+   "pipe_type": "terminal_branch",
+   "floor_id": "F1",
+   "length_m": 9.814400000000001
+  },
+  {
+   "id": "chw_fcu_return_f1",
+   "system": "chilled_water",
+   "pipe_type": "terminal_branch",
+   "floor_id": "F1",
+   "length_m": 9.814400000000001
+  },
+  {
+   "id": "chw_fau_supply_f1",
+   "system": "chilled_water",
+   "pipe_type": "terminal_branch",
+   "floor_id": "F1",
+   "length_m": 12.268
+  },
+  {
+   "id": "chw_fau_return_f1",
+   "system": "chilled_water",
+   "pipe_type": "terminal_branch",
+   "floor_id": "F1",
+   "length_m": 12.268
+  },
+  {
+   "id": "outdoor_air_duct_f1",
+   "system": "air",
+   "floor_id": "F1",
+   "length_m": 24.536,
+   "flow_m3_h": 2000.0,
+   "width_mm": 320.0,
+   "height_mm": 250.0
+  },
+  {
+   "id": "fau_supply_duct_f1",
+   "system": "air",
+   "floor_id": "F1",
+   "length_m": 17.1752,
+   "flow_m3_h": 2000.0,
+   "width_mm": 320.0,
+   "height_mm": 250.0
+  },
+  {
+   "id": "supply_manifold_f1",
+   "system": "air",
+   "floor_id": "F1",
+   "length_m": 12.268,
+   "flow_m3_h": 16280.0,
+   "width_mm": 1000.0,
+   "height_mm": 630.0
+  },
+  {
+   "id": "fcu_supply_duct_f1",
+   "system": "air",
+   "floor_id": "F1",
+   "length_m": 14.7216,
+   "flow_m3_h": 14280.0,
+   "width_mm": 800.0,
+   "height_mm": 630.0
+  },
+  {
+   "id": "return_air_duct_f1",
+   "system": "air",
+   "floor_id": "F1",
+   "length_m": 14.7216,
+   "flow_m3_h": 14280.0,
+   "width_mm": 800.0,
+   "height_mm": 630.0
+  },
+  {
+   "id": "chw_fcu_supply_f2",
+   "system": "chilled_water",
+   "pipe_type": "terminal_branch",
+   "floor_id": "F2",
+   "length_m": 9.474
+  },
+  {
+   "id": "chw_fcu_return_f2",
+   "system": "chilled_water",
+   "pipe_type": "terminal_branch",
+   "floor_id": "F2",
+   "length_m": 9.474
+  },
+  {
+   "id": "chw_fau_supply_f2",
+   "system": "chilled_water",
+   "pipe_type": "terminal_branch",
+   "floor_id": "F2",
+   "length_m": 11.8425
+  },
+  {
+   "id": "chw_fau_return_f2",
+   "system": "chilled_water",
+   "pipe_type": "terminal_branch",
+   "floor_id": "F2",
+   "length_m": 11.8425
+  },
+  {
+   "id": "outdoor_air_duct_f2",
+   "system": "air",
+   "floor_id": "F2",
+   "length_m": 23.685,
+   "flow_m3_h": 2000.0,
+   "width_mm": 320.0,
+   "height_mm": 250.0
+  },
+  {
+   "id": "fau_supply_duct_f2",
+   "system": "air",
+   "floor_id": "F2",
+   "length_m": 16.5795,
+   "flow_m3_h": 2000.0,
+   "width_mm": 320.0,
+   "height_mm": 250.0
+  },
+  {
+   "id": "supply_manifold_f2",
+   "system": "air",
+   "floor_id": "F2",
+   "length_m": 11.8425,
+   "flow_m3_h": 14240.0,
+   "width_mm": 800.0,
+   "height_mm": 630.0
+  },
+  {
+   "id": "fcu_supply_duct_f2",
+   "system": "air",
+   "floor_id": "F2",
+   "length_m": 14.210999999999999,
+   "flow_m3_h": 12240.0,
+   "width_mm": 800.0,
+   "height_mm": 630.0
+  },
+  {
+   "id": "return_air_duct_f2",
+   "system": "air",
+   "floor_id": "F2",
+   "length_m": 14.210999999999999,
+   "flow_m3_h": 12240.0,
+   "width_mm": 800.0,
+   "height_mm": 630.0
+  },
+  {
+   "id": "chw_fcu_supply_f3",
+   "system": "chilled_water",
+   "pipe_type": "terminal_branch",
+   "floor_id": "F3",
+   "length_m": 9.4572
+  },
+  {
+   "id": "chw_fcu_return_f3",
+   "system": "chilled_water",
+   "pipe_type": "terminal_branch",
+   "floor_id": "F3",
+   "length_m": 9.4572
+  },
+  {
+   "id": "chw_fau_supply_f3",
+   "system": "chilled_water",
+   "pipe_type": "terminal_branch",
+   "floor_id": "F3",
+   "length_m": 11.8215
+  },
+  {
+   "id": "chw_fau_return_f3",
+   "system": "chilled_water",
+   "pipe_type": "terminal_branch",
+   "floor_id": "F3",
+   "length_m": 11.8215
+  },
+  {
+   "id": "outdoor_air_duct_f3",
+   "system": "air",
+   "floor_id": "F3",
+   "length_m": 23.643,
+   "flow_m3_h": 2000.0,
+   "width_mm": 320.0,
+   "height_mm": 250.0
+  },
+  {
+   "id": "fau_supply_duct_f3",
+   "system": "air",
+   "floor_id": "F3",
+   "length_m": 16.5501,
+   "flow_m3_h": 2000.0,
+   "width_mm": 320.0,
+   "height_mm": 250.0
+  },
+  {
+   "id": "supply_manifold_f3",
+   "system": "air",
+   "floor_id": "F3",
+   "length_m": 11.8215,
+   "flow_m3_h": 14240.0,
+   "width_mm": 800.0,
+   "height_mm": 630.0
+  },
+  {
+   "id": "fcu_supply_duct_f3",
+   "system": "air",
+   "floor_id": "F3",
+   "length_m": 14.1858,
+   "flow_m3_h": 12240.0,
+   "width_mm": 800.0,
+   "height_mm": 630.0
+  },
+  {
+   "id": "return_air_duct_f3",
+   "system": "air",
+   "floor_id": "F3",
+   "length_m": 14.1858,
+   "flow_m3_h": 12240.0,
+   "width_mm": 800.0,
+   "height_mm": 630.0
+  },
+  {
+   "id": "cw_main_supply",
+   "system": "cooling_water",
+   "pipe_type": "main_supply",
+   "floor_id": "B1F",
+   "length_m": 18.0
+  },
+  {
+   "id": "cw_main_return",
+   "system": "cooling_water",
+   "pipe_type": "main_return",
+   "floor_id": "B1F",
+   "length_m": 18.0
+  },
+  {
+   "id": "cw_supply_riser",
+   "system": "cooling_water",
+   "pipe_type": "riser_supply",
+   "from_floor_id": "B1F",
+   "to_floor_id": "RF",
+   "length_m": 15.0
+  },
+  {
+   "id": "cw_return_riser",
+   "system": "cooling_water",
+   "pipe_type": "riser_return",
+   "from_floor_id": "RF",
+   "to_floor_id": "B1F",
+   "length_m": 15.0
+  }
+ ],
+ "connections": [
+  {
+   "from_id": "chiller_plant",
+   "to_id": "chw_pump_plant",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_pump_plant",
+   "to_id": "chw_main_supply",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_main_supply",
+   "to_id": "chw_supply_riser",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_return_riser",
+   "to_id": "chw_main_return",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_main_return",
+   "to_id": "chiller_plant",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_supply_riser",
+   "to_id": "chw_branch_supply_f1",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_branch_return_f1",
+   "to_id": "chw_return_riser",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_supply_riser",
+   "to_id": "chw_branch_supply_f2",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_branch_return_f2",
+   "to_id": "chw_return_riser",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_supply_riser",
+   "to_id": "chw_branch_supply_f3",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_branch_return_f3",
+   "to_id": "chw_return_riser",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "outdoor_air_intake",
+   "to_id": "outdoor_air_riser",
+   "system": "air"
+  },
+  {
+   "from_id": "chw_branch_supply_f1",
+   "to_id": "chw_fcu_supply_f1",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_branch_supply_f1",
+   "to_id": "chw_fau_supply_f1",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_fcu_return_f1",
+   "to_id": "chw_branch_return_f1",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_fau_return_f1",
+   "to_id": "chw_branch_return_f1",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_fcu_supply_f1",
+   "to_id": "fcu_f1",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "fcu_f1",
+   "to_id": "chw_fcu_return_f1",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_fau_supply_f1",
+   "to_id": "fau_f1",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "fau_f1",
+   "to_id": "chw_fau_return_f1",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "outdoor_air_riser",
+   "to_id": "outdoor_air_duct_f1",
+   "system": "air"
+  },
+  {
+   "from_id": "outdoor_air_duct_f1",
+   "to_id": "fau_f1",
+   "system": "air"
+  },
+  {
+   "from_id": "fau_f1",
+   "to_id": "fau_supply_duct_f1",
+   "system": "air"
+  },
+  {
+   "from_id": "fau_supply_duct_f1",
+   "to_id": "supply_manifold_f1",
+   "system": "air"
+  },
+  {
+   "from_id": "fcu_f1",
+   "to_id": "fcu_supply_duct_f1",
+   "system": "air"
+  },
+  {
+   "from_id": "fcu_supply_duct_f1",
+   "to_id": "supply_manifold_f1",
+   "system": "air"
+  },
+  {
+   "from_id": "supply_manifold_f1",
+   "to_id": "outlet_f1",
+   "system": "air"
+  },
+  {
+   "from_id": "outlet_f1",
+   "to_id": "return_air_duct_f1",
+   "system": "air"
+  },
+  {
+   "from_id": "return_air_duct_f1",
+   "to_id": "fcu_f1",
+   "system": "air"
+  },
+  {
+   "from_id": "chw_branch_supply_f2",
+   "to_id": "chw_fcu_supply_f2",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_branch_supply_f2",
+   "to_id": "chw_fau_supply_f2",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_fcu_return_f2",
+   "to_id": "chw_branch_return_f2",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_fau_return_f2",
+   "to_id": "chw_branch_return_f2",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_fcu_supply_f2",
+   "to_id": "fcu_f2",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "fcu_f2",
+   "to_id": "chw_fcu_return_f2",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_fau_supply_f2",
+   "to_id": "fau_f2",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "fau_f2",
+   "to_id": "chw_fau_return_f2",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "outdoor_air_riser",
+   "to_id": "outdoor_air_duct_f2",
+   "system": "air"
+  },
+  {
+   "from_id": "outdoor_air_duct_f2",
+   "to_id": "fau_f2",
+   "system": "air"
+  },
+  {
+   "from_id": "fau_f2",
+   "to_id": "fau_supply_duct_f2",
+   "system": "air"
+  },
+  {
+   "from_id": "fau_supply_duct_f2",
+   "to_id": "supply_manifold_f2",
+   "system": "air"
+  },
+  {
+   "from_id": "fcu_f2",
+   "to_id": "fcu_supply_duct_f2",
+   "system": "air"
+  },
+  {
+   "from_id": "fcu_supply_duct_f2",
+   "to_id": "supply_manifold_f2",
+   "system": "air"
+  },
+  {
+   "from_id": "supply_manifold_f2",
+   "to_id": "outlet_f2",
+   "system": "air"
+  },
+  {
+   "from_id": "outlet_f2",
+   "to_id": "return_air_duct_f2",
+   "system": "air"
+  },
+  {
+   "from_id": "return_air_duct_f2",
+   "to_id": "fcu_f2",
+   "system": "air"
+  },
+  {
+   "from_id": "chw_branch_supply_f3",
+   "to_id": "chw_fcu_supply_f3",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_branch_supply_f3",
+   "to_id": "chw_fau_supply_f3",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_fcu_return_f3",
+   "to_id": "chw_branch_return_f3",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_fau_return_f3",
+   "to_id": "chw_branch_return_f3",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_fcu_supply_f3",
+   "to_id": "fcu_f3",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "fcu_f3",
+   "to_id": "chw_fcu_return_f3",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "chw_fau_supply_f3",
+   "to_id": "fau_f3",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "fau_f3",
+   "to_id": "chw_fau_return_f3",
+   "system": "chilled_water"
+  },
+  {
+   "from_id": "outdoor_air_riser",
+   "to_id": "outdoor_air_duct_f3",
+   "system": "air"
+  },
+  {
+   "from_id": "outdoor_air_duct_f3",
+   "to_id": "fau_f3",
+   "system": "air"
+  },
+  {
+   "from_id": "fau_f3",
+   "to_id": "fau_supply_duct_f3",
+   "system": "air"
+  },
+  {
+   "from_id": "fau_supply_duct_f3",
+   "to_id": "supply_manifold_f3",
+   "system": "air"
+  },
+  {
+   "from_id": "fcu_f3",
+   "to_id": "fcu_supply_duct_f3",
+   "system": "air"
+  },
+  {
+   "from_id": "fcu_supply_duct_f3",
+   "to_id": "supply_manifold_f3",
+   "system": "air"
+  },
+  {
+   "from_id": "supply_manifold_f3",
+   "to_id": "outlet_f3",
+   "system": "air"
+  },
+  {
+   "from_id": "outlet_f3",
+   "to_id": "return_air_duct_f3",
+   "system": "air"
+  },
+  {
+   "from_id": "return_air_duct_f3",
+   "to_id": "fcu_f3",
+   "system": "air"
+  },
+  {
+   "from_id": "chiller_plant",
+   "to_id": "cw_pump_plant",
+   "system": "cooling_water"
+  },
+  {
+   "from_id": "cw_pump_plant",
+   "to_id": "cw_main_supply",
+   "system": "cooling_water"
+  },
+  {
+   "from_id": "cw_main_supply",
+   "to_id": "cw_supply_riser",
+   "system": "cooling_water"
+  },
+  {
+   "from_id": "tower_roof",
+   "to_id": "cw_return_riser",
+   "system": "cooling_water"
+  },
+  {
+   "from_id": "cw_supply_riser",
+   "to_id": "tower_roof",
+   "system": "cooling_water"
+  },
+  {
+   "from_id": "cw_return_riser",
+   "to_id": "cw_main_return",
+   "system": "cooling_water"
+  },
+  {
+   "from_id": "cw_main_return",
+   "to_id": "chiller_plant",
+   "system": "cooling_water"
+  }
+ ],
+ "design_options": {
+  "fan_static_pressure_pa": 1372.825
+ },
+ "system_form": "fcu_fresh_air"
+}

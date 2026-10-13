@@ -28,8 +28,8 @@ app/data/projects/
 # 本地临时工作目录：uvicorn 日志与厂家样本 PDF（设备目录参数出处，不入库）
 tmp/
 
-# 设备卡片 HTML 原型与设计参考截图
-document/
+# 设备卡片 HTML 原型与设计参考截图：已改为入库，见 document/jzkt/
+# （原忽略规则 document/ 于本次提交移除，如需恢复本地忽略请自行加回）
 
 # 本地工具状态与分析输出
 .zcode/

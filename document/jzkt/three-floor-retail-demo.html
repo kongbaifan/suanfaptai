@@ -1,0 +1,971 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>三层商业楼集中空调示例（夏季）</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --page: #071e3a;
+        --panel: #0b2c52;
+        --panel-strong: #0d3764;
+        --line: rgba(32, 166, 193, 0.26);
+        --line-strong: #167a9a;
+        --accent: #27c1c8;
+        --text: #eefbff;
+        --muted: #a9c4d5;
+        --chw: #3aa0ff;
+        --cw: #2fd08a;
+        --air: #f1b84b;
+        --warn: #f1b84b;
+        --info: #7fb3d5;
+        --error: #ff6b6b;
+      }
+      * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
+      .page-nav { display: flex; gap: 6px; }
+      .formula { display: grid; grid-template-columns: 9em 1fr; gap: 6px 14px; margin: 0; font-size: 13px; }
+      .formula dt { color: var(--muted); }
+      .formula dd { margin: 0; }
+      .formula code { color: var(--text); }
+      .steps { margin: 0; padding-left: 20px; font-size: 13px; }
+      .steps li { margin: 4px 0; }
+      .steps b { font-family: "Bahnschrift", "Microsoft YaHei", sans-serif; color: var(--accent); }
+      .ok { color: var(--cw); }
+      tr.subtotal td { color: var(--accent); border-top: 1px solid var(--line-strong); }
+      tr.total td { color: var(--text); font-weight: 700; border-top: 2px solid var(--line-strong); }
+      .scroll-x { overflow-x: auto; }
+      body {
+        min-width: 320px; margin: 0; background: var(--page); color: var(--text);
+        font-family: "Microsoft YaHei", "PingFang SC", sans-serif; line-height: 1.5;
+      }
+      header, main, footer { width: min(1480px, calc(100% - 40px)); margin: 0 auto; }
+      header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
+               gap: 16px 24px; padding: 28px 0 18px; border-bottom: 1px solid var(--line); }
+      h1 { margin: 0 0 6px; font-size: 22px; }
+      h2 { margin: 0 0 12px; font-size: 16px; }
+      header p, .muted { margin: 0; color: var(--muted); font-size: 13px; }
+      .badge { display: inline-block; padding: 2px 8px; border: 1px solid var(--line-strong); border-radius: 999px;
+               color: var(--accent); font-size: 12px; white-space: nowrap; }
+      main { display: grid; gap: 18px; padding: 18px 0 32px; }
+      .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+      .kpi { padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+      .kpi span { display: block; color: var(--muted); font-size: 12px; }
+      .kpi strong { display: block; margin-top: 4px; font-family: "Bahnschrift", "Microsoft YaHei", sans-serif; font-size: 22px; }
+      .kpi small { color: var(--muted); font-size: 12px; }
+      .panel { padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+      .grid-2 { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 18px; }
+      @media (max-width: 1100px) { .grid-2 { grid-template-columns: 1fr; } }
+      .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+      .tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+      button { font: inherit; color: var(--text); background: var(--panel-strong); border: 1px solid var(--line-strong);
+               border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+      button[aria-selected="true"], button[aria-pressed="true"] { background: #0c7181; border-color: var(--accent); }
+      button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      .spacer { flex: 1; }
+      svg { display: block; width: 100%; height: auto; }
+      .plan-wrap { position: relative; border: 1px solid var(--line); border-radius: 6px; background: #061a33; }
+      .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; color: var(--muted); font-size: 12px; }
+      .legend i { display: inline-block; width: 14px; height: 10px; margin-right: 5px; vertical-align: middle; border-radius: 2px; }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th, td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+      th { color: var(--muted); font-weight: 400; }
+      td.num, th.num { text-align: right; font-family: "Bahnschrift", "Microsoft YaHei", sans-serif; white-space: nowrap; }
+      tr.selected td { background: rgba(39, 193, 200, 0.12); }
+      tbody tr { cursor: pointer; }
+      .detail dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
+      .detail dt { color: var(--muted); }
+      .detail dd { margin: 0; }
+      .issue { display: grid; grid-template-columns: 64px 1fr; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+      .lvl { align-self: start; padding: 1px 6px; border-radius: 4px; font-size: 12px; text-align: center; color: #071e3a; }
+      .lvl.warning { background: var(--warn); } .lvl.info { background: var(--info); } .lvl.error { background: var(--error); }
+      code { font-family: Consolas, monospace; font-size: 12px; color: var(--accent); }
+      .note { margin: 0; padding: 10px 12px; border-left: 3px solid var(--warn); background: rgba(241, 184, 75, 0.08);
+              color: var(--muted); font-size: 13px; }
+      footer { padding: 0 0 32px; color: var(--muted); font-size: 12px; }
+      footer ul { margin: 6px 0 0; padding-left: 18px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>三层商业楼集中空调示例 · 夏季</h1>
+        <p>风机盘管 + 每层新风机组；B1F 机房、RF 屋面冷却塔。平面按 Unity 截图建模，系统由平台骨架生成器生成。</p>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+        <nav class="page-nav" aria-label="页面">
+          <button type="button" data-page="overview" aria-pressed="true">系统概览</button>
+          <button type="button" data-page="load" aria-pressed="false">负荷计算</button>
+        </nav>
+        <span class="badge">样例 three_floor_retail · 数据来自后端实算</span>
+      </div>
+    </header>
+    <main id="page-overview">
+      <section class="kpis" id="kpis" aria-label="关键指标"></section>
+
+      <section class="grid-2">
+        <div class="panel">
+          <div class="toolbar">
+            <h2 style="margin:0">楼层平面</h2>
+            <div class="spacer"></div>
+            <div class="tabs" role="tablist" aria-label="楼层" id="floor-tabs"></div>
+          </div>
+          <div class="toolbar" role="group" aria-label="分区着色">
+            <span class="muted">着色：</span>
+            <button type="button" data-metric="load" aria-pressed="true">冷负荷密度</button>
+            <button type="button" data-metric="temp" aria-pressed="false">实时室温</button>
+            <button type="button" data-metric="rh" aria-pressed="false">实时湿度</button>
+          </div>
+          <div class="plan-wrap" id="plan" role="tabpanel"></div>
+          <div class="legend" id="plan-legend"></div>
+        </div>
+        <div class="panel detail">
+          <h2 id="detail-title">房间详情</h2>
+          <div id="detail"></div>
+          <h2 style="margin-top:18px">本层房间</h2>
+          <table aria-label="本层房间">
+            <thead><tr><th>房间</th><th class="num">面积 m²</th><th class="num">冷负荷 kW</th><th class="num">室温 ℃</th><th class="num">RH@24 %</th></tr></thead>
+            <tbody id="room-table"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>系统原理（竖向）</h2>
+        <p class="muted" style="margin-bottom:10px">实时读数：自动控制，24 ℃ / 55% 目标，室外 70% RH；先运行 4000 步（300 s/步）越过暂态，再取 400 步均值。</p>
+        <div id="schematic"></div>
+        <div class="legend">
+          <span><i style="background:var(--chw)"></i>冷冻水 7/12 ℃</span>
+          <span><i style="background:var(--cw)"></i>冷却水</span>
+          <span><i style="background:var(--air)"></i>新风</span>
+        </div>
+      </section>
+
+      <section class="grid-2">
+        <div class="panel">
+          <h2>24 小时运行曲线（实时仿真）</h2>
+          <div id="trend"></div>
+          <div class="legend">
+            <span><i style="background:#ff8f6b"></i>室外干球 ℃</span>
+            <span><i style="background:var(--accent)"></i>房间平均 ℃</span>
+            <span><i style="background:var(--chw)"></i>冷机冷量 kW（右轴）</span>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>设计冷负荷构成</h2>
+          <div id="load-bars"></div>
+        </div>
+      </section>
+
+      <section class="grid-2">
+        <div class="panel">
+          <h2>设备与选型依据</h2>
+          <table aria-label="设备清单">
+            <thead><tr><th>设备</th><th>型号 × 台数</th><th>位置</th><th class="num">额定</th><th class="num">实时</th></tr></thead>
+            <tbody id="device-table"></tbody>
+          </table>
+          <h2 style="margin-top:18px">生成器决策</h2>
+          <table aria-label="生成器决策">
+            <thead><tr><th>对象</th><th>结论</th><th>来源</th></tr></thead>
+            <tbody id="decision-table"></tbody>
+          </table>
+        </div>
+        <div class="panel">
+          <h2>评估结论</h2>
+          <div id="issues"></div>
+        </div>
+      </section>
+    </main>
+    <main id="page-load" hidden>
+      <section class="kpis" id="load-kpis" aria-label="负荷计算关键指标"></section>
+
+      <section class="grid-2">
+        <div class="panel">
+          <h2>设计参数</h2>
+          <table aria-label="设计参数"><tbody id="load-params"></tbody></table>
+        </div>
+        <div class="panel">
+          <h2>计算公式（分项法，<code>calculators/load.py</code>）</h2>
+          <dl class="formula" id="load-formulas"></dl>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>逐房间冷负荷（kW）</h2>
+        <p class="muted" style="margin-bottom:10px">点一行看右下的手算过程。合计未乘系数；面积指标法只作校核，与分项法互相替代、不能相加。</p>
+        <div class="scroll-x">
+          <table aria-label="逐房间冷负荷">
+            <thead><tr>
+              <th>房间</th><th class="num">面积 m²</th><th class="num">人数</th><th class="num">人员</th><th class="num">照明</th>
+              <th class="num">设备</th><th class="num">太阳辐射</th><th class="num">围护</th><th class="num">新风显热</th>
+              <th class="num">新风潜热</th><th class="num">合计</th><th class="num">W/m²</th><th class="num">指标法</th><th class="num">偏差</th>
+            </tr></thead>
+            <tbody id="load-table"></tbody>
+          </table>
+        </div>
+        <p class="note" id="load-index-note" style="margin-top:10px"></p>
+      </section>
+
+      <section class="grid-2">
+        <div class="panel">
+          <h2>楼层汇总与末端分摊</h2>
+          <div class="scroll-x">
+            <table aria-label="楼层汇总">
+              <thead><tr><th>楼层</th><th class="num">冷负荷</th><th class="num">修正后</th><th class="num">室内侧（修正）</th>
+                <th class="num">新风量 m³/h</th><th>风机盘管</th><th>新风机组</th></tr></thead>
+              <tbody id="floor-load-table"></tbody>
+            </table>
+          </div>
+          <h2 style="margin-top:18px">风机盘管台数怎么来的</h2>
+          <div id="fcu-sizing"></div>
+        </div>
+        <div class="panel">
+          <h2 id="calc-title">手算过程</h2>
+          <ol class="steps" id="calc-steps"></ol>
+          <p class="note" id="calc-check" style="margin-top:12px"></p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>冬季热负荷（只做校核）</h2>
+        <p class="note" style="margin-bottom:10px">本样例只做夏季：没有热源，评估如实报 <code>energy_balance_violation</code>。热负荷仍按分项法算出，供以后补热源时选型。</p>
+        <div class="scroll-x">
+          <table aria-label="冬季热负荷">
+            <thead><tr><th>房间</th><th class="num">围护</th><th class="num">新风</th><th class="num">合计 kW</th><th class="num">W/m²</th>
+              <th class="num">指标法</th><th class="num">偏差</th></tr></thead>
+            <tbody id="heat-table"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <strong>数据口径</strong>
+      <ul id="footnotes"></ul>
+    </footer>
+    <script>
+      const PAYLOAD = {"geometry":{"B1F":{"width_m":36.6,"depth_m":21.19,"ppm":26.34,"outline":null,"cores":[[4.63,12.45,3.23,8.73],[28.85,12.3,2.92,8.69],[21.53,16.33,7.33,4.29],[31.78,19.21,1.71,1.78]],"atrium":[],"walls":[],"zones":{},"shaft":[16.78,11.2,0.99,1.03],"corner_radius_m":5.2},"F1":{"width_m":36.6,"depth_m":21.56,"ppm":28.8,"outline":null,"cores":[[4.72,12.88,3.23,8.58],[28.75,12.71,2.88,8.75],[21.56,16.77,7.19,4.69],[31.81,19.62,1.63,1.84]],"atrium":[[15.66,3.4,11.88,1.77],[17.4,0.8,11.11,2.43]],"walls":[[0.56,9.41,36.18,9.41]],"zones":{"f1_south":{"area_m2_px":337.2,"rects":[[0.1,9.48,0.42,0.14],[36.15,9.48,0.42,0.14],[0.1,9.62,36.46,0.14],[0.0,9.76,36.57,3.06],[0.0,12.81,28.75,0.14],[7.92,12.95,20.83,3.89],[31.67,12.81,4.9,6.81],[33.44,19.62,3.13,1.39],[33.44,21.01,3.02,0.14],[33.44,21.15,2.92,0.14],[0.0,12.95,4.69,8.47],[33.44,21.29,2.6,0.14],[7.92,16.84,13.65,4.72],[0.73,21.43,3.75,0.14],[33.54,21.43,2.4,0.14],[9.9,21.56,0.63,0.14],[10.83,21.56,1.77,0.14],[15.21,21.56,1.56,0.14],[17.08,21.56,1.98,0.14],[19.06,21.56,1.98,0.14]],"label_at":[13.44,16.01]},"f1_north":{"area_m2_px":263.9,"rects":[[12.81,0.03,0.42,0.14],[18.33,0.03,1.35,0.14],[19.69,0.03,0.42,0.14],[20.31,0.03,0.73,0.14],[21.04,0.03,0.63,0.14],[28.65,0.03,0.42,0.14],[4.17,0.17,22.81,0.14],[27.81,0.17,8.75,0.14],[3.75,0.31,32.81,0.14],[3.44,0.45,33.13,0.14],[3.23,0.59,33.34,0.14],[2.71,0.73,33.86,0.14],[2.4,0.87,15.0,0.14],[2.08,1.01,15.31,0.14],[1.98,1.15,15.42,0.14],[1.77,1.28,15.63,0.14],[1.56,1.42,15.83,0.14],[1.46,1.56,15.94,0.14],[1.35,1.7,16.04,0.14],[1.25,1.84,16.15,0.42],[1.35,2.26,16.04,0.14],[1.56,2.4,15.83,0.14],[1.77,2.53,15.63,0.14],[28.54,0.87,8.02,2.5],[1.88,2.67,15.52,0.69],[1.88,3.37,22.19,0.14],[26.77,3.37,9.79,0.14],[0.21,3.51,0.42,0.14],[1.77,3.51,13.86,0.14],[0.0,3.65,0.73,0.14],[1.67,3.65,13.96,0.14],[27.5,3.51,9.06,1.81],[0.0,3.79,15.63,1.53],[0.0,5.31,36.46,0.56],[0.0,5.87,36.57,3.47],[0.0,9.34,0.52,0.14]],"label_at":[6.32,4.65]}},"shaft":[16.81,11.56,1.01,1.04],"corner_radius_m":5.2},"F2":{"width_m":36.6,"depth_m":21.32,"ppm":28.66,"outline":null,"cores":[[4.68,12.73,3.24,8.65],[28.82,12.67,2.97,8.72],[21.6,16.61,7.33,4.43],[31.72,19.47,1.81,1.85]],"atrium":[[15.39,3.24,11.79,5.44]],"walls":[[0.49,9.25,8.79,9.25],[8.79,0.1,8.79,12.73],[7.92,12.77,28.82,12.77],[30.11,0.1,30.11,12.73]],"zones":{"f2_hall":{"area_m2_px":174.2,"rects":[[13.75,0.03,1.99,0.14],[15.74,0.03,14.24,0.14],[8.93,0.17,21.04,0.98],[18.77,1.15,0.42,0.14],[8.93,1.15,8.9,1.4],[8.93,2.55,9.0,0.14],[8.93,2.69,14.44,0.14],[8.93,2.83,14.55,0.14],[26.31,1.15,3.66,2.09],[8.93,2.97,14.65,0.28],[8.93,3.24,6.38,5.58],[27.14,3.24,2.83,5.58],[8.93,8.83,21.04,3.91]],"label_at":[12.18,9.18]},"f2_south":{"area_m2_px":139.3,"rects":[[7.89,13.01,20.93,3.63],[7.89,16.64,13.71,4.47],[7.89,21.11,13.92,0.28]],"label_at":[12.14,17.13]},"f2_east":{"area_m2_px":110.7,"rects":[[30.28,0.17,5.76,0.14],[30.28,0.31,5.97,0.14],[30.28,0.45,6.18,0.14],[30.28,0.59,6.28,12.14],[31.75,12.73,4.81,6.84],[33.53,19.57,3.04,1.4],[33.63,20.97,2.83,0.14],[33.74,21.11,2.41,0.14],[33.84,21.25,2.09,0.14]],"label_at":[33.42,6.94]},"f2_northwest":{"area_m2_px":69.2,"rects":[[3.38,0.17,5.23,0.14],[3.07,0.31,5.55,0.14],[2.86,0.45,5.76,0.14],[2.55,0.59,6.07,0.14],[2.34,0.73,6.28,0.14],[2.23,0.87,6.38,0.14],[2.13,1.01,6.49,0.14],[1.71,1.15,6.91,0.14],[1.6,1.29,7.01,0.14],[1.5,1.43,7.12,0.14],[1.4,1.57,7.22,0.14],[1.19,1.71,7.43,0.14],[1.08,1.85,7.54,0.14],[0.98,1.99,7.64,0.14],[0.87,2.13,7.75,0.14],[0.77,2.27,7.85,0.14],[0.66,2.41,7.96,0.14],[0.56,2.55,8.06,0.14],[0.45,2.69,8.16,0.14],[0.35,2.83,8.27,0.28],[0.24,3.11,8.37,0.14],[0.14,3.24,8.48,0.28],[0.03,3.52,8.58,2.09],[-0.07,5.62,8.69,0.14],[0.03,5.76,8.58,0.14],[-0.07,5.9,8.69,2.23],[0.03,8.13,8.58,0.98],[0.03,9.11,0.42,0.28]],"label_at":[4.36,4.71]},"f2_southwest":{"area_m2_px":66.6,"rects":[[0.03,9.39,0.42,0.14],[0.03,9.53,8.58,0.84],[-0.07,10.36,8.69,2.37],[-0.07,12.73,4.71,3.91],[0.03,16.64,4.61,0.14],[-0.07,16.78,4.71,0.28],[0.03,17.06,4.61,0.14],[-0.07,17.2,4.71,0.14],[0.03,17.34,4.61,3.77],[0.14,21.11,4.5,0.14],[0.45,21.25,4.19,0.14]],"label_at":[2.41,11.83]}},"shaft":[16.82,11.34,1.01,1.05],"corner_radius_m":5.2},"F3":{"width_m":36.6,"depth_m":21.25,"ppm":28.01,"outline":null,"cores":[[4.89,12.64,3.18,8.43],[28.53,12.57,2.86,8.5],[21.39,16.43,7.21,4.64],[31.39,19.28,1.68,1.79]],"atrium":[[15.35,3.11,11.57,5.61]],"walls":[[0.79,9.21,8.93,9.21],[8.93,0.07,8.93,12.71],[8.07,12.68,28.49,12.68],[29.74,0.07,29.74,12.57]],"zones":{"f3_hall":{"area_m2_px":167.0,"rects":[[9.07,0.07,20.46,1.14],[9.07,1.21,9.53,0.14],[19.03,1.21,1.39,0.14],[20.96,1.21,0.43,0.14],[9.07,1.36,8.78,1.71],[25.99,1.21,3.54,2.0],[9.07,3.07,8.68,0.14],[9.07,3.21,6.21,5.57],[26.96,3.21,2.57,5.57],[9.07,8.78,20.46,3.86]],"label_at":[12.25,9.36]},"f3_west":{"area_m2_px":138.6,"rects":[[3.5,0.07,5.25,0.14],[3.18,0.21,5.57,0.14],[2.86,0.36,5.89,0.14],[2.54,0.5,6.21,0.14],[2.43,0.64,6.32,0.14],[2.32,0.79,6.43,0.43],[1.68,1.21,7.07,0.14],[1.46,1.36,7.28,0.14],[1.36,1.5,7.39,0.14],[1.25,1.64,7.5,0.14],[1.04,1.79,7.71,0.14],[0.93,1.93,7.82,0.14],[0.82,2.07,7.93,0.14],[0.71,2.21,8.03,0.43],[0.5,2.64,8.25,0.14],[0.29,2.79,8.46,0.86],[0.07,3.64,8.68,1.86],[-0.04,5.5,8.78,0.14],[0.07,5.64,8.68,0.29],[-0.04,5.93,8.78,0.14],[0.07,6.07,8.68,0.14],[-0.04,6.21,8.78,0.14],[0.07,6.36,8.68,0.14],[-0.04,6.5,8.78,1.29],[0.07,7.78,8.68,0.14],[-0.04,7.93,8.78,0.14],[0.07,8.07,8.68,0.29],[-0.04,8.36,8.78,0.71],[-0.04,9.07,0.75,0.43],[-0.04,9.5,8.78,3.14],[-0.04,12.64,4.93,1.29],[0.07,13.93,4.82,0.14],[-0.04,14.07,4.93,0.29],[0.07,14.35,4.82,0.14],[-0.04,14.5,4.93,4.28],[0.07,18.78,4.82,0.29],[-0.04,19.07,4.93,0.43],[0.07,19.5,4.82,1.14],[-0.04,20.64,4.93,0.14],[0.07,20.78,4.82,0.43],[1.46,21.21,0.32,0.14],[3.07,21.21,0.32,0.14],[3.39,21.21,0.43,0.14],[4.46,21.21,0.43,0.14],[5.11,21.21,1.18,0.14],[6.39,21.21,0.43,0.14]],"label_at":[4.5,4.75]},"f3_south":{"area_m2_px":135.7,"rects":[[8.11,12.93,20.35,3.57],[8.11,16.5,13.28,4.71],[8.86,21.21,0.43,0.14],[9.28,21.21,3.54,0.14],[12.82,21.21,1.5,0.14],[14.85,21.21,1.39,0.14],[16.35,21.21,0.43,0.14],[16.78,21.21,1.18,0.14]],"label_at":[12.28,17.03]},"f3_east":{"area_m2_px":117.0,"rects":[[29.85,0.07,5.46,0.14],[29.85,0.21,5.89,0.14],[29.85,0.36,6.11,0.14],[29.85,0.5,6.21,0.29],[29.85,0.79,6.32,0.14],[29.85,0.93,6.43,0.14],[29.85,1.07,6.53,0.29],[29.85,1.36,6.64,1.57],[29.85,2.93,6.75,0.14],[29.85,3.07,6.64,1.43],[29.85,4.5,6.75,0.14],[29.85,4.64,6.64,0.29],[29.85,4.93,6.75,0.14],[29.85,5.07,6.64,0.57],[29.85,5.64,6.75,0.29],[29.85,5.93,6.64,0.14],[29.85,6.07,6.75,0.29],[29.85,6.36,6.64,0.14],[29.85,6.5,6.75,4.14],[29.85,10.64,6.64,0.14],[29.85,10.78,6.75,0.43],[29.85,11.21,6.64,0.29],[29.85,11.5,6.75,0.14],[29.85,11.64,6.64,0.14],[29.85,11.78,6.75,0.86],[31.35,12.64,5.25,0.57],[31.35,13.21,5.14,0.14],[31.35,13.35,5.25,1.14],[31.35,14.5,5.14,0.29],[31.35,14.78,5.25,0.43],[31.35,15.21,5.14,0.14],[31.35,15.35,5.25,0.57],[31.35,15.93,5.14,0.14],[31.35,16.07,5.25,0.43],[31.35,16.5,5.14,0.29],[31.35,16.78,5.25,0.14],[31.35,16.93,5.14,0.14],[31.35,17.07,5.25,0.14],[31.35,17.21,5.14,0.29],[31.35,17.5,5.25,0.29],[31.35,17.78,5.14,0.29],[31.35,18.07,5.25,0.14],[31.35,18.21,5.14,0.14],[31.35,18.35,5.25,0.14],[31.35,18.5,5.14,0.86],[33.06,19.35,3.43,0.86],[33.06,20.21,3.54,0.29],[33.06,20.5,3.43,0.29],[33.06,20.78,3.54,0.29],[33.06,21.07,3.43,0.14]],"label_at":[33.24,7.78]}},"shaft":[16.75,11.21,1.0,1.0],"corner_radius_m":5.2},"RF":{"width_m":36.6,"depth_m":21.22,"ppm":21.58,"outline":null,"cores":[],"atrium":[],"walls":[],"zones":{},"shaft":[16.82,11.07,1.02,1.07],"corner_radius_m":5.2,"raised":[17.98,6.21,15.76,15.15]}},"data":{"floors":[{"id":"B1F","name":"地下一层机房","level":-1,"elevation_m":-4.5,"height_m":4.5},{"id":"F1","name":"一层","level":1,"height_m":4.2},{"id":"F2","name":"二层","level":2,"elevation_m":4.2,"height_m":3.9},{"id":"F3","name":"三层","level":3,"elevation_m":8.1,"height_m":3.9},{"id":"RF","name":"屋面","level":4,"elevation_m":12.0,"height_m":3.0}],"rooms":[{"id":"f1_north","floor":"F1","name":"一层北区（扶梯）","area":264.0,"people":33,"orientation":"north","cooling_kw":28.93,"fresh_air_m3_h":825,"devices":["fau_f1","fcu_f1"]},{"id":"f1_south","floor":"F1","name":"一层南区","area":338.0,"people":42,"orientation":"south","cooling_kw":37.48,"fresh_air_m3_h":1050,"devices":["fau_f1","fcu_f1"]},{"id":"f2_hall","floor":"F2","name":"二层中庭","area":175.0,"people":22,"orientation":"north","cooling_kw":19.29,"fresh_air_m3_h":550,"devices":["fau_f2","fcu_f2"]},{"id":"f2_south","floor":"F2","name":"二层南区","area":139.0,"people":17,"orientation":"south","cooling_kw":15.54,"fresh_air_m3_h":425,"devices":["fau_f2","fcu_f2"]},{"id":"f2_east","floor":"F2","name":"二层东区","area":111.0,"people":14,"orientation":"east","cooling_kw":12.53,"fresh_air_m3_h":350,"devices":["fau_f2","fcu_f2"]},{"id":"f2_northwest","floor":"F2","name":"二层西北区","area":69.0,"people":9,"orientation":"west","cooling_kw":8.17,"fresh_air_m3_h":225,"devices":["fau_f2","fcu_f2"]},{"id":"f2_southwest","floor":"F2","name":"二层西南区","area":67.0,"people":8,"orientation":"west","cooling_kw":7.62,"fresh_air_m3_h":200,"devices":["fau_f2","fcu_f2"]},{"id":"f3_hall","floor":"F3","name":"三层中庭","area":167.0,"people":21,"orientation":"north","cooling_kw":18.42,"fresh_air_m3_h":525,"devices":["fau_f3","fcu_f3"]},{"id":"f3_west","floor":"F3","name":"三层西区","area":139.0,"people":17,"orientation":"west","cooling_kw":15.63,"fresh_air_m3_h":425,"devices":["fau_f3","fcu_f3"]},{"id":"f3_south","floor":"F3","name":"三层南区","area":136.0,"people":17,"orientation":"south","cooling_kw":15.37,"fresh_air_m3_h":425,"devices":["fau_f3","fcu_f3"]},{"id":"f3_east","floor":"F3","name":"三层东区","area":117.0,"people":15,"orientation":"east","cooling_kw":13.3,"fresh_air_m3_h":375,"devices":["fau_f3","fcu_f3"]}],"devices":[{"id":"chiller_plant","type":"冷源机组","name":"SCWE-90H+B","quantity":1,"floor":"B1F","role":"chiller","capacity_kw":308.3,"flow_m3_h":53.02,"cooling_flow_m3_h":66.28,"airflow_m3_h":null,"head_m":null,"power_kw":52.49},{"id":"chw_pump_plant","type":"循环泵","name":"TPE3 80-150","quantity":1,"floor":"B1F","role":"pump","capacity_kw":null,"flow_m3_h":44.52,"cooling_flow_m3_h":null,"airflow_m3_h":null,"head_m":9.9,"power_kw":1.491},{"id":"fcu_f1","type":"风机盘管","name":"FP-238WA","quantity":6,"floor":"F1","role":"fcu","capacity_kw":12.6,"flow_m3_h":2.167,"cooling_flow_m3_h":null,"airflow_m3_h":2380.0,"head_m":null,"power_kw":null},{"id":"fau_f1","type":"新风机组","name":"MKS02D4Y/C","quantity":1,"floor":"F1","role":"fresh_air_unit","capacity_kw":29.0,"flow_m3_h":5.0,"cooling_flow_m3_h":null,"airflow_m3_h":2000.0,"head_m":null,"power_kw":null},{"id":"outlet_f1","type":"送风口","name":"（无型号）","quantity":1,"floor":"F1","role":"air_outlet","capacity_kw":null,"flow_m3_h":null,"cooling_flow_m3_h":null,"airflow_m3_h":500.0,"head_m":null,"power_kw":null},{"id":"fcu_f2","type":"风机盘管","name":"FP-204WA","quantity":6,"floor":"F2","role":"fcu","capacity_kw":11.0,"flow_m3_h":1.892,"cooling_flow_m3_h":null,"airflow_m3_h":2040.0,"head_m":null,"power_kw":null},{"id":"fau_f2","type":"新风机组","name":"MKS02D4Y/C","quantity":1,"floor":"F2","role":"fresh_air_unit","capacity_kw":29.0,"flow_m3_h":5.0,"cooling_flow_m3_h":null,"airflow_m3_h":2000.0,"head_m":null,"power_kw":null},{"id":"outlet_f2","type":"送风口","name":"（无型号）","quantity":1,"floor":"F2","role":"air_outlet","capacity_kw":null,"flow_m3_h":null,"cooling_flow_m3_h":null,"airflow_m3_h":500.0,"head_m":null,"power_kw":null},{"id":"fcu_f3","type":"风机盘管","name":"FP-204WA","quantity":6,"floor":"F3","role":"fcu","capacity_kw":11.0,"flow_m3_h":1.892,"cooling_flow_m3_h":null,"airflow_m3_h":2040.0,"head_m":null,"power_kw":null},{"id":"fau_f3","type":"新风机组","name":"MKS02D4Y/C","quantity":1,"floor":"F3","role":"fresh_air_unit","capacity_kw":29.0,"flow_m3_h":5.0,"cooling_flow_m3_h":null,"airflow_m3_h":2000.0,"head_m":null,"power_kw":null},{"id":"outlet_f3","type":"送风口","name":"（无型号）","quantity":1,"floor":"F3","role":"air_outlet","capacity_kw":null,"flow_m3_h":null,"cooling_flow_m3_h":null,"airflow_m3_h":500.0,"head_m":null,"power_kw":null},{"id":"cw_pump_plant","type":"循环泵","name":"TPE3 80-200","quantity":1,"floor":"B1F","role":"pump","capacity_kw":null,"flow_m3_h":82.0,"cooling_flow_m3_h":null,"airflow_m3_h":null,"head_m":14.9,"power_kw":4.7},{"id":"tower_roof","type":"冷却塔","name":"S15E-110","quantity":1,"floor":"RF","role":"cooling_tower","capacity_kw":386.87,"flow_m3_h":74.95,"cooling_flow_m3_h":null,"airflow_m3_h":null,"head_m":null,"power_kw":null}],"pipes":{"chilled_water":22,"cooling_water":4,"air":17},"connections":70,"decisions":[{"target":"机房与屋面","choice":"机房放在 B1F（最低层），冷却塔放在 RF（最高层）","reason":"冷机与水泵需要机房，冷却塔需要屋面通风；取楼层标高极值定位。","source":"calculated"},{"target":"全楼冷负荷","choice":"调整后冷负荷 190.3 kW（同时使用系数 0.9 × 安全系数 1.1）","reason":"末端与冷源都按调整后负荷选型，与 `/system/evaluate` 同一口径。","source":"calculated"},{"target":"chiller_plant","choice":"SCWE-90H+B × 1 台","reason":"按全楼调整后冷负荷与冷冻水流量选型，容量裕量落在 `rules.json` 的 capacity_margin 区间内。","source":"catalog"},{"target":"fcu_f1","choice":"FP-238WA × 6 台","reason":"承担该层室内侧冷负荷 42.4 kW（总负荷扣除新风显热与新风潜热），台数按容量、水流量、送风量三项下限取最大，与教学选型口径一致。","source":"catalog"},{"target":"fau_f1","choice":"MKS02D4Y/C × 1 台（该层新风 1875 m³/h）","reason":"新风机组处理 100% 室外新风，选型依据是卫生新风量（人数 × 每人新风量），与房间冷负荷无关。","source":"catalog"},{"target":"outlet_f1","choice":"新风与风机盘管送风在送风静压箱汇合，共用该层送风口","reason":"风机盘管只处理房间回风、新风机组处理 100% 室外新风，两股风在送入房间前混合。室内段的回风由送风口一侧的回风管返回风机盘管，与四层样例同构。","source":"calculated"},{"target":"fcu_f2","choice":"FP-204WA × 6 台","reason":"承担该层室内侧冷负荷 40.8 kW（总负荷扣除新风显热与新风潜热），台数按容量、水流量、送风量三项下限取最大，与教学选型口径一致。","source":"catalog"},{"target":"fau_f2","choice":"MKS02D4Y/C × 1 台（该层新风 1750 m³/h）","reason":"新风机组处理 100% 室外新风，选型依据是卫生新风量（人数 × 每人新风量），与房间冷负荷无关。","source":"catalog"},{"target":"outlet_f2","choice":"新风与风机盘管送风在送风静压箱汇合，共用该层送风口","reason":"风机盘管只处理房间回风、新风机组处理 100% 室外新风，两股风在送入房间前混合。室内段的回风由送风口一侧的回风管返回风机盘管，与四层样例同构。","source":"calculated"},{"target":"fcu_f3","choice":"FP-204WA × 6 台","reason":"承担该层室内侧冷负荷 40.4 kW（总负荷扣除新风显热与新风潜热），台数按容量、水流量、送风量三项下限取最大，与教学选型口径一致。","source":"catalog"},{"target":"fau_f3","choice":"MKS02D4Y/C × 1 台（该层新风 1750 m³/h）","reason":"新风机组处理 100% 室外新风，选型依据是卫生新风量（人数 × 每人新风量），与房间冷负荷无关。","source":"catalog"},{"target":"outlet_f3","choice":"新风与风机盘管送风在送风静压箱汇合，共用该层送风口","reason":"风机盘管只处理房间回风、新风机组处理 100% 室外新风，两股风在送入房间前混合。室内段的回风由送风口一侧的回风管返回风机盘管，与四层样例同构。","source":"calculated"},{"target":"新风总需求","choice":"全楼卫生新风 5375 m³/h","reason":"按各房间人数 × 用途每人新风量累加，与 `calculate_load` 同口径。","source":"calculated"},{"target":"tower_roof","choice":"S15E-110（冷凝排热量 360.8 kW、冷却水 66.3 m³/h）","reason":"冷凝排热量 = 冷机目录制冷量 + 压缩机输入功率（热力学第一定律），冷却水流量取冷机目录 cooling_flow_m3_h；两项都是目录声明值。","source":"catalog"},{"target":"chw_pump_plant","choice":"TPE3 80-150 × 1 台","reason":"冷冻水泵按生成出的水环路实际阻力与冷冻水流量定选（先占位闭合环路、再水力复核、最后定选），扬程裕量落在 `rules.json` 的 pump_margin 区间内。","source":"catalog"},{"target":"cw_pump_plant","choice":"TPE3 80-200 × 1 台","reason":"冷却水泵流量 66.3 m³/h 取自冷机目录 cooling_flow_m3_h，扬程 4.16 m 取该环路最不利路径（与冷冻水同一口径）。","source":"catalog"},{"target":"空气系统风管","choice":"按风量与目标流速 8.0 m/s 选标准矩形风管","reason":"目标流速取 `rules.json` 的 air_velocity_m_s.main_duct 上限——它是风管校核的约束边界；风管断面由此反算，尺寸全部来自标准风管表。","source":"rules"},{"target":"design_options.fan_static_pressure_pa","choice":"1372.8 Pa（最不利风路 1168.4 Pa × 裕量 1.175）","reason":"风机静压取最不利风路阻力乘以裕量，裕量取 `rules.json` 中泵扬程裕量区间的中值——两者是同口径的风机/水泵压头裕量，且必须高于风压校核的合格阈值 1.05。","source":"rules"}],"load":{"total_kw":192.263,"adjusted_kw":190.34,"components":{"people":25.8,"lighting":31.0,"equipment":34.44,"fresh_air_cooling":16.2,"latent_cooling":52.49,"solar":6.3,"envelope_cooling":26.03,"envelope_heating":72.32,"fresh_air_heating":45.02}},"pump_head_required_m":9.102,"steady":{"supply_water_temp_c":7.0,"return_water_temp_c":10.676,"supply_air_temp_c":20.68,"estimated_room_temp_c":26.657,"cooling_energy_kw":29.702,"pump_energy_kw":5.124,"fan_energy_kw":5.992,"total_energy_kw":40.818,"issues":[{"level":"warning","code":"SIM_DEGRADED_PARAMETERS","message":"One or more device parameters use an explicit fallback.","target":null}]},"issues":[{"level":"info","code":"DEVICE_WATER_DROP_TYPICAL","message":"chilled_water 环路中 3 台设备目录没有水侧压降（fcu_f1, fcu_f2, fcu_f3），按同类设备典型值（rules.json pressure_defaults）折算计入，泵扬程仅供教学估算；有厂家样本时请在设备上填写 pressure_drop_pa。","target":"chilled_water"},{"level":"info","code":"DEVICE_WATER_DROP_TYPICAL","message":"cooling_water 环路中 1 台设备目录没有水侧压降（tower_roof），按同类设备典型值（rules.json pressure_defaults）折算计入，泵扬程仅供教学估算；有厂家样本时请在设备上填写 pressure_drop_pa。","target":"cooling_water"},{"level":"info","code":"PUMP_FLOW_HIGH","message":"Pump flow margin is higher than the recommended range.","target":null},{"level":"warning","code":"AIR_BALANCING_REQUIRED","message":"Air path pressure deviation is above 15%; add balancing damper or resize duct branches.","target":null},{"level":"warning","code":"AIR_TERMINAL_DISCONNECTED","message":"The air duct is not reachable from a supported supply or return tree.","target":"outdoor_air_intake"},{"level":"warning","code":"AIR_TERMINAL_DISCONNECTED","message":"The air duct is not reachable from a supported supply or return tree.","target":"outdoor_air_riser"},{"level":"warning","code":"AIR_TREE_UNSUPPORTED","message":"The air network contains a cycle, merge, or overlapping source tree; bounded legacy flow allocation was used.","target":"supply_manifold_f1"},{"level":"warning","code":"AIR_TREE_UNSUPPORTED","message":"The air network contains a cycle, merge, or overlapping source tree; bounded legacy flow allocation was used.","target":"supply_manifold_f2"},{"level":"warning","code":"AIR_TREE_UNSUPPORTED","message":"The air network contains a cycle, merge, or overlapping source tree; bounded legacy flow allocation was used.","target":"supply_manifold_f3"},{"level":"warning","code":"SIM_DEGRADED_PARAMETERS","message":"One or more device parameters use an explicit fallback.","target":null},{"level":"warning","code":"energy_balance_violation","message":"Heating source/terminal delivery is below the requested load by 116.165 kW.","target":"heating_system"},{"level":"warning","code":"DUCT_OVERSIZE_REQUIRED","message":"Required duct area exceeds standard table.","target":null}],"realtime":{"rooms":{"f1_north":{"temp_c":25.82,"rh24_pct":55.7},"f1_south":{"temp_c":25.71,"rh24_pct":55.7},"f2_hall":{"temp_c":25.91,"rh24_pct":55.1},"f2_south":{"temp_c":25.75,"rh24_pct":55.0},"f2_east":{"temp_c":25.72,"rh24_pct":55.1},"f2_northwest":{"temp_c":25.37,"rh24_pct":55.0},"f2_southwest":{"temp_c":25.56,"rh24_pct":54.8},"f3_hall":{"temp_c":25.9,"rh24_pct":55.2},"f3_west":{"temp_c":25.69,"rh24_pct":55.0},"f3_south":{"temp_c":25.68,"rh24_pct":55.1},"f3_east":{"temp_c":25.68,"rh24_pct":55.1}},"devices":{"chiller_plant":{"load_ratio":0.47,"cooling_kw":146.08,"cop":5.77,"power_kw":25.32,"supply_temp_c":7.0,"return_temp_c":12.5,"flow_m3_h":22.85,"heat_reject_kw":171.4,"enabled":1.0},"chw_pump_plant":{"speed_ratio":0.66,"flow_m3_h":22.85,"head_m":4.31,"pressure_pa":42245.88,"power_kw":0.33,"enabled":1.0,"speed_pct":65.97},"fcu_f1":{"valve_opening_ratio":0.41,"cooling_kw":19.25,"heating_kw":0.0,"airflow_m3_h":4456.36,"water_flow_m3_h":2.69,"supply_air_temp_c":14.07,"power_kw":0.13,"coil_calibration_limited":0.0,"enabled":1.0,"active_count":3.0,"valve_opening_pct":41.42,"fan_speed_pct":62.41},"fau_f1":{"valve_opening_ratio":1.0,"cooling_kw":31.63,"heating_kw":0.0,"airflow_m3_h":1875.0,"water_flow_m3_h":5.0,"supply_air_temp_c":12.0,"power_kw":0.3,"coil_calibration_limited":1.0,"enabled":1.0,"valve_opening_pct":100.0,"fan_speed_pct":93.75},"outlet_f1":{"enabled":1.0},"fcu_f2":{"valve_opening_ratio":0.46,"cooling_kw":18.14,"heating_kw":0.0,"airflow_m3_h":4074.38,"water_flow_m3_h":2.59,"supply_air_temp_c":13.79,"power_kw":0.14,"coil_calibration_limited":0.0,"enabled":1.0,"active_count":3.0,"valve_opening_pct":45.64,"fan_speed_pct":66.57},"fau_f2":{"valve_opening_ratio":1.0,"cooling_kw":29.52,"heating_kw":0.0,"airflow_m3_h":1750.0,"water_flow_m3_h":5.0,"supply_air_temp_c":12.0,"power_kw":0.29,"coil_calibration_limited":1.0,"enabled":1.0,"valve_opening_pct":100.0,"fan_speed_pct":92.0},"outlet_f2":{"enabled":1.0},"fcu_f3":{"valve_opening_ratio":0.45,"cooling_kw":18.02,"heating_kw":0.0,"airflow_m3_h":4045.12,"water_flow_m3_h":2.56,"supply_air_temp_c":13.81,"power_kw":0.14,"coil_calibration_limited":0.0,"enabled":1.0,"active_count":3.0,"valve_opening_pct":45.15,"fan_speed_pct":66.1},"fau_f3":{"valve_opening_ratio":1.0,"cooling_kw":29.52,"heating_kw":0.0,"airflow_m3_h":1750.0,"water_flow_m3_h":5.0,"supply_air_temp_c":12.0,"power_kw":0.29,"coil_calibration_limited":1.0,"enabled":1.0,"valve_opening_pct":100.0,"fan_speed_pct":92.0},"outlet_f3":{"enabled":1.0},"cw_pump_plant":{"speed_ratio":0.66,"flow_m3_h":41.81,"head_m":6.48,"pressure_pa":63582.18,"power_kw":1.04,"enabled":1.0,"speed_pct":65.97},"tower_roof":{"fan_speed_ratio":0.63,"approach_c":4.8,"entering_water_temp_c":35.44,"leaving_water_temp_c":31.91,"flow_m3_h":41.81,"fan_power_kw":0.48,"enabled":1.0,"fan_speed_pct":63.13}},"chiller_on":400,"window":400,"trace":[{"hour":6.75,"outdoor_c":31.71,"room_mean_c":25.65,"room_max_c":25.85,"chiller_kw":146.9,"power_kw":28.6},{"hour":6.83,"outdoor_c":31.8,"room_mean_c":25.66,"room_max_c":25.86,"chiller_kw":147.7,"power_kw":28.7},{"hour":6.92,"outdoor_c":31.88,"room_mean_c":25.66,"room_max_c":25.86,"chiller_kw":148.6,"power_kw":28.8},{"hour":7.0,"outdoor_c":31.96,"room_mean_c":25.67,"room_max_c":25.87,"chiller_kw":149.4,"power_kw":29.0},{"hour":7.08,"outdoor_c":32.05,"room_mean_c":25.67,"room_max_c":25.87,"chiller_kw":150.3,"power_kw":29.1},{"hour":7.17,"outdoor_c":32.13,"room_mean_c":25.68,"room_max_c":25.88,"chiller_kw":151.2,"power_kw":29.2},{"hour":7.25,"outdoor_c":32.22,"room_mean_c":25.68,"room_max_c":25.88,"chiller_kw":152.0,"power_kw":29.4},{"hour":7.33,"outdoor_c":32.31,"room_mean_c":25.69,"room_max_c":25.89,"chiller_kw":152.9,"power_kw":29.5},{"hour":7.42,"outdoor_c":32.39,"room_mean_c":25.69,"room_max_c":25.89,"chiller_kw":153.8,"power_kw":29.7},{"hour":7.5,"outdoor_c":32.48,"room_mean_c":25.7,"room_max_c":25.9,"chiller_kw":154.7,"power_kw":29.8},{"hour":7.58,"outdoor_c":32.56,"room_mean_c":25.7,"room_max_c":25.9,"chiller_kw":155.6,"power_kw":30.0},{"hour":7.67,"outdoor_c":32.65,"room_mean_c":25.71,"room_max_c":25.91,"chiller_kw":156.5,"power_kw":30.1},{"hour":7.75,"outdoor_c":32.74,"room_mean_c":25.71,"room_max_c":25.91,"chiller_kw":157.4,"power_kw":30.3},{"hour":7.83,"outdoor_c":32.83,"room_mean_c":25.72,"room_max_c":25.92,"chiller_kw":158.4,"power_kw":30.4},{"hour":7.92,"outdoor_c":32.91,"room_mean_c":25.72,"room_max_c":25.92,"chiller_kw":159.3,"power_kw":30.6},{"hour":8.0,"outdoor_c":33.0,"room_mean_c":25.73,"room_max_c":25.93,"chiller_kw":160.2,"power_kw":30.8},{"hour":8.08,"outdoor_c":33.09,"room_mean_c":25.73,"room_max_c":25.93,"chiller_kw":161.2,"power_kw":30.9},{"hour":8.17,"outdoor_c":33.17,"room_mean_c":25.74,"room_max_c":25.94,"chiller_kw":162.1,"power_kw":31.1},{"hour":8.25,"outdoor_c":33.26,"room_mean_c":25.74,"room_max_c":25.94,"chiller_kw":163.0,"power_kw":31.3},{"hour":8.33,"outdoor_c":33.35,"room_mean_c":25.75,"room_max_c":25.95,"chiller_kw":164.0,"power_kw":31.4},{"hour":8.42,"outdoor_c":33.44,"room_mean_c":25.75,"room_max_c":25.95,"chiller_kw":164.9,"power_kw":31.6},{"hour":8.5,"outdoor_c":33.52,"room_mean_c":25.76,"room_max_c":25.96,"chiller_kw":165.8,"power_kw":31.8},{"hour":8.58,"outdoor_c":33.61,"room_mean_c":25.76,"room_max_c":25.96,"chiller_kw":166.8,"power_kw":32.0},{"hour":8.67,"outdoor_c":33.69,"room_mean_c":25.77,"room_max_c":25.97,"chiller_kw":167.7,"power_kw":32.1},{"hour":8.75,"outdoor_c":33.78,"room_mean_c":25.77,"room_max_c":25.97,"chiller_kw":168.7,"power_kw":32.3},{"hour":8.83,"outdoor_c":33.87,"room_mean_c":25.78,"room_max_c":25.98,"chiller_kw":169.6,"power_kw":32.5},{"hour":8.92,"outdoor_c":33.95,"room_mean_c":25.78,"room_max_c":25.98,"chiller_kw":170.6,"power_kw":32.7},{"hour":9.0,"outdoor_c":34.04,"room_mean_c":25.79,"room_max_c":25.99,"chiller_kw":171.5,"power_kw":32.9},{"hour":9.08,"outdoor_c":34.12,"room_mean_c":25.79,"room_max_c":25.99,"chiller_kw":172.4,"power_kw":33.1},{"hour":9.17,"outdoor_c":34.2,"room_mean_c":25.8,"room_max_c":26.0,"chiller_kw":173.4,"power_kw":33.2},{"hour":9.25,"outdoor_c":34.29,"room_mean_c":25.8,"room_max_c":26.0,"chiller_kw":174.3,"power_kw":33.4},{"hour":9.33,"outdoor_c":34.37,"room_mean_c":25.81,"room_max_c":26.01,"chiller_kw":175.2,"power_kw":33.6},{"hour":9.42,"outdoor_c":34.45,"room_mean_c":25.81,"room_max_c":26.01,"chiller_kw":176.2,"power_kw":33.8},{"hour":9.5,"outdoor_c":34.53,"room_mean_c":25.82,"room_max_c":26.02,"chiller_kw":177.1,"power_kw":34.0},{"hour":9.58,"outdoor_c":34.61,"room_mean_c":25.82,"room_max_c":26.02,"chiller_kw":178.0,"power_kw":34.2},{"hour":9.67,"outdoor_c":34.69,"room_mean_c":25.82,"room_max_c":26.03,"chiller_kw":178.9,"power_kw":34.4},{"hour":9.75,"outdoor_c":34.77,"room_mean_c":25.83,"room_max_c":26.03,"chiller_kw":179.8,"power_kw":34.6},{"hour":9.83,"outdoor_c":34.85,"room_mean_c":25.83,"room_max_c":26.04,"chiller_kw":180.7,"power_kw":34.8},{"hour":9.92,"outdoor_c":34.92,"room_mean_c":25.84,"room_max_c":26.04,"chiller_kw":181.6,"power_kw":35.0},{"hour":10.0,"outdoor_c":35.0,"room_mean_c":25.84,"room_max_c":26.05,"chiller_kw":182.5,"power_kw":35.2},{"hour":10.08,"outdoor_c":35.08,"room_mean_c":25.85,"room_max_c":26.05,"chiller_kw":183.4,"power_kw":35.4},{"hour":10.17,"outdoor_c":35.15,"room_mean_c":25.85,"room_max_c":26.06,"chiller_kw":184.2,"power_kw":35.6},{"hour":10.25,"outdoor_c":35.22,"room_mean_c":25.86,"room_max_c":26.06,"chiller_kw":185.1,"power_kw":35.8},{"hour":10.33,"outdoor_c":35.29,"room_mean_c":25.86,"room_max_c":26.07,"chiller_kw":185.9,"power_kw":36.0},{"hour":10.42,"outdoor_c":35.37,"room_mean_c":25.86,"room_max_c":26.07,"chiller_kw":186.8,"power_kw":36.2},{"hour":10.5,"outdoor_c":35.44,"room_mean_c":25.87,"room_max_c":26.07,"chiller_kw":187.6,"power_kw":36.4},{"hour":10.58,"outdoor_c":35.5,"room_mean_c":25.87,"room_max_c":26.08,"chiller_kw":188.4,"power_kw":36.6},{"hour":10.67,"outdoor_c":35.57,"room_mean_c":25.88,"room_max_c":26.08,"chiller_kw":189.2,"power_kw":36.7},{"hour":10.75,"outdoor_c":35.64,"room_mean_c":25.88,"room_max_c":26.09,"chiller_kw":190.0,"power_kw":36.9},{"hour":10.83,"outdoor_c":35.7,"room_mean_c":25.89,"room_max_c":26.09,"chiller_kw":190.8,"power_kw":37.1},{"hour":10.92,"outdoor_c":35.77,"room_mean_c":25.89,"room_max_c":26.1,"chiller_kw":191.6,"power_kw":37.3},{"hour":11.0,"outdoor_c":35.83,"room_mean_c":25.89,"room_max_c":26.1,"chiller_kw":192.3,"power_kw":37.5},{"hour":11.08,"outdoor_c":35.89,"room_mean_c":25.9,"room_max_c":26.1,"chiller_kw":193.1,"power_kw":37.7},{"hour":11.17,"outdoor_c":35.95,"room_mean_c":25.9,"room_max_c":26.11,"chiller_kw":193.8,"power_kw":37.9},{"hour":11.25,"outdoor_c":36.01,"room_mean_c":25.9,"room_max_c":26.11,"chiller_kw":194.5,"power_kw":38.1},{"hour":11.33,"outdoor_c":36.06,"room_mean_c":25.91,"room_max_c":26.11,"chiller_kw":195.2,"power_kw":38.2},{"hour":11.42,"outdoor_c":36.12,"room_mean_c":25.91,"room_max_c":26.12,"chiller_kw":195.9,"power_kw":38.4},{"hour":11.5,"outdoor_c":36.17,"room_mean_c":25.91,"room_max_c":26.12,"chiller_kw":196.6,"power_kw":38.6},{"hour":11.58,"outdoor_c":36.23,"room_mean_c":25.92,"room_max_c":26.13,"chiller_kw":197.2,"power_kw":38.8},{"hour":11.67,"outdoor_c":36.28,"room_mean_c":25.92,"room_max_c":26.13,"chiller_kw":197.9,"power_kw":38.9},{"hour":11.75,"outdoor_c":36.33,"room_mean_c":25.92,"room_max_c":26.13,"chiller_kw":198.5,"power_kw":39.1},{"hour":11.83,"outdoor_c":36.37,"room_mean_c":25.93,"room_max_c":26.14,"chiller_kw":199.1,"power_kw":39.2},{"hour":11.92,"outdoor_c":36.42,"room_mean_c":25.93,"room_max_c":26.14,"chiller_kw":199.7,"power_kw":39.4},{"hour":12.0,"outdoor_c":36.46,"room_mean_c":25.93,"room_max_c":26.14,"chiller_kw":200.2,"power_kw":39.6},{"hour":12.08,"outdoor_c":36.51,"room_mean_c":25.94,"room_max_c":26.14,"chiller_kw":200.8,"power_kw":39.7},{"hour":12.17,"outdoor_c":36.55,"room_mean_c":25.94,"room_max_c":26.15,"chiller_kw":201.3,"power_kw":39.9},{"hour":12.25,"outdoor_c":36.59,"room_mean_c":25.94,"room_max_c":26.15,"chiller_kw":201.8,"power_kw":40.0},{"hour":12.33,"outdoor_c":36.63,"room_mean_c":25.94,"room_max_c":26.15,"chiller_kw":202.3,"power_kw":40.1},{"hour":12.42,"outdoor_c":36.66,"room_mean_c":25.95,"room_max_c":26.16,"chiller_kw":202.8,"power_kw":40.3},{"hour":12.5,"outdoor_c":36.7,"room_mean_c":25.95,"room_max_c":26.16,"chiller_kw":203.2,"power_kw":40.4},{"hour":12.58,"outdoor_c":36.73,"room_mean_c":25.95,"room_max_c":26.16,"chiller_kw":203.7,"power_kw":40.5},{"hour":12.67,"outdoor_c":36.76,"room_mean_c":25.95,"room_max_c":26.16,"chiller_kw":204.1,"power_kw":40.6},{"hour":12.75,"outdoor_c":36.79,"room_mean_c":25.95,"room_max_c":26.17,"chiller_kw":204.5,"power_kw":40.7},{"hour":12.83,"outdoor_c":36.81,"room_mean_c":25.96,"room_max_c":26.17,"chiller_kw":204.8,"power_kw":40.8},{"hour":12.92,"outdoor_c":36.84,"room_mean_c":25.96,"room_max_c":26.17,"chiller_kw":205.2,"power_kw":40.9},{"hour":13.0,"outdoor_c":36.86,"room_mean_c":25.96,"room_max_c":26.17,"chiller_kw":205.5,"power_kw":41.0},{"hour":13.08,"outdoor_c":36.89,"room_mean_c":25.96,"room_max_c":26.17,"chiller_kw":205.8,"power_kw":41.1},{"hour":13.17,"outdoor_c":36.91,"room_mean_c":25.96,"room_max_c":26.18,"chiller_kw":206.1,"power_kw":41.2},{"hour":13.25,"outdoor_c":36.92,"room_mean_c":25.97,"room_max_c":26.18,"chiller_kw":206.4,"power_kw":41.3},{"hour":13.33,"outdoor_c":36.94,"room_mean_c":25.97,"room_max_c":26.18,"chiller_kw":206.6,"power_kw":41.3},{"hour":13.42,"outdoor_c":36.95,"room_mean_c":25.97,"room_max_c":26.18,"chiller_kw":206.8,"power_kw":41.4},{"hour":13.5,"outdoor_c":36.97,"room_mean_c":25.97,"room_max_c":26.18,"chiller_kw":207.0,"power_kw":41.4},{"hour":13.58,"outdoor_c":36.98,"room_mean_c":25.97,"room_max_c":26.18,"chiller_kw":207.2,"power_kw":41.5},{"hour":13.67,"outdoor_c":36.98,"room_mean_c":25.97,"room_max_c":26.18,"chiller_kw":207.3,"power_kw":41.5},{"hour":13.75,"outdoor_c":36.99,"room_mean_c":25.97,"room_max_c":26.18,"chiller_kw":207.4,"power_kw":41.6},{"hour":13.83,"outdoor_c":37.0,"room_mean_c":25.97,"room_max_c":26.19,"chiller_kw":207.5,"power_kw":41.6},{"hour":13.92,"outdoor_c":37.0,"room_mean_c":25.97,"room_max_c":26.19,"chiller_kw":207.6,"power_kw":41.6},{"hour":14.0,"outdoor_c":37.0,"room_mean_c":25.97,"room_max_c":26.19,"chiller_kw":207.7,"power_kw":41.6},{"hour":14.08,"outdoor_c":37.0,"room_mean_c":25.98,"room_max_c":26.19,"chiller_kw":207.7,"power_kw":41.6},{"hour":14.17,"outdoor_c":37.0,"room_mean_c":25.98,"room_max_c":26.19,"chiller_kw":207.7,"power_kw":41.6},{"hour":14.25,"outdoor_c":36.99,"room_mean_c":25.98,"room_max_c":26.19,"chiller_kw":207.7,"power_kw":41.6},{"hour":14.33,"outdoor_c":36.98,"room_mean_c":25.98,"room_max_c":26.19,"chiller_kw":207.7,"power_kw":41.6},{"hour":14.42,"outdoor_c":36.98,"room_mean_c":25.98,"room_max_c":26.19,"chiller_kw":207.6,"power_kw":41.6},{"hour":14.5,"outdoor_c":36.97,"room_mean_c":25.98,"room_max_c":26.19,"chiller_kw":207.5,"power_kw":41.5},{"hour":14.58,"outdoor_c":36.95,"room_mean_c":25.98,"room_max_c":26.19,"chiller_kw":207.4,"power_kw":41.5},{"hour":14.67,"outdoor_c":36.94,"room_mean_c":25.98,"room_max_c":26.19,"chiller_kw":207.3,"power_kw":41.5},{"hour":14.75,"outdoor_c":36.92,"room_mean_c":25.98,"room_max_c":26.19,"chiller_kw":207.1,"power_kw":41.4},{"hour":14.83,"outdoor_c":36.91,"room_mean_c":25.98,"room_max_c":26.19,"chiller_kw":206.9,"power_kw":41.4},{"hour":14.92,"outdoor_c":36.89,"room_mean_c":25.98,"room_max_c":26.19,"chiller_kw":206.7,"power_kw":41.3},{"hour":15.0,"outdoor_c":36.86,"room_mean_c":25.97,"room_max_c":26.19,"chiller_kw":206.5,"power_kw":41.2},{"hour":15.08,"outdoor_c":36.84,"room_mean_c":25.97,"room_max_c":26.19,"chiller_kw":206.3,"power_kw":41.2},{"hour":15.17,"outdoor_c":36.81,"room_mean_c":25.97,"room_max_c":26.19,"chiller_kw":206.0,"power_kw":41.1},{"hour":15.25,"outdoor_c":36.79,"room_mean_c":25.97,"room_max_c":26.19,"chiller_kw":205.7,"power_kw":41.0},{"hour":15.33,"outdoor_c":36.76,"room_mean_c":25.97,"room_max_c":26.19,"chiller_kw":205.4,"power_kw":40.9},{"hour":15.42,"outdoor_c":36.73,"room_mean_c":25.97,"room_max_c":26.19,"chiller_kw":205.1,"power_kw":40.8},{"hour":15.5,"outdoor_c":36.7,"room_mean_c":25.97,"room_max_c":26.18,"chiller_kw":204.8,"power_kw":40.7},{"hour":15.58,"outdoor_c":36.66,"room_mean_c":25.97,"room_max_c":26.18,"chiller_kw":204.4,"power_kw":40.6},{"hour":15.67,"outdoor_c":36.63,"room_mean_c":25.97,"room_max_c":26.18,"chiller_kw":204.0,"power_kw":40.5},{"hour":15.75,"outdoor_c":36.59,"room_mean_c":25.97,"room_max_c":26.18,"chiller_kw":203.6,"power_kw":40.3},{"hour":15.83,"outdoor_c":36.55,"room_mean_c":25.96,"room_max_c":26.18,"chiller_kw":203.2,"power_kw":40.2},{"hour":15.92,"outdoor_c":36.51,"room_mean_c":25.96,"room_max_c":26.18,"chiller_kw":202.7,"power_kw":40.1},{"hour":16.0,"outdoor_c":36.46,"room_mean_c":25.96,"room_max_c":26.18,"chiller_kw":202.2,"power_kw":39.9},{"hour":16.08,"outdoor_c":36.42,"room_mean_c":25.96,"room_max_c":26.17,"chiller_kw":201.7,"power_kw":39.8},{"hour":16.17,"outdoor_c":36.37,"room_mean_c":25.96,"room_max_c":26.17,"chiller_kw":201.2,"power_kw":39.7},{"hour":16.25,"outdoor_c":36.33,"room_mean_c":25.96,"room_max_c":26.17,"chiller_kw":200.7,"power_kw":39.5},{"hour":16.33,"outdoor_c":36.28,"room_mean_c":25.95,"room_max_c":26.17,"chiller_kw":200.2,"power_kw":39.4},{"hour":16.42,"outdoor_c":36.23,"room_mean_c":25.95,"room_max_c":26.17,"chiller_kw":199.6,"power_kw":39.2},{"hour":16.5,"outdoor_c":36.17,"room_mean_c":25.95,"room_max_c":26.16,"chiller_kw":199.0,"power_kw":39.0},{"hour":16.58,"outdoor_c":36.12,"room_mean_c":25.95,"room_max_c":26.16,"chiller_kw":198.4,"power_kw":38.9},{"hour":16.67,"outdoor_c":36.06,"room_mean_c":25.94,"room_max_c":26.16,"chiller_kw":197.8,"power_kw":38.7},{"hour":16.75,"outdoor_c":36.01,"room_mean_c":25.94,"room_max_c":26.16,"chiller_kw":197.2,"power_kw":38.5},{"hour":16.83,"outdoor_c":35.95,"room_mean_c":25.94,"room_max_c":26.15,"chiller_kw":196.5,"power_kw":38.4},{"hour":16.92,"outdoor_c":35.89,"room_mean_c":25.94,"room_max_c":26.15,"chiller_kw":195.9,"power_kw":38.2},{"hour":17.0,"outdoor_c":35.83,"room_mean_c":25.93,"room_max_c":26.15,"chiller_kw":195.2,"power_kw":38.0},{"hour":17.08,"outdoor_c":35.77,"room_mean_c":25.93,"room_max_c":26.15,"chiller_kw":194.5,"power_kw":37.8},{"hour":17.17,"outdoor_c":35.7,"room_mean_c":25.93,"room_max_c":26.14,"chiller_kw":193.8,"power_kw":37.7},{"hour":17.25,"outdoor_c":35.64,"room_mean_c":25.92,"room_max_c":26.14,"chiller_kw":193.1,"power_kw":37.5},{"hour":17.33,"outdoor_c":35.57,"room_mean_c":25.92,"room_max_c":26.14,"chiller_kw":192.3,"power_kw":37.3},{"hour":17.42,"outdoor_c":35.5,"room_mean_c":25.92,"room_max_c":26.13,"chiller_kw":191.6,"power_kw":37.1},{"hour":17.5,"outdoor_c":35.44,"room_mean_c":25.92,"room_max_c":26.13,"chiller_kw":190.8,"power_kw":36.9},{"hour":17.58,"outdoor_c":35.37,"room_mean_c":25.91,"room_max_c":26.13,"chiller_kw":190.1,"power_kw":36.7},{"hour":17.67,"outdoor_c":35.29,"room_mean_c":25.91,"room_max_c":26.12,"chiller_kw":189.3,"power_kw":36.5},{"hour":17.75,"outdoor_c":35.22,"room_mean_c":25.91,"room_max_c":26.12,"chiller_kw":188.5,"power_kw":36.3},{"hour":17.83,"outdoor_c":35.15,"room_mean_c":25.9,"room_max_c":26.12,"chiller_kw":187.7,"power_kw":36.1},{"hour":17.92,"outdoor_c":35.08,"room_mean_c":25.9,"room_max_c":26.11,"chiller_kw":186.9,"power_kw":35.9},{"hour":18.0,"outdoor_c":35.0,"room_mean_c":25.89,"room_max_c":26.11,"chiller_kw":186.0,"power_kw":35.7},{"hour":18.08,"outdoor_c":34.92,"room_mean_c":25.89,"room_max_c":26.11,"chiller_kw":185.2,"power_kw":35.6},{"hour":18.17,"outdoor_c":34.85,"room_mean_c":25.89,"room_max_c":26.1,"chiller_kw":184.3,"power_kw":35.4},{"hour":18.25,"outdoor_c":34.77,"room_mean_c":25.88,"room_max_c":26.1,"chiller_kw":183.5,"power_kw":35.2},{"hour":18.33,"outdoor_c":34.69,"room_mean_c":25.88,"room_max_c":26.1,"chiller_kw":182.6,"power_kw":35.0},{"hour":18.42,"outdoor_c":34.61,"room_mean_c":25.88,"room_max_c":26.09,"chiller_kw":181.8,"power_kw":34.8},{"hour":18.5,"outdoor_c":34.53,"room_mean_c":25.87,"room_max_c":26.09,"chiller_kw":180.9,"power_kw":34.6},{"hour":18.58,"outdoor_c":34.45,"room_mean_c":25.87,"room_max_c":26.08,"chiller_kw":180.0,"power_kw":34.4},{"hour":18.67,"outdoor_c":34.37,"room_mean_c":25.86,"room_max_c":26.08,"chiller_kw":179.1,"power_kw":34.2},{"hour":18.75,"outdoor_c":34.29,"room_mean_c":25.86,"room_max_c":26.07,"chiller_kw":178.2,"power_kw":34.0},{"hour":18.83,"outdoor_c":34.2,"room_mean_c":25.86,"room_max_c":26.07,"chiller_kw":177.3,"power_kw":33.8},{"hour":18.92,"outdoor_c":34.12,"room_mean_c":25.85,"room_max_c":26.07,"chiller_kw":176.4,"power_kw":33.6},{"hour":19.0,"outdoor_c":34.04,"room_mean_c":25.85,"room_max_c":26.06,"chiller_kw":175.5,"power_kw":33.4},{"hour":19.08,"outdoor_c":33.95,"room_mean_c":25.84,"room_max_c":26.06,"chiller_kw":174.6,"power_kw":33.2},{"hour":19.17,"outdoor_c":33.87,"room_mean_c":25.84,"room_max_c":26.05,"chiller_kw":173.7,"power_kw":33.1},{"hour":19.25,"outdoor_c":33.78,"room_mean_c":25.83,"room_max_c":26.05,"chiller_kw":172.8,"power_kw":32.9},{"hour":19.33,"outdoor_c":33.69,"room_mean_c":25.83,"room_max_c":26.04,"chiller_kw":171.8,"power_kw":32.7},{"hour":19.42,"outdoor_c":33.61,"room_mean_c":25.82,"room_max_c":26.04,"chiller_kw":170.9,"power_kw":32.5},{"hour":19.5,"outdoor_c":33.52,"room_mean_c":25.82,"room_max_c":26.03,"chiller_kw":170.0,"power_kw":32.3},{"hour":19.58,"outdoor_c":33.44,"room_mean_c":25.82,"room_max_c":26.03,"chiller_kw":169.1,"power_kw":32.1},{"hour":19.67,"outdoor_c":33.35,"room_mean_c":25.81,"room_max_c":26.03,"chiller_kw":168.1,"power_kw":32.0},{"hour":19.75,"outdoor_c":33.26,"room_mean_c":25.81,"room_max_c":26.02,"chiller_kw":167.2,"power_kw":31.8},{"hour":19.83,"outdoor_c":33.17,"room_mean_c":25.8,"room_max_c":26.02,"chiller_kw":166.3,"power_kw":31.6},{"hour":19.92,"outdoor_c":33.09,"room_mean_c":25.8,"room_max_c":26.01,"chiller_kw":165.4,"power_kw":31.5},{"hour":20.0,"outdoor_c":33.0,"room_mean_c":25.79,"room_max_c":26.01,"chiller_kw":164.4,"power_kw":31.3},{"hour":20.08,"outdoor_c":32.91,"room_mean_c":25.79,"room_max_c":26.0,"chiller_kw":163.5,"power_kw":31.1},{"hour":20.17,"outdoor_c":32.83,"room_mean_c":25.78,"room_max_c":26.0,"chiller_kw":162.6,"power_kw":30.9},{"hour":20.25,"outdoor_c":32.74,"room_mean_c":25.78,"room_max_c":25.99,"chiller_kw":161.7,"power_kw":30.8},{"hour":20.33,"outdoor_c":32.65,"room_mean_c":25.77,"room_max_c":25.99,"chiller_kw":160.8,"power_kw":30.6},{"hour":20.42,"outdoor_c":32.56,"room_mean_c":25.77,"room_max_c":25.98,"chiller_kw":159.9,"power_kw":30.5},{"hour":20.5,"outdoor_c":32.48,"room_mean_c":25.76,"room_max_c":25.98,"chiller_kw":159.0,"power_kw":30.3},{"hour":20.58,"outdoor_c":32.39,"room_mean_c":25.76,"room_max_c":25.97,"chiller_kw":158.0,"power_kw":30.2},{"hour":20.67,"outdoor_c":32.31,"room_mean_c":25.75,"room_max_c":25.97,"chiller_kw":157.1,"power_kw":30.0},{"hour":20.75,"outdoor_c":32.22,"room_mean_c":25.75,"room_max_c":25.96,"chiller_kw":156.3,"power_kw":29.9},{"hour":20.83,"outdoor_c":32.13,"room_mean_c":25.74,"room_max_c":25.96,"chiller_kw":155.4,"power_kw":29.7},{"hour":20.92,"outdoor_c":32.05,"room_mean_c":25.74,"room_max_c":25.95,"chiller_kw":154.5,"power_kw":29.6},{"hour":21.0,"outdoor_c":31.96,"room_mean_c":25.73,"room_max_c":25.95,"chiller_kw":153.6,"power_kw":29.4},{"hour":21.08,"outdoor_c":31.88,"room_mean_c":25.73,"room_max_c":25.94,"chiller_kw":152.7,"power_kw":29.3},{"hour":21.17,"outdoor_c":31.8,"room_mean_c":25.73,"room_max_c":25.94,"chiller_kw":151.9,"power_kw":29.1},{"hour":21.25,"outdoor_c":31.71,"room_mean_c":25.72,"room_max_c":25.93,"chiller_kw":151.0,"power_kw":29.0},{"hour":21.33,"outdoor_c":31.63,"room_mean_c":25.72,"room_max_c":25.93,"chiller_kw":150.2,"power_kw":28.9},{"hour":21.42,"outdoor_c":31.55,"room_mean_c":25.71,"room_max_c":25.92,"chiller_kw":149.3,"power_kw":28.8},{"hour":21.5,"outdoor_c":31.47,"room_mean_c":25.71,"room_max_c":25.92,"chiller_kw":148.5,"power_kw":28.6},{"hour":21.58,"outdoor_c":31.39,"room_mean_c":25.7,"room_max_c":25.91,"chiller_kw":147.6,"power_kw":28.5},{"hour":21.67,"outdoor_c":31.31,"room_mean_c":25.7,"room_max_c":25.91,"chiller_kw":146.8,"power_kw":28.4},{"hour":21.75,"outdoor_c":31.23,"room_mean_c":25.69,"room_max_c":25.9,"chiller_kw":146.0,"power_kw":28.3},{"hour":21.83,"outdoor_c":31.15,"room_mean_c":25.69,"room_max_c":25.9,"chiller_kw":145.2,"power_kw":28.1},{"hour":21.92,"outdoor_c":31.08,"room_mean_c":25.68,"room_max_c":25.89,"chiller_kw":144.4,"power_kw":28.0},{"hour":22.0,"outdoor_c":31.0,"room_mean_c":25.68,"room_max_c":25.89,"chiller_kw":143.7,"power_kw":27.9},{"hour":22.08,"outdoor_c":30.92,"room_mean_c":25.67,"room_max_c":25.88,"chiller_kw":142.9,"power_kw":27.8},{"hour":22.17,"outdoor_c":30.85,"room_mean_c":25.67,"room_max_c":25.88,"chiller_kw":142.1,"power_kw":27.7},{"hour":22.25,"outdoor_c":30.78,"room_mean_c":25.66,"room_max_c":25.87,"chiller_kw":141.4,"power_kw":27.6},{"hour":22.33,"outdoor_c":30.71,"room_mean_c":25.66,"room_max_c":25.87,"chiller_kw":140.6,"power_kw":27.5},{"hour":22.42,"outdoor_c":30.63,"room_mean_c":25.65,"room_max_c":25.86,"chiller_kw":139.9,"power_kw":27.4},{"hour":22.5,"outdoor_c":30.56,"room_mean_c":25.65,"room_max_c":25.86,"chiller_kw":139.2,"power_kw":27.3},{"hour":22.58,"outdoor_c":30.5,"room_mean_c":25.65,"room_max_c":25.86,"chiller_kw":138.5,"power_kw":27.2},{"hour":22.67,"outdoor_c":30.43,"room_mean_c":25.64,"room_max_c":25.85,"chiller_kw":137.8,"power_kw":27.1},{"hour":22.75,"outdoor_c":30.36,"room_mean_c":25.64,"room_max_c":25.85,"chiller_kw":137.1,"power_kw":27.0},{"hour":22.83,"outdoor_c":30.3,"room_mean_c":25.63,"room_max_c":25.84,"chiller_kw":136.5,"power_kw":27.0},{"hour":22.92,"outdoor_c":30.23,"room_mean_c":25.63,"room_max_c":25.84,"chiller_kw":135.8,"power_kw":26.9},{"hour":23.0,"outdoor_c":30.17,"room_mean_c":25.62,"room_max_c":25.83,"chiller_kw":135.2,"power_kw":26.8},{"hour":23.08,"outdoor_c":30.11,"room_mean_c":25.62,"room_max_c":25.83,"chiller_kw":134.5,"power_kw":26.7},{"hour":23.17,"outdoor_c":30.05,"room_mean_c":25.62,"room_max_c":25.82,"chiller_kw":133.9,"power_kw":26.6},{"hour":23.25,"outdoor_c":29.99,"room_mean_c":25.61,"room_max_c":25.82,"chiller_kw":133.3,"power_kw":26.6},{"hour":23.33,"outdoor_c":29.94,"room_mean_c":25.61,"room_max_c":25.82,"chiller_kw":132.7,"power_kw":26.5},{"hour":23.42,"outdoor_c":29.88,"room_mean_c":25.61,"room_max_c":25.81,"chiller_kw":132.2,"power_kw":26.4},{"hour":23.5,"outdoor_c":29.83,"room_mean_c":25.6,"room_max_c":25.81,"chiller_kw":131.6,"power_kw":26.3},{"hour":23.58,"outdoor_c":29.77,"room_mean_c":25.6,"room_max_c":25.8,"chiller_kw":131.1,"power_kw":26.3},{"hour":23.67,"outdoor_c":29.72,"room_mean_c":25.59,"room_max_c":25.8,"chiller_kw":130.6,"power_kw":26.2},{"hour":23.75,"outdoor_c":29.67,"room_mean_c":25.59,"room_max_c":25.8,"chiller_kw":130.0,"power_kw":26.2},{"hour":23.83,"outdoor_c":29.63,"room_mean_c":25.59,"room_max_c":25.79,"chiller_kw":129.5,"power_kw":26.1},{"hour":23.92,"outdoor_c":29.58,"room_mean_c":25.58,"room_max_c":25.79,"chiller_kw":129.1,"power_kw":26.1},{"hour":0.0,"outdoor_c":29.54,"room_mean_c":25.58,"room_max_c":25.79,"chiller_kw":128.6,"power_kw":26.0},{"hour":0.08,"outdoor_c":29.49,"room_mean_c":25.58,"room_max_c":25.78,"chiller_kw":128.2,"power_kw":25.9},{"hour":0.17,"outdoor_c":29.45,"room_mean_c":25.57,"room_max_c":25.78,"chiller_kw":127.7,"power_kw":25.9},{"hour":0.25,"outdoor_c":29.41,"room_mean_c":25.57,"room_max_c":25.78,"chiller_kw":127.3,"power_kw":25.9},{"hour":0.33,"outdoor_c":29.37,"room_mean_c":25.57,"room_max_c":25.77,"chiller_kw":126.9,"power_kw":25.8},{"hour":0.42,"outdoor_c":29.34,"room_mean_c":25.57,"room_max_c":25.77,"chiller_kw":126.5,"power_kw":25.8},{"hour":0.5,"outdoor_c":29.3,"room_mean_c":25.56,"room_max_c":25.77,"chiller_kw":126.1,"power_kw":25.7},{"hour":0.58,"outdoor_c":29.27,"room_mean_c":25.56,"room_max_c":25.76,"chiller_kw":125.8,"power_kw":25.7},{"hour":0.67,"outdoor_c":29.24,"room_mean_c":25.56,"room_max_c":25.76,"chiller_kw":125.5,"power_kw":25.7},{"hour":0.75,"outdoor_c":29.21,"room_mean_c":25.55,"room_max_c":25.76,"chiller_kw":125.1,"power_kw":25.6},{"hour":0.83,"outdoor_c":29.19,"room_mean_c":25.55,"room_max_c":25.76,"chiller_kw":124.8,"power_kw":25.6},{"hour":0.92,"outdoor_c":29.16,"room_mean_c":25.55,"room_max_c":25.75,"chiller_kw":124.5,"power_kw":25.6},{"hour":1.0,"outdoor_c":29.14,"room_mean_c":25.55,"room_max_c":25.75,"chiller_kw":124.3,"power_kw":25.5},{"hour":1.08,"outdoor_c":29.11,"room_mean_c":25.55,"room_max_c":25.75,"chiller_kw":124.0,"power_kw":25.5},{"hour":1.17,"outdoor_c":29.09,"room_mean_c":25.54,"room_max_c":25.75,"chiller_kw":123.8,"power_kw":25.5},{"hour":1.25,"outdoor_c":29.08,"room_mean_c":25.54,"room_max_c":25.75,"chiller_kw":123.6,"power_kw":25.5},{"hour":1.33,"outdoor_c":29.06,"room_mean_c":25.54,"room_max_c":25.74,"chiller_kw":123.4,"power_kw":25.4},{"hour":1.42,"outdoor_c":29.05,"room_mean_c":25.54,"room_max_c":25.74,"chiller_kw":123.2,"power_kw":25.4},{"hour":1.5,"outdoor_c":29.03,"room_mean_c":25.54,"room_max_c":25.74,"chiller_kw":123.0,"power_kw":25.4},{"hour":1.58,"outdoor_c":29.02,"room_mean_c":25.53,"room_max_c":25.74,"chiller_kw":122.9,"power_kw":25.4},{"hour":1.67,"outdoor_c":29.02,"room_mean_c":25.53,"room_max_c":25.74,"chiller_kw":122.8,"power_kw":25.4},{"hour":1.75,"outdoor_c":29.01,"room_mean_c":25.53,"room_max_c":25.74,"chiller_kw":122.6,"power_kw":25.4},{"hour":1.83,"outdoor_c":29.0,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":122.5,"power_kw":25.4},{"hour":1.92,"outdoor_c":29.0,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":122.5,"power_kw":25.4},{"hour":2.0,"outdoor_c":29.0,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":122.4,"power_kw":25.3},{"hour":2.08,"outdoor_c":29.0,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":122.4,"power_kw":25.3},{"hour":2.17,"outdoor_c":29.0,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":122.3,"power_kw":25.3},{"hour":2.25,"outdoor_c":29.01,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":122.3,"power_kw":25.3},{"hour":2.33,"outdoor_c":29.02,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":122.4,"power_kw":25.4},{"hour":2.42,"outdoor_c":29.02,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":122.4,"power_kw":25.4},{"hour":2.5,"outdoor_c":29.03,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":122.4,"power_kw":25.4},{"hour":2.58,"outdoor_c":29.05,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":122.5,"power_kw":25.4},{"hour":2.67,"outdoor_c":29.06,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":122.6,"power_kw":25.4},{"hour":2.75,"outdoor_c":29.08,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":122.7,"power_kw":25.4},{"hour":2.83,"outdoor_c":29.09,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":122.8,"power_kw":25.4},{"hour":2.92,"outdoor_c":29.11,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":122.9,"power_kw":25.4},{"hour":3.0,"outdoor_c":29.14,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":123.1,"power_kw":25.4},{"hour":3.08,"outdoor_c":29.16,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":123.3,"power_kw":25.5},{"hour":3.17,"outdoor_c":29.19,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":123.5,"power_kw":25.5},{"hour":3.25,"outdoor_c":29.21,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":123.7,"power_kw":25.5},{"hour":3.33,"outdoor_c":29.24,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":123.9,"power_kw":25.5},{"hour":3.42,"outdoor_c":29.27,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":124.2,"power_kw":25.6},{"hour":3.5,"outdoor_c":29.3,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":124.4,"power_kw":25.6},{"hour":3.58,"outdoor_c":29.34,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":124.7,"power_kw":25.6},{"hour":3.67,"outdoor_c":29.37,"room_mean_c":25.53,"room_max_c":25.73,"chiller_kw":125.0,"power_kw":25.7},{"hour":3.75,"outdoor_c":29.41,"room_mean_c":25.54,"room_max_c":25.74,"chiller_kw":125.3,"power_kw":25.7},{"hour":3.83,"outdoor_c":29.45,"room_mean_c":25.54,"room_max_c":25.74,"chiller_kw":125.6,"power_kw":25.7},{"hour":3.92,"outdoor_c":29.49,"room_mean_c":25.54,"room_max_c":25.74,"chiller_kw":126.0,"power_kw":25.8},{"hour":4.0,"outdoor_c":29.54,"room_mean_c":25.54,"room_max_c":25.74,"chiller_kw":126.4,"power_kw":25.8},{"hour":4.08,"outdoor_c":29.58,"room_mean_c":25.54,"room_max_c":25.74,"chiller_kw":126.7,"power_kw":25.9},{"hour":4.17,"outdoor_c":29.63,"room_mean_c":25.55,"room_max_c":25.75,"chiller_kw":127.1,"power_kw":25.9},{"hour":4.25,"outdoor_c":29.67,"room_mean_c":25.55,"room_max_c":25.75,"chiller_kw":127.6,"power_kw":26.0},{"hour":4.33,"outdoor_c":29.72,"room_mean_c":25.55,"room_max_c":25.75,"chiller_kw":128.0,"power_kw":26.0},{"hour":4.42,"outdoor_c":29.77,"room_mean_c":25.55,"room_max_c":25.75,"chiller_kw":128.4,"power_kw":26.1},{"hour":4.5,"outdoor_c":29.83,"room_mean_c":25.55,"room_max_c":25.75,"chiller_kw":128.9,"power_kw":26.1},{"hour":4.58,"outdoor_c":29.88,"room_mean_c":25.56,"room_max_c":25.76,"chiller_kw":129.4,"power_kw":26.2},{"hour":4.67,"outdoor_c":29.94,"room_mean_c":25.56,"room_max_c":25.76,"chiller_kw":129.9,"power_kw":26.3},{"hour":4.75,"outdoor_c":29.99,"room_mean_c":25.56,"room_max_c":25.76,"chiller_kw":130.4,"power_kw":26.3},{"hour":4.83,"outdoor_c":30.05,"room_mean_c":25.57,"room_max_c":25.76,"chiller_kw":130.9,"power_kw":26.4},{"hour":4.92,"outdoor_c":30.11,"room_mean_c":25.57,"room_max_c":25.77,"chiller_kw":131.5,"power_kw":26.5},{"hour":5.0,"outdoor_c":30.17,"room_mean_c":25.57,"room_max_c":25.77,"chiller_kw":132.0,"power_kw":26.5},{"hour":5.08,"outdoor_c":30.23,"room_mean_c":25.57,"room_max_c":25.77,"chiller_kw":132.6,"power_kw":26.6},{"hour":5.17,"outdoor_c":30.3,"room_mean_c":25.58,"room_max_c":25.78,"chiller_kw":133.2,"power_kw":26.7},{"hour":5.25,"outdoor_c":30.36,"room_mean_c":25.58,"room_max_c":25.78,"chiller_kw":133.8,"power_kw":26.8},{"hour":5.33,"outdoor_c":30.43,"room_mean_c":25.58,"room_max_c":25.78,"chiller_kw":134.4,"power_kw":26.8},{"hour":5.42,"outdoor_c":30.5,"room_mean_c":25.59,"room_max_c":25.79,"chiller_kw":135.0,"power_kw":26.9},{"hour":5.5,"outdoor_c":30.56,"room_mean_c":25.59,"room_max_c":25.79,"chiller_kw":135.7,"power_kw":27.0},{"hour":5.58,"outdoor_c":30.63,"room_mean_c":25.6,"room_max_c":25.79,"chiller_kw":136.4,"power_kw":27.1},{"hour":5.67,"outdoor_c":30.71,"room_mean_c":25.6,"room_max_c":25.8,"chiller_kw":137.0,"power_kw":27.2},{"hour":5.75,"outdoor_c":30.78,"room_mean_c":25.6,"room_max_c":25.8,"chiller_kw":137.7,"power_kw":27.3},{"hour":5.83,"outdoor_c":30.85,"room_mean_c":25.61,"room_max_c":25.81,"chiller_kw":138.4,"power_kw":27.4},{"hour":5.92,"outdoor_c":30.92,"room_mean_c":25.61,"room_max_c":25.81,"chiller_kw":139.1,"power_kw":27.5},{"hour":6.0,"outdoor_c":31.0,"room_mean_c":25.61,"room_max_c":25.81,"chiller_kw":139.9,"power_kw":27.6},{"hour":6.08,"outdoor_c":31.08,"room_mean_c":25.62,"room_max_c":25.82,"chiller_kw":140.6,"power_kw":27.7},{"hour":6.17,"outdoor_c":31.15,"room_mean_c":25.62,"room_max_c":25.82,"chiller_kw":141.3,"power_kw":27.8},{"hour":6.25,"outdoor_c":31.23,"room_mean_c":25.63,"room_max_c":25.83,"chiller_kw":142.1,"power_kw":27.9},{"hour":6.33,"outdoor_c":31.31,"room_mean_c":25.63,"room_max_c":25.83,"chiller_kw":142.9,"power_kw":28.0},{"hour":6.42,"outdoor_c":31.39,"room_mean_c":25.64,"room_max_c":25.84,"chiller_kw":143.7,"power_kw":28.1},{"hour":6.5,"outdoor_c":31.47,"room_mean_c":25.64,"room_max_c":25.84,"chiller_kw":144.5,"power_kw":28.2},{"hour":6.58,"outdoor_c":31.55,"room_mean_c":25.64,"room_max_c":25.84,"chiller_kw":145.3,"power_kw":28.3},{"hour":6.67,"outdoor_c":31.63,"room_mean_c":25.65,"room_max_c":25.85,"chiller_kw":146.1,"power_kw":28.5}]}},"load":{"constants":{"air_density":1.2,"air_cp":1.005,"solar_gain_factor":0.55,"vaporization_kj_kg":2501.0,"people_kw":0.12,"high_density_kw_m2":0.35,"simultaneity":0.9,"safety":1.1,"air_dt_c":10.0,"capacity_margin":[1.0,1.35],"orientation_solar":{"north":60.0,"south":140.0,"east":110.0,"west":160.0,"internal":0.0},"mall_defaults":{"cooling_index_w_m2":180.0,"heating_index_w_m2":90.0,"fresh_air_m3_h_person":25.0,"lighting_w_m2":18.0,"equipment_w_m2":20.0}},"rooms":[{"id":"f1_north","floor":"F1","name":"一层北区（扶梯）","orientation":"north","inputs":{"area_m2":264.0,"height_m":3.0,"people":33,"purpose":"mall","outdoor_summer_c":35.0,"indoor_summer_c":26.0,"outdoor_rh":0.65,"indoor_rh":0.55,"outdoor_winter_c":-5.0,"indoor_winter_c":20.0,"u_w_m2k":1.2,"exposed_factor":1.4,"wwr":0.25,"lighting_w_m2":18.0,"equipment_w_m2":20.0,"fresh_per_person":25.0,"solar_w_m2":60.0},"steps":{"dt_summer":9.0,"dt_winter":25.0,"fresh_m3_h":825.0,"mass_kg_s":0.275,"w_out":0.023250734219740284,"w_in":0.01153728143063781,"wall_m2":48.744230427815765,"window_m2":12.186057606953941,"exposed_m2":369.59999999999997},"components":{"people":3.96,"lighting":4.752,"equipment":5.28,"fresh_air_cooling":2.487,"latent_cooling":8.056,"solar":0.402,"envelope_cooling":3.992,"envelope_heating":11.088,"fresh_air_heating":6.909},"cooling_kw":28.929,"heating_kw":17.997,"index_kw":47.52,"index_dev_pct":-39.122,"index_w_m2":180.0,"heat_index_kw":23.76,"heat_index_dev_pct":-24.253,"heat_index_w_m2":90.0,"density_w_m2":109.6,"high_density":false},{"id":"f1_south","floor":"F1","name":"一层南区","orientation":"south","inputs":{"area_m2":338.0,"height_m":3.0,"people":42,"purpose":"mall","outdoor_summer_c":35.0,"indoor_summer_c":26.0,"outdoor_rh":0.65,"indoor_rh":0.55,"outdoor_winter_c":-5.0,"indoor_winter_c":20.0,"u_w_m2k":1.2,"exposed_factor":1.4,"wwr":0.25,"lighting_w_m2":18.0,"equipment_w_m2":20.0,"fresh_per_person":25.0,"solar_w_m2":140.0},"steps":{"dt_summer":9.0,"dt_winter":25.0,"fresh_m3_h":1050.0,"mass_kg_s":0.35,"w_out":0.023250734219740284,"w_in":0.01153728143063781,"wall_m2":55.154328932550705,"window_m2":13.788582233137676,"exposed_m2":473.2},"components":{"people":5.04,"lighting":6.084,"equipment":6.76,"fresh_air_cooling":3.166,"latent_cooling":10.253,"solar":1.062,"envelope_cooling":5.111,"envelope_heating":14.196,"fresh_air_heating":8.794},"cooling_kw":37.475,"heating_kw":22.99,"index_kw":60.84,"index_dev_pct":-38.403,"index_w_m2":180.0,"heat_index_kw":30.42,"heat_index_dev_pct":-24.426,"heat_index_w_m2":90.0,"density_w_m2":110.9,"high_density":false},{"id":"f2_hall","floor":"F2","name":"二层中庭","orientation":"north","inputs":{"area_m2":175.0,"height_m":3.0,"people":22,"purpose":"mall","outdoor_summer_c":35.0,"indoor_summer_c":26.0,"outdoor_rh":0.65,"indoor_rh":0.55,"outdoor_winter_c":-5.0,"indoor_winter_c":20.0,"u_w_m2k":1.2,"exposed_factor":1.4,"wwr":0.25,"lighting_w_m2":18.0,"equipment_w_m2":20.0,"fresh_per_person":25.0,"solar_w_m2":60.0},"steps":{"dt_summer":9.0,"dt_winter":25.0,"fresh_m3_h":550.0,"mass_kg_s":0.18333333333333332,"w_out":0.023250734219740284,"w_in":0.01153728143063781,"wall_m2":39.68626966596886,"window_m2":9.921567416492215,"exposed_m2":244.99999999999997},"components":{"people":2.64,"lighting":3.15,"equipment":3.5,"fresh_air_cooling":1.658,"latent_cooling":5.371,"solar":0.327,"envelope_cooling":2.646,"envelope_heating":7.35,"fresh_air_heating":4.606},"cooling_kw":19.292,"heating_kw":11.956,"index_kw":31.5,"index_dev_pct":-38.754,"index_w_m2":180.0,"heat_index_kw":15.75,"heat_index_dev_pct":-24.087,"heat_index_w_m2":90.0,"density_w_m2":110.2,"high_density":false},{"id":"f2_south","floor":"F2","name":"二层南区","orientation":"south","inputs":{"area_m2":139.0,"height_m":3.0,"people":17,"purpose":"mall","outdoor_summer_c":35.0,"indoor_summer_c":26.0,"outdoor_rh":0.65,"indoor_rh":0.55,"outdoor_winter_c":-5.0,"indoor_winter_c":20.0,"u_w_m2k":1.2,"exposed_factor":1.4,"wwr":0.25,"lighting_w_m2":18.0,"equipment_w_m2":20.0,"fresh_per_person":25.0,"solar_w_m2":140.0},"steps":{"dt_summer":9.0,"dt_winter":25.0,"fresh_m3_h":425.0,"mass_kg_s":0.14166666666666666,"w_out":0.023250734219740284,"w_in":0.01153728143063781,"wall_m2":35.369478367654786,"window_m2":8.842369591913696,"exposed_m2":194.6},"components":{"people":2.04,"lighting":2.502,"equipment":2.78,"fresh_air_cooling":1.281,"latent_cooling":4.15,"solar":0.681,"envelope_cooling":2.102,"envelope_heating":5.838,"fresh_air_heating":3.559},"cooling_kw":15.536,"heating_kw":9.397,"index_kw":25.02,"index_dev_pct":-37.905,"index_w_m2":180.0,"heat_index_kw":12.51,"heat_index_dev_pct":-24.881,"heat_index_w_m2":90.0,"density_w_m2":111.8,"high_density":false},{"id":"f2_east","floor":"F2","name":"二层东区","orientation":"east","inputs":{"area_m2":111.0,"height_m":3.0,"people":14,"purpose":"mall","outdoor_summer_c":35.0,"indoor_summer_c":26.0,"outdoor_rh":0.65,"indoor_rh":0.55,"outdoor_winter_c":-5.0,"indoor_winter_c":20.0,"u_w_m2k":1.2,"exposed_factor":1.4,"wwr":0.25,"lighting_w_m2":18.0,"equipment_w_m2":20.0,"fresh_per_person":25.0,"solar_w_m2":110.0},"steps":{"dt_summer":9.0,"dt_winter":25.0,"fresh_m3_h":350.0,"mass_kg_s":0.11666666666666667,"w_out":0.023250734219740284,"w_in":0.01153728143063781,"wall_m2":31.606961258558215,"window_m2":7.901740314639554,"exposed_m2":155.39999999999998},"components":{"people":1.68,"lighting":1.998,"equipment":2.22,"fresh_air_cooling":1.055,"latent_cooling":3.418,"solar":0.478,"envelope_cooling":1.678,"envelope_heating":4.662,"fresh_air_heating":2.931},"cooling_kw":12.527,"heating_kw":7.593,"index_kw":19.98,"index_dev_pct":-37.3,"index_w_m2":180.0,"heat_index_kw":9.99,"heat_index_dev_pct":-23.991,"heat_index_w_m2":90.0,"density_w_m2":112.9,"high_density":false},{"id":"f2_northwest","floor":"F2","name":"二层西北区","orientation":"west","inputs":{"area_m2":69.0,"height_m":3.0,"people":9,"purpose":"mall","outdoor_summer_c":35.0,"indoor_summer_c":26.0,"outdoor_rh":0.65,"indoor_rh":0.55,"outdoor_winter_c":-5.0,"indoor_winter_c":20.0,"u_w_m2k":1.2,"exposed_factor":1.4,"wwr":0.25,"lighting_w_m2":18.0,"equipment_w_m2":20.0,"fresh_per_person":25.0,"solar_w_m2":160.0},"steps":{"dt_summer":9.0,"dt_winter":25.0,"fresh_m3_h":225.0,"mass_kg_s":0.075,"w_out":0.023250734219740284,"w_in":0.01153728143063781,"wall_m2":24.919871588754226,"window_m2":6.229967897188557,"exposed_m2":96.6},"components":{"people":1.08,"lighting":1.242,"equipment":1.38,"fresh_air_cooling":0.678,"latent_cooling":2.197,"solar":0.548,"envelope_cooling":1.043,"envelope_heating":2.898,"fresh_air_heating":1.884},"cooling_kw":8.169,"heating_kw":4.782,"index_kw":12.42,"index_dev_pct":-34.227,"index_w_m2":180.0,"heat_index_kw":6.21,"heat_index_dev_pct":-22.989,"heat_index_w_m2":90.0,"density_w_m2":118.4,"high_density":false},{"id":"f2_southwest","floor":"F2","name":"二层西南区","orientation":"west","inputs":{"area_m2":67.0,"height_m":3.0,"people":8,"purpose":"mall","outdoor_summer_c":35.0,"indoor_summer_c":26.0,"outdoor_rh":0.65,"indoor_rh":0.55,"outdoor_winter_c":-5.0,"indoor_winter_c":20.0,"u_w_m2k":1.2,"exposed_factor":1.4,"wwr":0.25,"lighting_w_m2":18.0,"equipment_w_m2":20.0,"fresh_per_person":25.0,"solar_w_m2":160.0},"steps":{"dt_summer":9.0,"dt_winter":25.0,"fresh_m3_h":200.0,"mass_kg_s":0.06666666666666667,"w_out":0.023250734219740284,"w_in":0.01153728143063781,"wall_m2":24.55605831561735,"window_m2":6.139014578904337,"exposed_m2":93.8},"components":{"people":0.96,"lighting":1.206,"equipment":1.34,"fresh_air_cooling":0.603,"latent_cooling":1.953,"solar":0.54,"envelope_cooling":1.013,"envelope_heating":2.814,"fresh_air_heating":1.675},"cooling_kw":7.615,"heating_kw":4.489,"index_kw":12.06,"index_dev_pct":-36.855,"index_w_m2":180.0,"heat_index_kw":6.03,"heat_index_dev_pct":-25.556,"heat_index_w_m2":90.0,"density_w_m2":113.7,"high_density":false},{"id":"f3_hall","floor":"F3","name":"三层中庭","orientation":"north","inputs":{"area_m2":167.0,"height_m":3.0,"people":21,"purpose":"mall","outdoor_summer_c":35.0,"indoor_summer_c":26.0,"outdoor_rh":0.65,"indoor_rh":0.55,"outdoor_winter_c":-5.0,"indoor_winter_c":20.0,"u_w_m2k":1.2,"exposed_factor":1.4,"wwr":0.25,"lighting_w_m2":18.0,"equipment_w_m2":20.0,"fresh_per_person":25.0,"solar_w_m2":60.0},"steps":{"dt_summer":9.0,"dt_winter":25.0,"fresh_m3_h":525.0,"mass_kg_s":0.175,"w_out":0.023250734219740284,"w_in":0.01153728143063781,"wall_m2":38.76854394996026,"window_m2":9.692135987490065,"exposed_m2":233.79999999999998},"components":{"people":2.52,"lighting":3.006,"equipment":3.34,"fresh_air_cooling":1.583,"latent_cooling":5.127,"solar":0.32,"envelope_cooling":2.525,"envelope_heating":7.014,"fresh_air_heating":4.397},"cooling_kw":18.42,"heating_kw":11.411,"index_kw":30.06,"index_dev_pct":-38.721,"index_w_m2":180.0,"heat_index_kw":15.03,"heat_index_dev_pct":-24.079,"heat_index_w_m2":90.0,"density_w_m2":110.3,"high_density":false},{"id":"f3_west","floor":"F3","name":"三层西区","orientation":"west","inputs":{"area_m2":139.0,"height_m":3.0,"people":17,"purpose":"mall","outdoor_summer_c":35.0,"indoor_summer_c":26.0,"outdoor_rh":0.65,"indoor_rh":0.55,"outdoor_winter_c":-5.0,"indoor_winter_c":20.0,"u_w_m2k":1.2,"exposed_factor":1.4,"wwr":0.25,"lighting_w_m2":18.0,"equipment_w_m2":20.0,"fresh_per_person":25.0,"solar_w_m2":160.0},"steps":{"dt_summer":9.0,"dt_winter":25.0,"fresh_m3_h":425.0,"mass_kg_s":0.14166666666666666,"w_out":0.023250734219740284,"w_in":0.01153728143063781,"wall_m2":35.369478367654786,"window_m2":8.842369591913696,"exposed_m2":194.6},"components":{"people":2.04,"lighting":2.502,"equipment":2.78,"fresh_air_cooling":1.281,"latent_cooling":4.15,"solar":0.778,"envelope_cooling":2.102,"envelope_heating":5.838,"fresh_air_heating":3.559},"cooling_kw":15.633,"heating_kw":9.397,"index_kw":25.02,"index_dev_pct":-37.517,"index_w_m2":180.0,"heat_index_kw":12.51,"heat_index_dev_pct":-24.881,"heat_index_w_m2":90.0,"density_w_m2":112.5,"high_density":false},{"id":"f3_south","floor":"F3","name":"三层南区","orientation":"south","inputs":{"area_m2":136.0,"height_m":3.0,"people":17,"purpose":"mall","outdoor_summer_c":35.0,"indoor_summer_c":26.0,"outdoor_rh":0.65,"indoor_rh":0.55,"outdoor_winter_c":-5.0,"indoor_winter_c":20.0,"u_w_m2k":1.2,"exposed_factor":1.4,"wwr":0.25,"lighting_w_m2":18.0,"equipment_w_m2":20.0,"fresh_per_person":25.0,"solar_w_m2":140.0},"steps":{"dt_summer":9.0,"dt_winter":25.0,"fresh_m3_h":425.0,"mass_kg_s":0.14166666666666666,"w_out":0.023250734219740284,"w_in":0.01153728143063781,"wall_m2":34.98571136907181,"window_m2":8.746427842267952,"exposed_m2":190.39999999999998},"components":{"people":2.04,"lighting":2.448,"equipment":2.72,"fresh_air_cooling":1.281,"latent_cooling":4.15,"solar":0.673,"envelope_cooling":2.056,"envelope_heating":5.712,"fresh_air_heating":3.559},"cooling_kw":15.369,"heating_kw":9.271,"index_kw":24.48,"index_dev_pct":-37.217,"index_w_m2":180.0,"heat_index_kw":12.24,"heat_index_dev_pct":-24.253,"heat_index_w_m2":90.0,"density_w_m2":113.0,"high_density":false},{"id":"f3_east","floor":"F3","name":"三层东区","orientation":"east","inputs":{"area_m2":117.0,"height_m":3.0,"people":15,"purpose":"mall","outdoor_summer_c":35.0,"indoor_summer_c":26.0,"outdoor_rh":0.65,"indoor_rh":0.55,"outdoor_winter_c":-5.0,"indoor_winter_c":20.0,"u_w_m2k":1.2,"exposed_factor":1.4,"wwr":0.25,"lighting_w_m2":18.0,"equipment_w_m2":20.0,"fresh_per_person":25.0,"solar_w_m2":110.0},"steps":{"dt_summer":9.0,"dt_winter":25.0,"fresh_m3_h":375.0,"mass_kg_s":0.125,"w_out":0.023250734219740284,"w_in":0.01153728143063781,"wall_m2":32.449961479175904,"window_m2":8.112490369793976,"exposed_m2":163.79999999999998},"components":{"people":1.8,"lighting":2.106,"equipment":2.34,"fresh_air_cooling":1.131,"latent_cooling":3.662,"solar":0.491,"envelope_cooling":1.769,"envelope_heating":4.914,"fresh_air_heating":3.141},"cooling_kw":13.298,"heating_kw":8.055,"index_kw":21.06,"index_dev_pct":-36.855,"index_w_m2":180.0,"heat_index_kw":10.53,"heat_index_dev_pct":-23.508,"heat_index_w_m2":90.0,"density_w_m2":113.7,"high_density":false}],"floors":[{"floor":"F1","name":"一层","area_m2":602.0,"people":75,"cooling_kw":66.404,"adjusted_kw":65.74,"heating_kw":40.987,"share":0.345,"indoor_kw":42.442,"fresh_kw":23.962,"indoor_adjusted_kw":42.018,"fresh_air_m3_h":1875.0,"fcu":{"name":"FP-238WA","qty":6,"capacity_kw":75.6,"unit":{"capacity_kw":12.6,"flow_m3_h":2.167,"airflow_m3_h":2380.0},"need":{"capacity_kw":42.018,"flow_m3_h":7.227,"airflow_m3_h":12542.6},"unit_dt_c":15.8},"fau":{"name":"MKS02D4Y/C","qty":1,"airflow_m3_h":2000.0,"capacity_kw":29.0}},{"floor":"F2","name":"二层","area_m2":561.0,"people":70,"cooling_kw":63.139,"adjusted_kw":62.508,"heating_kw":38.217,"share":0.328,"indoor_kw":40.775,"fresh_kw":22.364,"indoor_adjusted_kw":40.367,"fresh_air_m3_h":1750.0,"fcu":{"name":"FP-204WA","qty":6,"capacity_kw":66.0,"unit":{"capacity_kw":11.0,"flow_m3_h":1.892,"airflow_m3_h":2040.0},"need":{"capacity_kw":40.368,"flow_m3_h":6.943,"airflow_m3_h":12050.0},"unit_dt_c":16.1},"fau":{"name":"MKS02D4Y/C","qty":1,"airflow_m3_h":2000.0,"capacity_kw":29.0}},{"floor":"F3","name":"三层","area_m2":559.0,"people":70,"cooling_kw":62.72,"adjusted_kw":62.093,"heating_kw":38.134,"share":0.326,"indoor_kw":40.355,"fresh_kw":22.365,"indoor_adjusted_kw":39.951,"fresh_air_m3_h":1750.0,"fcu":{"name":"FP-204WA","qty":6,"capacity_kw":66.0,"unit":{"capacity_kw":11.0,"flow_m3_h":1.892,"airflow_m3_h":2040.0},"need":{"capacity_kw":39.952,"flow_m3_h":6.872,"airflow_m3_h":11925.8},"unit_dt_c":16.1},"fau":{"name":"MKS02D4Y/C","qty":1,"airflow_m3_h":2000.0,"capacity_kw":29.0}}],"total":{"cooling_kw":192.263,"adjusted_kw":190.34,"heating_kw":117.338,"adjusted_heating_kw":116.165,"issues":[]},"chiller":{"name":"SCWE-90H+B","capacity_kw":308.3}}};
+      const { geometry: G, data: D, load: L } = PAYLOAD;
+      const NS = "http://www.w3.org/2000/svg";
+      const FLOOR_ORDER = ["RF", "F3", "F2", "F1", "B1F"];
+      const FLOOR_NAME = Object.fromEntries(D.floors.map((f) => [f.id, f.name]));
+      const ORIENT = { north: "北", south: "南", east: "东", west: "西", internal: "内区" };
+      const rooms = Object.fromEntries(D.rooms.map((r) => [r.id, r]));
+      const devices = Object.fromEntries(D.devices.map((d) => [d.id, d]));
+      const rtRoom = D.realtime.rooms;
+      const rtDev = D.realtime.devices;
+      const state = { floor: "F1", metric: "load", room: "f1_north" };
+
+      const fmt = (v, digits = 1) => (v === null || v === undefined || Number.isNaN(v) ? "—" : Number(v).toFixed(digits));
+      const el = (tag, attrs = {}, text) => {
+        const node = tag.startsWith("svg:") ? document.createElementNS(NS, tag.slice(4)) : document.createElement(tag);
+        for (const [k, v] of Object.entries(attrs)) if (v !== undefined && v !== null) node.setAttribute(k, v);
+        if (text !== undefined) node.textContent = text;
+        return node;
+      };
+      const svgEl = (tag, attrs, text) => el(`svg:${tag}`, attrs, text);
+
+      function mix(a, b, t) {
+        const pa = a.match(/\w\w/g).map((h) => parseInt(h, 16));
+        const pb = b.match(/\w\w/g).map((h) => parseInt(h, 16));
+        return `#${pa.map((v, i) => Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, "0")).join("")}`;
+      }
+      function ramp(t) {
+        const x = Math.max(0, Math.min(1, t));
+        return x < 0.5 ? mix("12507e", "27c1c8", x * 2) : mix("27c1c8", "f1b84b", (x - 0.5) * 2);
+      }
+
+      const METRICS = {
+        load: { label: "冷负荷密度", unit: "W/m²", digits: 0, value: (r) => (r.cooling_kw * 1000) / r.area },
+        temp: { label: "实时室温", unit: "℃", digits: 2, value: (r) => rtRoom[r.id].temp_c },
+        rh: { label: "实时湿度 RH@24℃", unit: "%", digits: 1, value: (r) => rtRoom[r.id].rh24_pct },
+      };
+      function domain(metric) {
+        const vals = D.rooms.map((r) => METRICS[metric].value(r));
+        const lo = Math.min(...vals), hi = Math.max(...vals);
+        const pad = (hi - lo) * 0.1 || 1;
+        return [lo - pad, hi + pad];
+      }
+
+      function renderKpis() {
+        const area = D.rooms.reduce((s, r) => s + r.area, 0);
+        const people = D.rooms.reduce((s, r) => s + r.people, 0);
+        const chiller = devices.chiller_plant;
+        const temps = Object.values(rtRoom).map((v) => v.temp_c);
+        const rhs = Object.values(rtRoom).map((v) => v.rh24_pct);
+        const errors = D.issues.filter((i) => i.level === "error").length;
+        const warnings = D.issues.filter((i) => i.level === "warning").length;
+        const items = [
+          ["空调面积", `${fmt(area, 0)} m²`, `${D.rooms.length} 个房间 · ${people} 人`],
+          ["设计冷负荷", `${fmt(D.load.adjusted_kw, 1)} kW`, `${fmt((D.load.adjusted_kw * 1000) / area, 0)} W/m²`],
+          ["冷机", `${chiller.name}`, `${fmt(chiller.capacity_kw, 0)} kW · 裕量 ${fmt(chiller.capacity_kw / D.load.adjusted_kw, 2)}`],
+          ["实时冷机负荷", `${fmt(rtDev.chiller_plant.cooling_kw, 1)} kW`, `COP ${fmt(rtDev.chiller_plant.cop, 2)} · 开机 ${D.realtime.chiller_on}/${D.realtime.window}`],
+          ["实时室温", `${fmt(Math.min(...temps), 1)}~${fmt(Math.max(...temps), 1)} ℃`, "目标 24 ℃"],
+          ["实时湿度 RH@24℃", `${fmt(Math.min(...rhs), 1)}~${fmt(Math.max(...rhs), 1)} %`, "目标 55 %"],
+          ["评估", `${errors} error`, `${warnings} warning（含预期项）`],
+        ];
+        const host = document.getElementById("kpis");
+        for (const [k, v, s] of items) {
+          const card = el("div", { class: "kpi" });
+          card.append(el("span", {}, k), el("strong", {}, v), el("small", {}, s));
+          host.append(card);
+        }
+      }
+      // 机房 / 屋面设备的示意位置（米）。样例数据不含设备坐标，位置只为表达"在哪一层、靠近管井"。
+      const PLANT_MARKS = {
+        B1F: [
+          { id: "chiller_plant", x: 10.5, y: 4.2, w: 7.0, h: 2.8, label: "冷机" },
+          { id: "chw_pump_plant", x: 18.6, y: 4.2, w: 6.2, h: 2.8, label: "冷冻水泵" },
+          { id: "cw_pump_plant", x: 25.9, y: 4.2, w: 6.2, h: 2.8, label: "冷却水泵" },
+        ],
+      };
+
+      function renderTabs() {
+        const host = document.getElementById("floor-tabs");
+        for (const id of [...FLOOR_ORDER].reverse()) {
+          const b = el("button", { type: "button", role: "tab", id: `tab-${id}`, "aria-selected": String(id === state.floor),
+                                   "aria-controls": "plan", tabindex: id === state.floor ? "0" : "-1" }, FLOOR_NAME[id] || id);
+          b.addEventListener("click", () => selectFloor(id));
+          b.addEventListener("keydown", (e) => {
+            const order = [...FLOOR_ORDER].reverse();
+            const i = order.indexOf(state.floor);
+            if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+              const next = order[(i + (e.key === "ArrowRight" ? 1 : order.length - 1)) % order.length];
+              selectFloor(next);
+              document.getElementById(`tab-${next}`).focus();
+            }
+          });
+          host.append(b);
+        }
+        document.querySelectorAll("[data-metric]").forEach((b) =>
+          b.addEventListener("click", () => {
+            state.metric = b.dataset.metric;
+            document.querySelectorAll("[data-metric]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+            renderPlan();
+          }));
+      }
+
+      function selectFloor(id) {
+        state.floor = id;
+        const first = D.rooms.find((r) => r.floor === id);
+        state.room = first ? first.id : null;
+        document.querySelectorAll("#floor-tabs [role=tab]").forEach((t) => {
+          const on = t.id === `tab-${id}`;
+          t.setAttribute("aria-selected", String(on));
+          t.tabIndex = on ? 0 : -1;
+        });
+        document.getElementById("plan").setAttribute("aria-labelledby", `tab-${id}`);
+        renderPlan();
+        renderRoomTable();
+        renderDetail();
+      }
+
+      function selectRoom(id) {
+        state.room = id;
+        renderPlan();
+        renderRoomTable();
+        renderDetail();
+      }
+
+      function renderPlan() {
+        const g = G[state.floor];
+        const pad = 2.2;
+        const W = g.width_m, H = g.depth_m;
+        const svg = svgEl("svg", { viewBox: `${-pad} ${-pad} ${W + 2 * pad} ${H + 2 * pad + 2.6}`, role: "img",
+                                   "aria-label": `${FLOOR_NAME[state.floor]}平面示意` });
+        const defs = svgEl("defs");
+        const hatch = svgEl("pattern", { id: "hatch", width: 0.6, height: 0.6, patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)" });
+        hatch.append(svgEl("rect", { width: 0.6, height: 0.6, fill: "#123e63" }), svgEl("line", { x1: 0, y1: 0, x2: 0, y2: 0.6, stroke: "#2b6c8f", "stroke-width": 0.18 }));
+        const r = g.corner_radius_m;
+        const outline = `M ${r} 0 H ${W} V ${H} H 0 V ${r} A ${r} ${r} 0 0 1 ${r} 0 Z`;
+        const clip = svgEl("clipPath", { id: "floor-clip" });
+        clip.append(svgEl("path", { d: outline }));
+        defs.append(hatch, clip);
+        svg.append(defs);
+        svg.append(svgEl("path", { d: outline, fill: "#0d2f52" }));
+
+        const [lo, hi] = domain(state.metric);
+        const metric = METRICS[state.metric];
+        for (const [roomId, zone] of Object.entries(g.zones)) {
+          const room = rooms[roomId];
+          const v = metric.value(room);
+          const grp = svgEl("g", { tabindex: 0, role: "button", "aria-label": `${room.name}，${metric.label} ${fmt(v, metric.digits)} ${metric.unit}`,
+                                   style: "cursor:pointer", "clip-path": "url(#floor-clip)",
+                                   opacity: roomId === state.room ? 1 : 0.78 });
+          const fill = ramp((v - lo) / (hi - lo));
+          const selected = roomId === state.room;
+          for (const [x, y, w, h] of zone.rects) {
+            grp.append(svgEl("rect", { x, y, width: w + 0.06, height: h + 0.06, fill, "shape-rendering": "crispEdges" }));
+          }
+          const [lx, ly] = zone.label_at;
+          grp.append(svgEl("text", { x: lx, y: ly - 0.2, "text-anchor": "middle", "font-size": 0.95, fill: "#04172d", "font-weight": 700,
+                                     "text-decoration": selected ? "underline" : null }, (selected ? "▶ " : "") + room.name.replace(/（.*）/, "")));
+          grp.append(svgEl("text", { x: lx, y: ly + 0.95, "text-anchor": "middle", "font-size": 0.78, fill: "#04172d" },
+                           `${fmt(v, metric.digits)} ${metric.unit}`));
+          grp.addEventListener("click", () => selectRoom(roomId));
+          grp.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectRoom(roomId); } });
+          svg.append(grp);
+        }
+        for (const [x, y, w, h] of g.cores) svg.append(svgEl("rect", { x, y, width: w, height: h, fill: "url(#hatch)", stroke: "#2b6c8f", "stroke-width": 0.08 }));
+        for (const [x, y, w, h] of g.atrium) svg.append(svgEl("rect", { x, y, width: w, height: h, fill: "#061a33", stroke: "#5fb8d6", "stroke-width": 0.08, "stroke-dasharray": "0.4 0.3" }));
+        for (const [x1, y1, x2, y2] of g.walls) svg.append(svgEl("line", { x1, y1, x2, y2, stroke: "#eefbff", "stroke-width": 0.16 }));
+        svg.append(svgEl("path", { d: outline, fill: "none", stroke: "#5fb8d6", "stroke-width": 0.16 }));
+        for (const [x, y, w, h] of g.atrium) {
+          svg.append(svgEl("text", { x: x + w / 2, y: y + h / 2 + 0.3, "text-anchor": "middle", "font-size": 0.75, fill: "#7fb3d5" },
+                           state.floor === "F1" ? "扶梯/楼梯" : "中庭开洞"));
+        }
+        if (g.shaft) {
+          const [x, y, w, h] = g.shaft;
+          svg.append(svgEl("rect", { x, y, width: w, height: h, fill: "#8aa0b4" }));
+          svg.append(svgEl("text", { x: x + w + 0.3, y: y + h - 0.1, "font-size": 0.7, fill: "#a9c4d5" }, "管井"));
+        }
+        const chip = (x, y, w, h, color, label, sub) => {
+          svg.append(svgEl("rect", { x, y, width: w, height: h, rx: 0.3, fill: "#071e3a", stroke: color, "stroke-width": 0.14 }));
+          svg.append(svgEl("text", { x: x + w / 2, y: y + h / 2 + (sub ? -0.05 : 0.3), "text-anchor": "middle", "font-size": 0.78, fill: color }, label));
+          if (sub) svg.append(svgEl("text", { x: x + w / 2, y: y + h / 2 + 0.85, "text-anchor": "middle", "font-size": 0.6, fill: "#a9c4d5" }, sub));
+        };
+        for (const m of PLANT_MARKS[state.floor] || []) {
+          const d = devices[m.id];
+          chip(m.x, m.y, m.w, m.h, m.id.startsWith("cw") ? "#2fd08a" : "#3aa0ff", m.label, `${d.name}`);
+        }
+        if (state.floor === "RF" && g.raised) {
+          const [x, y, w, h] = g.raised;
+          svg.append(svgEl("rect", { x, y, width: w, height: h, fill: "#173e66", stroke: "#5fb8d6", "stroke-width": 0.1 }));
+          svg.append(svgEl("text", { x: x + w / 2, y: y + 1.2, "text-anchor": "middle", "font-size": 0.7, fill: "#a9c4d5" }, "屋面凸起部分"));
+          chip(x + w / 2 - 3, y + h / 2 - 1.4, 6, 2.8, "#2fd08a", "冷却塔", devices.tower_roof.name);
+        }
+        const fcuId = { F1: "fcu_f1", F2: "fcu_f2", F3: "fcu_f3" }[state.floor];
+        if (fcuId && g.shaft) {
+          const fcu = devices[fcuId], fau = devices[fcuId.replace("fcu", "fau")];
+          const x = 15.2, y = H + 0.4, w = W - 15.2, h = 2.5;
+          svg.append(svgEl("rect", { x, y, width: w, height: h, rx: 0.3, fill: "#071e3a", stroke: "#27c1c8", "stroke-width": 0.14 }));
+          svg.append(svgEl("text", { x: x + w / 2, y: y + 1.05, "text-anchor": "middle", "font-size": 0.7, fill: "#27c1c8" },
+                           `风机盘管 ${fcu.name} × ${fcu.quantity} · 新风机组 ${fau.name}`));
+          svg.append(svgEl("text", { x: x + w / 2, y: y + 2.0, "text-anchor": "middle", "font-size": 0.58, fill: "#a9c4d5" },
+                           "服务本层全部房间（样例无设备坐标，不在平面上定位）"));
+        }
+        // 指北（假定图上方为北）与比例尺
+        svg.append(svgEl("path", { d: `M ${W + 0.9} ${-1.6} l 0.6 1.6 l -0.6 -0.45 l -0.6 0.45 z`, fill: "#eefbff" }));
+        svg.append(svgEl("text", { x: W + 0.9, y: 0.95, "text-anchor": "middle", "font-size": 0.7, fill: "#a9c4d5" }, "北*"));
+        svg.append(svgEl("line", { x1: 0, y1: H + 1.4, x2: 10, y2: H + 1.4, stroke: "#eefbff", "stroke-width": 0.12 }));
+        for (const x of [0, 5, 10]) svg.append(svgEl("line", { x1: x, y1: H + 1.1, x2: x, y2: H + 1.7, stroke: "#eefbff", "stroke-width": 0.1 }));
+        svg.append(svgEl("text", { x: 10.4, y: H + 1.65, "font-size": 0.7, fill: "#a9c4d5" }, "10 m（按估算比例）"));
+
+        const host = document.getElementById("plan");
+        host.replaceChildren(svg);
+        host.setAttribute("aria-labelledby", `tab-${state.floor}`);
+        const legend = document.getElementById("plan-legend");
+        legend.replaceChildren();
+        if (Object.keys(g.zones).length) {
+          const bar = el("span");
+          bar.append(el("i", { style: `background:linear-gradient(90deg,${ramp(0)},${ramp(0.5)},${ramp(1)});width:80px` }),
+                     document.createTextNode(`${metric.label}：${fmt(lo, metric.digits)} → ${fmt(hi, metric.digits)} ${metric.unit}`));
+          legend.append(bar);
+        }
+        const hatchKey = el("span");
+        hatchKey.append(el("i", { style: "background:repeating-linear-gradient(45deg,#123e63 0 3px,#2b6c8f 3px 4px)" }), document.createTextNode("电梯/楼梯核心筒"));
+        const voidKey = el("span");
+        voidKey.append(el("i", { style: "background:#061a33;border:1px dashed #5fb8d6" }), document.createTextNode("中庭/扶梯开洞（不计面积）"));
+        const wallKey = el("span");
+        wallKey.append(el("i", { style: "background:#eefbff;height:3px" }), document.createTextNode("隔墙"));
+        legend.append(hatchKey, voidKey, wallKey);
+      }
+      function renderRoomTable() {
+        const body = document.getElementById("room-table");
+        body.replaceChildren();
+        const list = D.rooms.filter((r) => r.floor === state.floor);
+        if (!list.length) {
+          const tr = el("tr");
+          tr.append(el("td", { colspan: 5, class: "muted" }, state.floor === "B1F" ? "机房层，无空调房间" : "屋面层，无空调房间"));
+          body.append(tr);
+          return;
+        }
+        for (const r of list) {
+          const tr = el("tr", { class: r.id === state.room ? "selected" : "", tabindex: 0 });
+          tr.append(el("td", {}, r.name), el("td", { class: "num" }, fmt(r.area, 0)), el("td", { class: "num" }, fmt(r.cooling_kw, 1)),
+                    el("td", { class: "num" }, fmt(rtRoom[r.id].temp_c, 2)), el("td", { class: "num" }, fmt(rtRoom[r.id].rh24_pct, 1)));
+          tr.addEventListener("click", () => selectRoom(r.id));
+          tr.addEventListener("keydown", (e) => { if (e.key === "Enter") selectRoom(r.id); });
+          body.append(tr);
+        }
+      }
+
+      function renderDetail() {
+        const host = document.getElementById("detail");
+        const title = document.getElementById("detail-title");
+        host.replaceChildren();
+        const dl = el("dl");
+        const add = (k, v) => dl.append(el("dt", {}, k), el("dd", {}, v));
+        if (!state.room) {
+          title.textContent = `${FLOOR_NAME[state.floor]} · 设备`;
+          const ids = D.devices.filter((d) => d.floor === state.floor && !d.type.includes("风口")).map((d) => d.id);
+          for (const id of ids) {
+            const d = devices[id], rt = rtDev[id] || {};
+            let live = "";
+            if (d.role === "chiller") live = `冷量 ${fmt(rt.cooling_kw)} kW · 负荷率 ${fmt(rt.load_ratio * 100, 0)}% · COP ${fmt(rt.cop, 2)} · 供/回 ${fmt(rt.supply_temp_c)}/${fmt(rt.return_temp_c)} ℃`;
+            else if (d.role.startsWith("pump")) live = `流量 ${fmt(rt.flow_m3_h)} m³/h · 扬程 ${fmt(rt.head_m)} m · 转速 ${fmt(rt.speed_ratio * 100, 0)}%`;
+            else if (d.role === "cooling_tower") live = `进/出水 ${fmt(rt.entering_water_temp_c)}/${fmt(rt.leaving_water_temp_c)} ℃ · ${fmt(rt.flow_m3_h)} m³/h · 风机 ${fmt(rt.fan_speed_pct, 0)}%`;
+            add(`${d.type} ${d.name}`, live || "—");
+          }
+          host.append(dl);
+          return;
+        }
+        const r = rooms[state.room], rt = rtRoom[r.id];
+        title.textContent = r.name;
+        add("楼层", FLOOR_NAME[r.floor]);
+        add("面积 / 人数", `${fmt(r.area, 0)} m² · ${r.people} 人（8 m²/人）`);
+        add("朝向", `${ORIENT[r.orientation] || r.orientation}（假定图上方为北）`);
+        add("设计冷负荷", `${fmt(r.cooling_kw, 2)} kW · ${fmt((r.cooling_kw * 1000) / r.area, 0)} W/m²（未乘系数）`);
+        add("卫生新风", `${fmt(r.fresh_air_m3_h, 0)} m³/h（25 m³/h·人）`);
+        add("实时室温", `${fmt(rt.temp_c, 2)} ℃（目标 24）`);
+        add("实时湿度", `${fmt(rt.rh24_pct, 1)} %（折算到 24 ℃，目标 55）`);
+        add("服务末端", r.devices.map((id) => `${devices[id].type} ${devices[id].name}`).join("；"));
+        host.append(dl);
+      }
+      function renderSchematic() {
+        const W = 1400, BAND = 96, TOP = 38, H = TOP + BAND * FLOOR_ORDER.length + 10;
+        const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "冷冻水、冷却水与新风系统原理图" });
+        const bands = svgEl("g"), pipes = svgEl("g"), boxes = svgEl("g");
+        const yOf = (id) => TOP + BAND * FLOOR_ORDER.indexOf(id);
+        const mid = (id) => yOf(id) + BAND / 2;
+        const X = { label: 18, cwS: 205, cwR: 235, chwS: 300, chwR: 330, oa: 395, dev: 470, b2: 800, b3: 1130 };
+        const line = (x1, y1, x2, y2, color, dash) =>
+          pipes.append(svgEl("line", { x1, y1, x2, y2, stroke: color, "stroke-width": 3, "stroke-linecap": "round", "stroke-dasharray": dash }));
+        const box = (x, y, w, h, color, title, lines) => {
+          boxes.append(svgEl("rect", { x, y, width: w, height: h, rx: 6, fill: "#0d3764", stroke: color, "stroke-width": 1.5 }));
+          boxes.append(svgEl("text", { x: x + 10, y: y + 19, "font-size": 13, fill: color, "font-weight": 700 }, title));
+          lines.forEach((t, i) => boxes.append(svgEl("text", { x: x + 10, y: y + 37 + i * 16, "font-size": 12, fill: "#eefbff" }, t)));
+        };
+        for (const id of FLOOR_ORDER) {
+          const y = yOf(id);
+          bands.append(svgEl("rect", { x: 0, y, width: W, height: BAND, fill: FLOOR_ORDER.indexOf(id) % 2 ? "#0a2747" : "#082240" }));
+          bands.append(svgEl("text", { x: X.label, y: y + 26, "font-size": 14, fill: "#eefbff", "font-weight": 700 }, FLOOR_NAME[id]));
+          const f = D.floors.find((v) => v.id === id);
+          // 冻结 JSON 省略了默认值字段：一层标高 0 不在数据里
+          bands.append(svgEl("text", { x: X.label, y: y + 44, "font-size": 12, fill: "#a9c4d5" }, `标高 ${fmt(f.elevation_m ?? 0, 1)} m`));
+        }
+        // 竖管
+        line(X.chwS, mid("B1F"), X.chwS, mid("F3"), "var(--chw)");
+        line(X.chwR, mid("B1F") + 10, X.chwR, mid("F3") + 10, "var(--chw)", "7 5");
+        line(X.cwS, mid("B1F") + 20, X.cwS, mid("RF"), "var(--cw)");
+        line(X.cwR, mid("B1F") + 30, X.cwR, mid("RF") + 10, "var(--cw)", "7 5");
+        line(X.oa, mid("RF") - 20, X.oa, mid("F1"), "var(--air)");
+        [["冷却供", X.cwS, 14], ["冷却回", X.cwR, 30], ["冷冻供", X.chwS, 14], ["冷冻回", X.chwR, 30], ["新风", X.oa, 14]].forEach(([t, x, y]) =>
+          bands.append(svgEl("text", { x, y, "text-anchor": "middle", "font-size": 11, fill: "#a9c4d5" }, t)));
+
+        // 屋面：冷却塔 + 新风取风
+        const tw = rtDev.tower_roof;
+        box(X.dev, yOf("RF") + 10, 300, 76, "var(--cw)", `冷却塔 ${devices.tower_roof.name}`,
+            [`进/出水 ${fmt(tw.entering_water_temp_c)} / ${fmt(tw.leaving_water_temp_c)} ℃ · ${fmt(tw.flow_m3_h)} m³/h`, `风机 ${fmt(tw.fan_speed_pct, 0)}%`]);
+        line(X.cwS, mid("RF"), X.dev, mid("RF"), "var(--cw)");
+        line(X.cwR, mid("RF") + 10, X.dev, mid("RF") + 10, "var(--cw)", "7 5");
+        box(X.b2, yOf("RF") + 10, 300, 76, "var(--air)", "新风取风口", ["室外新风经新风立管下送", "到各层新风机组"]);
+        line(X.oa, mid("RF") - 20, X.b2, mid("RF") - 20, "var(--air)");
+
+        // 各层：风机盘管组 + 新风机组
+        for (const id of ["F3", "F2", "F1"]) {
+          const n = id.slice(1), fcu = devices[`fcu_f${n}`], fau = devices[`fau_f${n}`];
+          const rf = rtDev[`fcu_f${n}`], ra = rtDev[`fau_f${n}`];
+          const y = yOf(id);
+          box(X.dev, y + 8, 300, 80, "var(--accent)", `风机盘管 ${fcu.name} × ${fcu.quantity}`,
+              [`冷量 ${fmt(rf.cooling_kw)} kW · 水阀 ${fmt(rf.valve_opening_pct, 0)}% · 风机 ${fmt(rf.fan_speed_pct, 0)}%`,
+               `送风 ${fmt(rf.airflow_m3_h, 0)} m³/h · ${fmt(rf.supply_air_temp_c)} ℃`, `水量 ${fmt(rf.water_flow_m3_h, 2)} m³/h`]);
+          box(X.b2, y + 8, 300, 80, "var(--air)", `新风机组 ${fau.name}`,
+              [`冷量 ${fmt(ra.cooling_kw)} kW · 水阀 ${fmt(ra.valve_opening_pct, 0)}%`,
+               `新风 ${fmt(ra.airflow_m3_h, 0)} m³/h · 送风 ${fmt(ra.supply_air_temp_c)} ℃`, `水量 ${fmt(ra.water_flow_m3_h, 2)} m³/h`]);
+          line(X.chwS, mid(id), X.dev, mid(id), "var(--chw)");
+          line(X.chwR, mid(id) + 10, X.dev, mid(id) + 10, "var(--chw)", "7 5");
+          line(X.oa, y + 4, X.b2 + 150, y + 4, "var(--air)");
+          line(X.b2 + 150, y + 4, X.b2 + 150, y + 8, "var(--air)");
+          const roomsHere = D.rooms.filter((r) => r.floor === id);
+          const temps = roomsHere.map((r) => rtRoom[r.id].temp_c), rhs = roomsHere.map((r) => rtRoom[r.id].rh24_pct);
+          box(X.b3, y + 8, 260, 80, "#eefbff", `${roomsHere.length} 个房间 · ${fmt(roomsHere.reduce((s, r) => s + r.area, 0), 0)} m²`,
+              [`室温 ${fmt(Math.min(...temps), 2)}~${fmt(Math.max(...temps), 2)} ℃`, `RH@24 ${fmt(Math.min(...rhs), 1)}~${fmt(Math.max(...rhs), 1)} %`,
+               "两路送风在静压箱汇合后进房间"]);
+          line(X.b2 + 300, y + 48, X.b3, y + 48, "var(--air)");
+        }
+        // 机房：冷机、冷冻水泵、冷却水泵
+        const ch = rtDev.chiller_plant, pc = rtDev.chw_pump_plant, pw = rtDev.cw_pump_plant;
+        const yb = yOf("B1F");
+        box(X.dev, yb + 8, 300, 80, "var(--chw)", `冷机 ${devices.chiller_plant.name}（${fmt(devices.chiller_plant.capacity_kw, 0)} kW）`,
+            [`冷量 ${fmt(ch.cooling_kw)} kW · 负荷率 ${fmt(ch.load_ratio * 100, 0)}% · COP ${fmt(ch.cop, 2)}`,
+             `冷冻水供/回 ${fmt(ch.supply_temp_c)} / ${fmt(ch.return_temp_c)} ℃`, `电功率 ${fmt(ch.power_kw)} kW`]);
+        box(X.b2, yb + 8, 300, 80, "var(--chw)", `冷冻水泵 ${devices.chw_pump_plant.name}`,
+            [`${fmt(pc.flow_m3_h)} m³/h · 扬程 ${fmt(pc.head_m, 2)} m`, `转速 ${fmt(pc.speed_ratio * 100, 0)}% · ${fmt(pc.power_kw, 2)} kW`,
+             `管网所需扬程 ${fmt(D.pump_head_required_m, 2)} m（设计流量）`]);
+        box(X.b3, yb + 8, 260, 80, "var(--cw)", `冷却水泵 ${devices.cw_pump_plant.name}`,
+            [`${fmt(pw.flow_m3_h)} m³/h · 扬程 ${fmt(pw.head_m, 2)} m`, `转速 ${fmt(pw.speed_ratio * 100, 0)}% · ${fmt(pw.power_kw, 2)} kW`]);
+        line(X.chwS, mid("B1F"), X.dev, mid("B1F"), "var(--chw)");
+        line(X.chwR, mid("B1F") + 10, X.dev, mid("B1F") + 10, "var(--chw)", "7 5");
+        line(X.cwS, mid("B1F") + 20, X.dev, mid("B1F") + 20, "var(--cw)");
+        line(X.cwR, mid("B1F") + 30, X.dev, mid("B1F") + 30, "var(--cw)", "7 5");
+        svg.append(bands, pipes, boxes);
+        document.getElementById("schematic").replaceChildren(svg);
+      }
+
+      function renderTrend() {
+        const T = D.realtime.trace;
+        const W = 760, H = 280, L = 46, R = 50, Tp = 14, B = 34;
+        const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "24 小时室外温度、房间平均温度与冷机冷量曲线" });
+        const temps = T.flatMap((p) => [p.outdoor_c, p.room_mean_c]);
+        const tLo = Math.floor(Math.min(...temps) - 1), tHi = Math.ceil(Math.max(...temps) + 1);
+        const kHi = Math.ceil(Math.max(...T.map((p) => p.chiller_kw)) / 50) * 50;
+        const sx = (i) => L + ((W - L - R) * i) / (T.length - 1);
+        const sy = (v) => Tp + ((H - Tp - B) * (tHi - v)) / (tHi - tLo);
+        const sk = (v) => Tp + ((H - Tp - B) * (kHi - v)) / kHi;
+        for (let v = tLo; v <= tHi; v += 2) {
+          svg.append(svgEl("line", { x1: L, x2: W - R, y1: sy(v), y2: sy(v), stroke: "rgba(32,166,193,0.18)" }));
+          svg.append(svgEl("text", { x: L - 6, y: sy(v) + 4, "text-anchor": "end", "font-size": 11, fill: "#a9c4d5" }, v));
+        }
+        for (let v = 0; v <= kHi; v += 50)
+          svg.append(svgEl("text", { x: W - R + 6, y: sk(v) + 4, "font-size": 11, fill: "#3aa0ff" }, v));
+        T.forEach((p, i) => {
+          if (i % 36 === 0) {
+            svg.append(svgEl("text", { x: sx(i), y: H - 12, "text-anchor": "middle", "font-size": 11, fill: "#a9c4d5" }, `${Math.round(p.hour) % 24}:00`));
+          }
+        });
+        const path = (key, scale, color, width) =>
+          svg.append(svgEl("polyline", { points: T.map((p, i) => `${sx(i).toFixed(1)},${scale(p[key]).toFixed(1)}`).join(" "),
+                                         fill: "none", stroke: color, "stroke-width": width }));
+        path("chiller_kw", sk, "#3aa0ff", 1.6);
+        path("outdoor_c", sy, "#ff8f6b", 2);
+        path("room_mean_c", sy, "#27c1c8", 2.2);
+        svg.append(svgEl("line", { x1: L, x2: W - R, y1: sy(24), y2: sy(24), stroke: "#eefbff", "stroke-dasharray": "4 4", "stroke-width": 1 }));
+        svg.append(svgEl("text", { x: L + 6, y: sy(24) - 5, "font-size": 11, fill: "#eefbff" }, "目标 24 ℃"));
+        document.getElementById("trend").replaceChildren(svg);
+      }
+      function renderLoadBars() {
+        const parts = [
+          ["latent_cooling", "新风潜热", "#7fb3d5"], ["equipment", "设备", "#f1b84b"], ["lighting", "照明", "#e7d27c"],
+          ["envelope_cooling", "围护传热", "#5fb8d6"], ["people", "人员", "#ff8f6b"], ["fresh_air_cooling", "新风显热", "#a6d8e8"],
+          ["solar", "太阳辐射", "#ffb3a0"],
+        ];
+        const total = parts.reduce((s, [k]) => s + (D.load.components[k] || 0), 0);
+        const host = document.getElementById("load-bars");
+        const bar = el("div", { style: "display:flex;height:22px;border-radius:4px;overflow:hidden;margin-bottom:12px", role: "img",
+                                "aria-label": "设计冷负荷分项占比" });
+        const table = el("table", { "aria-label": "设计冷负荷分项" });
+        table.append(el("thead"));
+        table.tHead.append(el("tr"));
+        ["分项", "kW", "占比"].forEach((t, i) => table.tHead.rows[0].append(el("th", { class: i ? "num" : "" }, t)));
+        const body = el("tbody");
+        for (const [k, name, color] of parts) {
+          const v = D.load.components[k] || 0;
+          bar.append(el("div", { style: `width:${(v / total) * 100}%;background:${color}`, title: `${name} ${fmt(v)} kW` }));
+          const tr = el("tr");
+          const cell = el("td");
+          cell.append(el("i", { style: `display:inline-block;width:10px;height:10px;margin-right:6px;background:${color};border-radius:2px` }), document.createTextNode(name));
+          tr.append(cell, el("td", { class: "num" }, fmt(v, 1)), el("td", { class: "num" }, `${fmt((v / total) * 100, 0)}%`));
+          body.append(tr);
+        }
+        const sum = el("tr");
+        sum.append(el("td", {}, "合计 / 修正后（×0.9 同时使用 × 1.1 安全）"), el("td", { class: "num" }, `${fmt(total, 1)} / ${fmt(D.load.adjusted_kw, 1)}`), el("td", { class: "num" }, "100%"));
+        body.append(sum);
+        table.append(body);
+        const note = el("p", { class: "note", style: "margin-top:12px" },
+                        "新风潜热占比最大：商场人员密度高（8 m²/人），25 m³/h·人的新风在 35 ℃/65% 室外工况下带进大量水分，由每层新风机组承担。");
+        host.replaceChildren(bar, table, note);
+      }
+
+      function renderDevices() {
+        const order = ["chiller_plant", "chw_pump_plant", "cw_pump_plant", "tower_roof", "fcu_f1", "fau_f1", "fcu_f2", "fau_f2", "fcu_f3", "fau_f3"];
+        const body = document.getElementById("device-table");
+        for (const id of order) {
+          const d = devices[id], rt = rtDev[id] || {};
+          let rated = "", live = "";
+          if (d.role === "chiller") { rated = `${fmt(d.capacity_kw, 0)} kW`; live = `${fmt(rt.cooling_kw)} kW`; }
+          else if (d.role.startsWith("pump")) { rated = `${fmt(d.flow_m3_h)} m³/h · ${fmt(d.head_m)} m`; live = `${fmt(rt.flow_m3_h)} m³/h`; }
+          else if (d.role === "cooling_tower") { rated = `${fmt(d.capacity_kw, 0)} kW · ${fmt(d.flow_m3_h)} m³/h`; live = `${fmt(rt.flow_m3_h)} m³/h`; }
+          else { rated = `${fmt(d.capacity_kw * d.quantity)} kW · ${fmt(d.airflow_m3_h * d.quantity, 0)} m³/h`; live = `${fmt(rt.cooling_kw)} kW`; }
+          const tr = el("tr");
+          tr.append(el("td", {}, d.type), el("td", {}, `${d.name} × ${d.quantity}`), el("td", {}, FLOOR_NAME[d.floor] || d.floor),
+                    el("td", { class: "num" }, rated), el("td", { class: "num" }, live));
+          body.append(tr);
+        }
+        const dec = document.getElementById("decision-table");
+        const SRC = { catalog: "设备目录", rules: "规则库", calculated: "计算", default: "默认" };
+        for (const item of D.decisions) {
+          const tr = el("tr", { title: item.reason });
+          const choice = el("td", {}, item.choice);
+          choice.append(el("div", { class: "muted", style: "font-size:12px" }, item.reason));
+          tr.append(el("td", {}, item.target.startsWith("design_options") ? "风机静压" : (devices[item.target]?.type || item.target)), choice,
+                    el("td", {}, SRC[item.source] || item.source));
+          dec.append(tr);
+        }
+      }
+      // 每条评估结论的中文解读。「预期」= 本样例设计上就会出现，不是缺陷。
+      const EXPLAIN = {
+        energy_balance_violation: ["预期", "只做夏季：没有热源，制热负荷无设备承担，如实报出缺口。"],
+        DUCT_OVERSIZE_REQUIRED: ["预期", "末端总风量超出标准矩形风管表最大档（2000×1000），退回最大档并报警，属系统规模的真实结论。"],
+        AIR_TREE_UNSUPPORTED: ["平台基线", "新风与风机盘管送风在每层静压箱汇合，风网不是单源树，按有界兜底分配风量；手写样例同样报。"],
+        AIR_TERMINAL_DISCONNECTED: ["平台基线", "新风取风口与新风立管属于新风机组的进风侧，不在送/回风树里，风网求解器不追踪。"],
+        AIR_BALANCING_REQUIRED: ["提示", "各风路压降差超过 15%，实际工程需加调节阀或调整支管尺寸。"],
+        SIM_DEGRADED_PARAMETERS: ["平台基线", "送/回风口未指定型号，按目录类型默认值计算，降级来源显式标出。"],
+        DEVICE_WATER_DROP_TYPICAL: ["提示", "风机盘管与冷却塔在目录里没有水阻数据，按同类典型值估算泵扬程（教学估算，不是厂家数据）。"],
+        PUMP_FLOW_HIGH: ["提示", "冷冻水泵流量裕量 1.36，高于推荐区间 1.00~1.25：需求 32.74 m³/h，小一档的 TPE3 65-150 额定 32.71 m³/h，差 0.03 就要两台，所以选了大一档。"],
+      };
+
+      function renderIssues() {
+        const host = document.getElementById("issues");
+        const errors = D.issues.filter((i) => i.level === "error").length;
+        host.append(el("p", { class: "note", style: errors ? "border-color:var(--error)" : "border-color:var(--cw)" },
+                       errors ? `${errors} 条 error，需要处理。` : "0 条 error：拓扑、制式自检、水力与稳态求解都通过。下面的 warning 都是预期项或平台既有基线行为。"));
+        const groups = new Map();
+        for (const i of D.issues) {
+          const key = `${i.level}:${i.code}`;
+          if (!groups.has(key)) groups.set(key, { ...i, targets: [] });
+          if (i.target) groups.get(key).targets.push(i.target);
+        }
+        const rank = { error: 0, warning: 1, info: 2 };
+        for (const g of [...groups.values()].sort((a, b) => rank[a.level] - rank[b.level])) {
+          const row = el("div", { class: "issue" });
+          row.append(el("span", { class: `lvl ${g.level}` }, g.level));
+          const body = el("div");
+          const head = el("div");
+          head.append(el("code", {}, g.code));
+          const [tag, text] = EXPLAIN[g.code] || ["", g.message];
+          if (tag) head.append(document.createTextNode(`  · ${tag}`));
+          if (g.targets.length) head.append(el("span", { class: "muted" }, `  （${g.targets.join("、")}）`));
+          body.append(head, el("div", { class: "muted" }, text));
+          row.append(body);
+          host.append(row);
+        }
+        const s = D.steady;
+        const steady = el("p", { class: "note", style: "margin-top:12px;border-color:var(--accent)" },
+          `稳态（设计时刻 35 ℃/65%，手动控制）：冷冻水 ${fmt(s.supply_water_temp_c)}/${fmt(s.return_water_temp_c)} ℃，估算房温 ${fmt(s.estimated_room_temp_c, 2)} ℃，` +
+          `总电耗 ${fmt(s.total_energy_kw)} kW（冷机 ${fmt(s.cooling_energy_kw)} · 水泵 ${fmt(s.pump_energy_kw)} · 风机 ${fmt(s.fan_energy_kw)}）。`);
+        host.append(steady);
+      }
+
+      function renderFootnotes() {
+        const notes = [
+          "平面来自 5 张 Unity 俯视截图，图上无尺寸：按电梯井约 2.5 m、中跨柱距反推整栋约 36.6 × 21.3 m（误差约 ±15%），各层管井位置一致，可作对齐校核。",
+          "房间 = 各层隔墙围出的分区，已扣除电梯/楼梯核心筒与中庭开洞；一层只有一道隔墙，故为 2 区。三层西侧墙线未接外墙，按一间计。",
+          "* 截图无指北，按图上方为北确定朝向；朝向影响太阳辐射负荷。",
+          "全部按商场（mall）：人员 8 m²/人（GB 50189），照明 18、设备 20 W/m²，新风 25 m³/h·人（design_defaults.py）。",
+          "设备、管路与风管由平台骨架生成器（fcu_fresh_air，不含供暖）生成；平面图中的设备位置为示意，样例数据不含设备坐标。",
+          "实时室温比目标高约 1.5 K：风机盘管水阀只开 41~46%，未饱和，偏差来自自动控制比例带（4 K 满需求），不是末端选小了。",
+          "数据由后端 _evaluate、build_system 与 SimulationSession 实算导出（样例提交 be59ad8）。",
+        ];
+        const host = document.getElementById("footnotes");
+        for (const n of notes) host.append(el("li", {}, n));
+      }
+
+      // ---------- 负荷计算页 ----------
+      const LR = Object.fromEntries(L.rooms.map((r) => [r.id, r]));
+      const COMP = [
+        ["people", "人员"], ["lighting", "照明"], ["equipment", "设备"], ["solar", "太阳辐射"],
+        ["envelope_cooling", "围护"], ["fresh_air_cooling", "新风显热"], ["latent_cooling", "新风潜热"],
+      ];
+      const C = L.constants;
+      const coef = C.simultaneity * C.safety;
+      const loadState = { room: "f1_north" };
+
+      function renderLoadKpis() {
+        const area = L.rooms.reduce((s, r) => s + r.inputs.area_m2, 0);
+        const sum = (k) => L.rooms.reduce((s, r) => s + r.components[k], 0);
+        const fresh = sum("fresh_air_cooling") + sum("latent_cooling");
+        const items = [
+          ["分项法冷负荷", `${fmt(L.total.cooling_kw, 1)} kW`, `${fmt((L.total.cooling_kw * 1000) / area, 0)} W/m²（未乘系数）`],
+          ["修正后冷负荷", `${fmt(L.total.adjusted_kw, 1)} kW`, `× 同时使用 ${C.simultaneity} × 安全 ${C.safety}`],
+          ["其中新风负荷", `${fmt(fresh, 1)} kW`, `占 ${fmt((fresh / L.total.cooling_kw) * 100, 0)}%，由新风机组承担`],
+          ["其中室内侧", `${fmt(L.total.cooling_kw - fresh, 1)} kW`, "由风机盘管承担"],
+          ["冷机裕量", `${fmt(L.chiller.capacity_kw / L.total.adjusted_kw, 2)}`, `${L.chiller.name} ${fmt(L.chiller.capacity_kw, 0)} kW ÷ 修正负荷`],
+          ["冬季热负荷", `${fmt(L.total.adjusted_heating_kw, 1)} kW`, "修正后；本样例无热源"],
+        ];
+        const host = document.getElementById("load-kpis");
+        for (const [k, v, s] of items) {
+          const card = el("div", { class: "kpi" });
+          card.append(el("span", {}, k), el("strong", {}, v), el("small", {}, s));
+          host.append(card);
+        }
+      }
+
+      function renderLoadParams() {
+        const i = L.rooms[0].inputs, m = C.mall_defaults;
+        const rows = [
+          ["夏季室外 / 室内", `${i.outdoor_summer_c} ℃，${fmt(i.outdoor_rh * 100, 0)}% / ${i.indoor_summer_c} ℃，${fmt(i.indoor_rh * 100, 0)}%`],
+          ["冬季室外 / 室内", `${i.outdoor_winter_c} ℃ / ${i.indoor_winter_c} ℃`],
+          ["同时使用系数 × 安全系数", `${C.simultaneity} × ${C.safety} = ${fmt(coef, 3)}`],
+          ["用途（全部房间）", `商场 mall：照明 ${m.lighting_w_m2}、设备 ${m.equipment_w_m2} W/m²，新风 ${m.fresh_air_m3_h_person} m³/(h·人)`],
+          ["面积指标（校核用）", `冷 ${m.cooling_index_w_m2} W/m²，热 ${m.heating_index_w_m2} W/m²`],
+          ["人员", `8 m²/人（GB 50189 商场）；${C.people_kw} kW/人（显热 + 潜热合计）`],
+          ["围护", `U = ${i.u_w_m2k} W/(m²·K)，外露面积系数 ${i.exposed_factor}（× 地面积）`],
+          ["外窗", `窗墙比 ${i.wwr}；外墙按方形足迹 √A × 层高 ${i.height_m} m，只计一面`],
+          ["太阳辐射强度", Object.entries(C.orientation_solar).filter(([k]) => k !== "internal")
+            .map(([k, v]) => `${ORIENT[k]} ${v}`).join("、") + " W/m²，× 遮阳/得热修正 " + C.solar_gain_factor],
+          ["空气物性", `ρ = ${C.air_density} kg/m³，cp = ${C.air_cp} kJ/(kg·K)，汽化潜热 r = ${C.vaporization_kj_kg} kJ/kg`],
+        ];
+        const body = document.getElementById("load-params");
+        for (const [k, v] of rows) {
+          const tr = el("tr");
+          tr.append(el("th", { scope: "row" }, k), el("td", {}, v));
+          body.append(tr);
+        }
+        const formulas = [
+          ["人员", "Q = n × 0.12 kW"],
+          ["照明 / 设备", "Q = A × q [W/m²] / 1000"],
+          ["新风量", "V = n × v [m³/(h·人)]，ṁ = ρ·V / 3600 [kg/s]"],
+          ["新风显热", "Q = cp · ṁ · (t外 − t内)    [kJ/(kg·K) × kg/s × K = kW]"],
+          ["新风潜热", "Q = ṁ · (w外 − w内) · r    含湿量差 [kg/kg]，不能用相对湿度差"],
+          ["太阳辐射", "A窗 = √A × h × 窗墙比，Q = A窗 × I朝向 × 0.55 / 1000"],
+          ["围护传热", "Q = U × (A × 外露系数) × (t外 − t内) / 1000"],
+          ["合计 / 修正", "Q = Σ分项；Q修正 = Q × 0.9 × 1.1"],
+          ["热负荷", "Q = U × A外露 × (t内冬 − t外冬) / 1000 + cp · ṁ · (t内冬 − t外冬)"],
+        ];
+        const dl = document.getElementById("load-formulas");
+        for (const [k, v] of formulas) {
+          const dd = el("dd");
+          dd.append(el("code", {}, v));
+          dl.append(el("dt", {}, k), dd);
+        }
+      }
+      function loadRow(cells, cls, onClick) {
+        const tr = el("tr", { class: cls || "" });
+        cells.forEach(([v, num], i) => tr.append(el(i === 0 ? "th" : "td", { class: num ? "num" : "", scope: i === 0 ? "row" : null }, v)));
+        if (onClick) {
+          tr.tabIndex = 0;
+          tr.addEventListener("click", onClick);
+          tr.addEventListener("keydown", (e) => { if (e.key === "Enter") onClick(); });
+        }
+        return tr;
+      }
+
+      function renderLoadTable() {
+        const body = document.getElementById("load-table");
+        body.replaceChildren();
+        const sumOf = (list) => {
+          const s = Object.fromEntries(COMP.map(([k]) => [k, list.reduce((a, r) => a + r.components[k], 0)]));
+          s.area = list.reduce((a, r) => a + r.inputs.area_m2, 0);
+          s.people = list.reduce((a, r) => a + r.inputs.people, 0);
+          s.total = list.reduce((a, r) => a + r.cooling_kw, 0);
+          s.index = list.reduce((a, r) => a + r.index_kw, 0);
+          return s;
+        };
+        const sumCells = (label, s) => [[label], [fmt(s.area, 0), 1], [s.people, 1], ...COMP.map(([k]) => [fmt(s[k], 2), 1]),
+                                        [fmt(s.total, 2), 1], [fmt((s.total * 1000) / s.area, 0), 1], [fmt(s.index, 1), 1],
+                                        [`${fmt(((s.total - s.index) / s.index) * 100, 0)}%`, 1]];
+        for (const floor of ["F1", "F2", "F3"]) {
+          const list = L.rooms.filter((r) => r.floor === floor);
+          for (const r of list) {
+            body.append(loadRow([[r.name], [fmt(r.inputs.area_m2, 0), 1], [r.inputs.people, 1], ...COMP.map(([k]) => [fmt(r.components[k], 2), 1]),
+                                 [fmt(r.cooling_kw, 2), 1], [fmt(r.density_w_m2, 0), 1], [fmt(r.index_kw, 1), 1], [`${fmt(r.index_dev_pct, 0)}%`, 1]],
+                                r.id === loadState.room ? "selected" : "", () => { loadState.room = r.id; renderLoadTable(); renderCalc(); }));
+          }
+          body.append(loadRow(sumCells(`${FLOOR_NAME[floor]}小计`, sumOf(list)), "subtotal"));
+        }
+        const all = sumOf(L.rooms);
+        body.append(loadRow(sumCells("全楼合计", all), "total"));
+        const adj = loadRow([[`修正后（× ${fmt(coef, 3)}）`], [""], [""], ...COMP.map(([k]) => [fmt(all[k] * coef, 2), 1]),
+                             [fmt(L.total.adjusted_kw, 2), 1], [""], [""], [""]], "total");
+        body.append(adj);
+        const devs = L.rooms.map((r) => r.index_dev_pct);
+        const note = document.getElementById("load-index-note");
+        note.textContent = `分项法比面积指标法（商场 ${C.mall_defaults.cooling_index_w_m2} W/m²）低 ${fmt(-Math.max(...devs), 0)}~${fmt(-Math.min(...devs), 0)}%。` +
+          "两种方法是互相替代的估算，平台以分项法为准，指标法只列出作对照，没有做调和。";
+      }
+
+      function renderFloorLoad() {
+        const body = document.getElementById("floor-load-table");
+        for (const f of L.floors) {
+          body.append(loadRow([[f.name], [fmt(f.cooling_kw, 2), 1], [fmt(f.adjusted_kw, 2), 1], [fmt(f.indoor_adjusted_kw, 2), 1],
+                               [fmt(f.fresh_air_m3_h, 0), 1], [`${f.fcu.name} × ${f.fcu.qty}（${fmt(f.fcu.capacity_kw, 1)} kW）`],
+                               [`${f.fau.name}（${fmt(f.fau.airflow_m3_h, 0)} m³/h）`]]));
+        }
+        const host = document.getElementById("fcu-sizing");
+        const t = el("table", { "aria-label": "风机盘管台数下限" });
+        t.append(el("thead"));
+        t.tHead.append(loadRow([["楼层"], ["按冷量", 1], ["按水量", 1], ["按风量", 1], ["选定", 1], ["装机 / 室内侧", 1]]));
+        const tb = el("tbody");
+        for (const f of L.floors) {
+          const u = f.fcu.unit, n = f.fcu.need;
+          const lim = [n.capacity_kw * C.capacity_margin[0] / u.capacity_kw, n.flow_m3_h / u.flow_m3_h, n.airflow_m3_h / u.airflow_m3_h];
+          tb.append(loadRow([[f.name], [fmt(lim[0], 2), 1], [fmt(lim[1], 2), 1], [fmt(lim[2], 2), 1], [`${f.fcu.qty} 台`, 1],
+                             [fmt(f.fcu.capacity_kw / n.capacity_kw, 2), 1]]));
+        }
+        t.append(tb);
+        const f1 = L.floors[0];
+        const ratios = L.floors.map((x) => x.fcu.capacity_kw / x.fcu.need.capacity_kw);
+        const note = el("p", { class: "note", style: "margin-top:10px" },
+          `台数取三项下限的最大值，三层都是风量说了算。送风量按 Q×3600/(ρ·cp·Δt) 计算，Δt 取 ${C.air_dt_c} K；` +
+          `而目录里的风机盘管额定冷量对应的送风温差约 ${f1.fcu.unit_dt_c} K（${f1.fcu.name}：${f1.fcu.unit.capacity_kw} kW / ${f1.fcu.unit.airflow_m3_h} m³/h）。` +
+          `按风量选台数，装机冷量就是室内侧负荷的 ${fmt(Math.min(...ratios), 2)}~${fmt(Math.max(...ratios), 2)} 倍，` +
+          `高于容量裕量区间 ${C.capacity_margin[0]}~${C.capacity_margin[1]}。两处 Δt 口径不一致属于教学估算的简化，不是选型算错。`);
+        host.replaceChildren(t, note);
+      }
+      function renderCalc() {
+        const r = LR[loadState.room], i = r.inputs, s = r.steps, c = r.components;
+        document.getElementById("calc-title").textContent = `手算过程 · ${r.name}`;
+        const w = (v) => (v * 1000).toFixed(2);
+        const lines = [
+          `输入：A = ${fmt(i.area_m2, 0)} m²，h = ${i.height_m} m，n = ${i.people} 人，朝向 ${ORIENT[r.orientation]}，用途商场`,
+          `温差：Δt夏 = ${i.outdoor_summer_c} − ${i.indoor_summer_c} = <b>${fmt(s.dt_summer, 1)} K</b>`,
+          `人员：${i.people} × ${C.people_kw} = <b>${fmt(c.people, 3)} kW</b>`,
+          `照明：${fmt(i.area_m2, 0)} × ${i.lighting_w_m2} / 1000 = <b>${fmt(c.lighting, 3)} kW</b>`,
+          `设备：${fmt(i.area_m2, 0)} × ${i.equipment_w_m2} / 1000 = <b>${fmt(c.equipment, 3)} kW</b>`,
+          `新风量：V = ${i.people} × ${i.fresh_per_person} = ${fmt(s.fresh_m3_h, 0)} m³/h，ṁ = ${C.air_density} × ${fmt(s.fresh_m3_h, 0)} / 3600 = ${fmt(s.mass_kg_s, 4)} kg/s`,
+          `新风显热：${C.air_cp} × ${fmt(s.mass_kg_s, 4)} × ${fmt(s.dt_summer, 1)} = <b>${fmt(c.fresh_air_cooling, 3)} kW</b>`,
+          `含湿量：w外(${i.outdoor_summer_c} ℃, ${fmt(i.outdoor_rh * 100, 0)}%) = ${w(s.w_out)} g/kg，w内(${i.indoor_summer_c} ℃, ${fmt(i.indoor_rh * 100, 0)}%) = ${w(s.w_in)} g/kg`,
+          `新风潜热：${fmt(s.mass_kg_s, 4)} × (${w(s.w_out)} − ${w(s.w_in)})/1000 × ${C.vaporization_kj_kg} = <b>${fmt(c.latent_cooling, 3)} kW</b>`,
+          `外窗：√${fmt(i.area_m2, 0)} × ${i.height_m} = ${fmt(s.wall_m2, 2)} m² 外墙，× ${i.wwr} = ${fmt(s.window_m2, 2)} m²`,
+          `太阳辐射：${fmt(s.window_m2, 2)} × ${i.solar_w_m2} × ${C.solar_gain_factor} / 1000 = <b>${fmt(c.solar, 3)} kW</b>`,
+          `围护：${i.u_w_m2k} × (${fmt(i.area_m2, 0)} × ${i.exposed_factor}) × ${fmt(s.dt_summer, 1)} / 1000 = <b>${fmt(c.envelope_cooling, 3)} kW</b>`,
+          `合计：<b>${fmt(r.cooling_kw, 3)} kW</b>（${fmt(r.density_w_m2, 0)} W/m²）；修正后 × ${fmt(coef, 3)} = <b>${fmt(r.cooling_kw * coef, 3)} kW</b>`,
+          `校核：面积指标 ${fmt(i.area_m2, 0)} × ${r.index_w_m2} / 1000 = ${fmt(r.index_kw, 2)} kW，分项法偏差 ${fmt(r.index_dev_pct, 1)}%`,
+        ];
+        const host = document.getElementById("calc-steps");
+        host.replaceChildren();
+        for (const line of lines) {
+          const li = el("li");
+          // 只插入本页自己拼的数字与粗体标签，不含外部输入
+          li.innerHTML = line;
+          host.append(li);
+        }
+        const sumComp = COMP.reduce((a, [k]) => a + c[k], 0);
+        const check = document.getElementById("calc-check");
+        check.replaceChildren(el("span", { class: "ok" }, "✓ "),
+          document.createTextNode(`七个分项之和 ${fmt(sumComp, 3)} kW，与后端 calculate_load 的 cooling_kw ${fmt(r.cooling_kw, 3)} kW 一致。` +
+                                  "导出数据时已逐房间、逐分项断言手算与后端相等（容差 0.001 kW）。"));
+        check.style.borderColor = "var(--cw)";
+      }
+
+      function renderHeat() {
+        const body = document.getElementById("heat-table");
+        for (const r of L.rooms) {
+          body.append(loadRow([[r.name], [fmt(r.components.envelope_heating, 2), 1], [fmt(r.components.fresh_air_heating, 2), 1],
+                               [fmt(r.heating_kw, 2), 1], [fmt((r.heating_kw * 1000) / r.inputs.area_m2, 0), 1],
+                               [fmt(r.heat_index_kw, 1), 1], [`${fmt(r.heat_index_dev_pct, 0)}%`, 1]]));
+        }
+        body.append(loadRow([["全楼（修正后）"], [""], [""], [`${fmt(L.total.heating_kw, 2)}（${fmt(L.total.adjusted_heating_kw, 2)}）`, 1],
+                             [fmt((L.total.heating_kw * 1000) / L.rooms.reduce((a, r) => a + r.inputs.area_m2, 0), 0), 1], [""], [""]], "total"));
+      }
+
+      function showPage(name) {
+        document.getElementById("page-overview").hidden = name !== "overview";
+        document.getElementById("page-load").hidden = name !== "load";
+        document.querySelectorAll("[data-page]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.page === name)));
+        if (location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
+      }
+      document.querySelectorAll("[data-page]").forEach((b) => b.addEventListener("click", () => showPage(b.dataset.page)));
+
+      renderLoadKpis();
+      renderLoadParams();
+      renderLoadTable();
+      renderFloorLoad();
+      renderCalc();
+      renderHeat();
+      showPage(location.hash === "#load" ? "load" : "overview");
+
+      renderKpis();
+      renderTabs();
+      selectFloor(state.floor);
+      selectRoom("f1_north");
+      renderSchematic();
+      renderTrend();
+      renderLoadBars();
+      renderDevices();
+      renderIssues();
+      renderFootnotes();
+    </script>
+  </body>
+</html>

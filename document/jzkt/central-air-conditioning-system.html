@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>集中空调系统设备参数</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --page: #071e3a;
+        --text: #eefbff;
+        --muted: #a9c4d5;
+        --line: rgba(32, 166, 193, 0.26);
+        --accent: #27c1c8;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-width: 320px;
+        min-height: 100vh;
+        margin: 0;
+        background: var(--page);
+        color: var(--text);
+        font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+      }
+
+      .page-header,
+      main {
+        width: min(1480px, calc(100% - 40px));
+        margin-right: auto;
+        margin-left: auto;
+      }
+
+      .page-header {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 24px;
+        padding: 28px 0 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .page-header h1 {
+        margin: 0 0 7px;
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0;
+      }
+
+      .page-header p,
+      .system-count,
+      .group-description {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .system-count {
+        color: var(--accent);
+        white-space: nowrap;
+      }
+
+      main {
+        padding: 8px 0 40px;
+      }
+
+      .equipment-group {
+        padding-top: 24px;
+      }
+
+      .group-header {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+
+      .group-header h2 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0;
+      }
+
+      .equipment-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      basic-condition-card {
+        min-width: 0;
+      }
+
+      @media (max-width: 1100px) {
+        .equipment-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 640px) {
+        .page-header,
+        main {
+          width: min(100% - 24px, 1480px);
+        }
+
+        .page-header {
+          align-items: flex-start;
+          padding-top: 20px;
+        }
+
+        .page-header p,
+        .system-count,
+        .group-description {
+          display: none;
+        }
+
+        .equipment-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .equipment-group {
+          padding-top: 18px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page-header">
+      <div>
+        <h1>集中空调系统设备参数</h1>
+        <p>设备基础工况与设计选型参数</p>
+      </div>
+      <p class="system-count">共 11 类设备</p>
+    </header>
+
+    <main id="equipment-groups"></main>
+
+    <script src="./components/basic-condition-card.js"></script>
+    <script src="./data/central-air-equipment.js"></script>
+    <script>
+      const groupContainer = document.querySelector("#equipment-groups");
+
+      window.centralAirEquipmentGroups.forEach((group) => {
+        const section = document.createElement("section");
+        section.className = "equipment-group";
+        section.innerHTML = `
+          <header class="group-header">
+            <h2></h2>
+            <p class="group-description"></p>
+          </header>
+          <div class="equipment-grid"></div>
+        `;
+
+        section.querySelector("h2").textContent = group.title;
+        section.querySelector(".group-description").textContent = group.description;
+        const grid = section.querySelector(".equipment-grid");
+
+        group.equipment.forEach((equipment) => {
+          const card = document.createElement("basic-condition-card");
+          card.config = equipment;
+          grid.append(card);
+        });
+
+        groupContainer.append(section);
+      });
+    </script>
+  </body>
+</html>

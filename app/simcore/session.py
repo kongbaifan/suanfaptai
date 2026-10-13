@@ -384,6 +384,12 @@ class RoomDelivery:
     「新风带进来多少」与「盘管处理掉多少」两份。
     """
 
+    moisture_exchange_kg_s: float = 0.0
+    """与房间湿度直接耦合的风量 ∂(湿量)/∂w_室 / r [kg/s]，供湿平衡指数欧拉用
+
+    盘管在除湿（潜热 > 0）时房间湿量随 w_室 以 ṁ 松弛；不除湿时只剩新风那份 ṁ·f。
+    """
+
 
 @dataclass(frozen=True, slots=True)
 class PlantSnapshot:
@@ -1346,6 +1352,11 @@ class SimulationSession:
                             air_mass_kg_s * (room_ratio - supply_ratio)
                             * LATENT_HEAT_KJ_KG
                         ) + vent_latent_kw
+                    # 房间湿平衡的松弛风量：盘管除湿时整股送风都把房间往送风含湿量
+                    # 拉（ṁ），否则只有新风那份（ṁ·f）随房间含湿量变化。
+                    exchange_kg_s = (
+                        air_mass_kg_s if coil_latent_kw > 0.0 else air_mass_kg_s * fraction
+                    )
                     current = deliveries.get(room_id, RoomDelivery())
                     deliveries[room_id] = replace(
                         current,
@@ -1356,6 +1367,8 @@ class SimulationSession:
                         + vent_sensible_kw,
                         ventilation_latent_kw=current.ventilation_latent_kw
                         + vent_latent_kw,
+                        moisture_exchange_kg_s=current.moisture_exchange_kg_s
+                        + exchange_kg_s,
                     )
 
             for room_id, _ in weights:
@@ -1646,6 +1659,8 @@ class SimulationSession:
                 fresh_air_m3_h=fresh_air_injection_m3_h,
                 fresh_air_latent_capacity_kw=0.0,
                 ventilation_latent_kw=delivery.ventilation_latent_kw,
+                air_exchange_kg_s=delivery.moisture_exchange_kg_s
+                + fresh_air_injection_m3_h * AIR_DENSITY_KG_M3 / 3600.0,
             )
             self._room_humidity_pct[room.room_id] = humidity.relative_humidity_pct
             humidity_balances[room.room_id] = humidity

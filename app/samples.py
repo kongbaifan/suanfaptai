@@ -10,6 +10,9 @@ COMPLETE_SYSTEM_SAMPLE: dict[str, Any] = {
     "devices": [
         {"id": "chiller_1", "type": "冷源机组", "name": "SCWE-90H+B"},
         {"id": "pump_1", "type": "循环泵", "name": "EC80"},
+        # 冷却水泵：冷机目录 cooling_flow_m3_h = 66.28 m³/h，按生成器同一规则
+        # （`system_builder._pick_smallest`）取满足流量的最小型号，余量 82/66.28 = 1.24。
+        {"id": "cw_pump_1", "type": "循环泵", "name": "TPE3 80-200"},
         {"id": "tower_1", "type": "冷却塔", "name": "CT-100"},
         {"id": "fcu_1", "type": "风机盘管", "name": "MCW1000V", "quantity": 6},
     ],
@@ -25,7 +28,8 @@ COMPLETE_SYSTEM_SAMPLE: dict[str, Any] = {
         {"from_id": "chw_supply", "to_id": "fcu_1", "system": "chilled_water"},
         {"from_id": "fcu_1", "to_id": "chw_return", "system": "chilled_water"},
         {"from_id": "chw_return", "to_id": "chiller_1", "system": "chilled_water"},
-        {"from_id": "chiller_1", "to_id": "cw_supply", "system": "cooling_water"},
+        {"from_id": "chiller_1", "to_id": "cw_pump_1", "system": "cooling_water"},
+        {"from_id": "cw_pump_1", "to_id": "cw_supply", "system": "cooling_water"},
         {"from_id": "cw_supply", "to_id": "tower_1", "system": "cooling_water"},
         {"from_id": "tower_1", "to_id": "cw_return", "system": "cooling_water"},
         {"from_id": "cw_return", "to_id": "chiller_1", "system": "cooling_water"},
@@ -46,7 +50,40 @@ AIR_SYSTEM_SAMPLE["connections"] = [
     }
     for connection in AIR_SYSTEM_SAMPLE["connections"]
 ]
-AIR_SYSTEM_SAMPLE["connections"].append({"from_id": "ahu_1", "to_id": "duct_1", "system": "air"})
+# 风侧闭合：机组 → 送风管 → 各房间风口 → 回风管 → 机组。原先只有 `ahu_1 → duct_1`
+# 一条空气连接，回风侧悬空、没有风口，机组在任何模式下都送不出风
+# （`SIM_AIR_PATH_INCOMPLETE`）。两个房间各一个风口，同一风口同时作送、回风口
+# （与 `multi_zone_all_air` 同一表达）。风量按房间面积分：
+# 机组额定 5290 m³/h × 120 / 180 ≈ 3527、× 60 / 180 ≈ 1763。
+AIR_SYSTEM_SAMPLE["devices"].extend(
+    [
+        {"id": "outlet_office_1", "type": "送风口"},
+        {"id": "outlet_meeting_1", "type": "送风口"},
+    ]
+)
+AIR_SYSTEM_SAMPLE["pipes"][-1]["flow_m3_h"] = 5290
+AIR_SYSTEM_SAMPLE["pipes"].extend(
+    [
+        {"id": "duct_office_1", "system": "air", "length_m": 10, "width_mm": 500, "height_mm": 320, "flow_m3_h": 3527},
+        {"id": "duct_meeting_1", "system": "air", "length_m": 14, "width_mm": 400, "height_mm": 250, "flow_m3_h": 1763},
+        {"id": "return_duct_1", "system": "air", "length_m": 18, "width_mm": 630, "height_mm": 400, "flow_m3_h": 5290},
+    ]
+)
+AIR_SYSTEM_SAMPLE["connections"].extend(
+    [
+        {"from_id": "ahu_1", "to_id": "duct_1", "system": "air"},
+        {"from_id": "duct_1", "to_id": "duct_office_1", "system": "air"},
+        {"from_id": "duct_1", "to_id": "duct_meeting_1", "system": "air"},
+        {"from_id": "duct_office_1", "to_id": "outlet_office_1", "system": "air"},
+        {"from_id": "duct_meeting_1", "to_id": "outlet_meeting_1", "system": "air"},
+        {"from_id": "outlet_office_1", "to_id": "return_duct_1", "system": "air"},
+        {"from_id": "outlet_meeting_1", "to_id": "return_duct_1", "system": "air"},
+        {"from_id": "return_duct_1", "to_id": "ahu_1", "system": "air"},
+    ]
+)
+for _room in AIR_SYSTEM_SAMPLE["rooms"]:
+    _room["supply_air_outlet_ids"] = [f"outlet_{_room['id']}"]
+    _room["return_air_outlet_ids"] = [f"outlet_{_room['id']}"]
 
 
 BAD_SYSTEM_SAMPLE = {
@@ -79,6 +116,8 @@ MULTI_FLOOR_SAMPLE = {
     "devices": [
         {"id": "chiller_b1", "type": "冷源机组", "name": "SCWE-90H+B", "floor_id": "B1F", "location_type": "equipment_room"},
         {"id": "pump_b1", "type": "循环泵", "name": "EC80", "floor_id": "B1F", "location_type": "equipment_room"},
+        # 冷却水泵选型口径同 `complete`（冷机 cooling_flow 66.28 m³/h → TPE3 80-200）
+        {"id": "cw_pump_b1", "type": "循环泵", "name": "TPE3 80-200", "floor_id": "B1F", "location_type": "equipment_room"},
         {"id": "tower_roof", "type": "冷却塔", "name": "CT-100", "floor_id": "F2", "location_type": "roof"},
         {"id": "fcu_f1", "type": "风机盘管", "name": "MCW1000V", "quantity": 8, "floor_id": "F1"},
         {"id": "fcu_f2", "type": "风机盘管", "name": "MCW1000V", "quantity": 9, "floor_id": "F2"},
@@ -90,8 +129,21 @@ MULTI_FLOOR_SAMPLE = {
         {"id": "chw_branch_f2", "system": "chilled_water", "pipe_type": "branch_supply", "floor_id": "F2", "length_m": 32, "diameter_mm": 80},
         {"id": "chw_return_riser", "system": "chilled_water", "pipe_type": "riser_return", "from_floor_id": "F2", "to_floor_id": "B1F", "length_m": 10, "diameter_mm": 100},
         {"id": "chw_main_return_b1", "system": "chilled_water", "pipe_type": "main_return", "floor_id": "B1F", "length_m": 24, "diameter_mm": 100},
+        # 冷却水环路：机房 B1F ↔ 屋面 F2 的冷却塔。原先冷却塔放在屋面却一根管都没接，
+        # 水冷冷机因冷却水断流联锁停机（`SIM_CONDENSER_FLOW_MISSING`）。
+        {"id": "cw_main_supply_b1", "system": "cooling_water", "pipe_type": "main_supply", "floor_id": "B1F", "length_m": 18, "diameter_mm": 125},
+        {"id": "cw_supply_riser", "system": "cooling_water", "pipe_type": "riser_supply", "from_floor_id": "B1F", "to_floor_id": "F2", "length_m": 12, "diameter_mm": 125},
+        {"id": "cw_return_riser", "system": "cooling_water", "pipe_type": "riser_return", "from_floor_id": "F2", "to_floor_id": "B1F", "length_m": 12, "diameter_mm": 125},
+        {"id": "cw_main_return_b1", "system": "cooling_water", "pipe_type": "main_return", "floor_id": "B1F", "length_m": 18, "diameter_mm": 125},
     ],
     "connections": [
+        {"from_id": "chiller_b1", "to_id": "cw_pump_b1", "system": "cooling_water"},
+        {"from_id": "cw_pump_b1", "to_id": "cw_main_supply_b1", "system": "cooling_water"},
+        {"from_id": "cw_main_supply_b1", "to_id": "cw_supply_riser", "system": "cooling_water"},
+        {"from_id": "cw_supply_riser", "to_id": "tower_roof", "system": "cooling_water"},
+        {"from_id": "tower_roof", "to_id": "cw_return_riser", "system": "cooling_water"},
+        {"from_id": "cw_return_riser", "to_id": "cw_main_return_b1", "system": "cooling_water"},
+        {"from_id": "cw_main_return_b1", "to_id": "chiller_b1", "system": "cooling_water"},
         {"from_id": "chiller_b1", "to_id": "pump_b1", "system": "chilled_water"},
         {"from_id": "pump_b1", "to_id": "chw_main_supply_b1", "system": "chilled_water"},
         {"from_id": "chw_main_supply_b1", "to_id": "chw_riser_supply", "system": "chilled_water"},
@@ -146,6 +198,21 @@ MANIFOLD_FCU_SAMPLE: dict[str, Any] = {
         },
         {"id": "supply_header", "type": "分水器", "floor_id": "B1F"},
         {"id": "return_header", "type": "集水器", "floor_id": "B1F"},
+        # 冷却水侧：原先根本没有冷却塔，水冷冷机因冷却水断流联锁停机。
+        # 冷却水泵选型口径同 `complete`（冷机 cooling_flow 66.28 m³/h → TPE3 80-200）。
+        {
+            "id": "cw_pump_b1",
+            "type": "循环泵",
+            "name": "TPE3 80-200",
+            "floor_id": "B1F",
+        },
+        {
+            "id": "tower_roof",
+            "type": "冷却塔",
+            "name": "CT-100",
+            "floor_id": "F2",
+            "location_type": "roof",
+        },
         {
             "id": "fcu_f1",
             "type": "风机盘管",
@@ -202,8 +269,49 @@ MANIFOLD_FCU_SAMPLE: dict[str, Any] = {
             "length_m": 20,
             "diameter_mm": 100,
         },
+        {
+            "id": "cw_main_supply",
+            "system": "cooling_water",
+            "pipe_type": "main_supply",
+            "floor_id": "B1F",
+            "length_m": 18,
+            "diameter_mm": 125,
+        },
+        {
+            "id": "cw_supply_riser",
+            "system": "cooling_water",
+            "pipe_type": "riser_supply",
+            "from_floor_id": "B1F",
+            "to_floor_id": "F2",
+            "length_m": 12,
+            "diameter_mm": 125,
+        },
+        {
+            "id": "cw_return_riser",
+            "system": "cooling_water",
+            "pipe_type": "riser_return",
+            "from_floor_id": "F2",
+            "to_floor_id": "B1F",
+            "length_m": 12,
+            "diameter_mm": 125,
+        },
+        {
+            "id": "cw_main_return",
+            "system": "cooling_water",
+            "pipe_type": "main_return",
+            "floor_id": "B1F",
+            "length_m": 18,
+            "diameter_mm": 125,
+        },
     ],
     "connections": [
+        {"from_id": "chiller_b1", "to_id": "cw_pump_b1", "system": "cooling_water"},
+        {"from_id": "cw_pump_b1", "to_id": "cw_main_supply", "system": "cooling_water"},
+        {"from_id": "cw_main_supply", "to_id": "cw_supply_riser", "system": "cooling_water"},
+        {"from_id": "cw_supply_riser", "to_id": "tower_roof", "system": "cooling_water"},
+        {"from_id": "tower_roof", "to_id": "cw_return_riser", "system": "cooling_water"},
+        {"from_id": "cw_return_riser", "to_id": "cw_main_return", "system": "cooling_water"},
+        {"from_id": "cw_main_return", "to_id": "chiller_b1", "system": "cooling_water"},
         {"from_id": "chiller_b1", "to_id": "pump_b1", "system": "chilled_water"},
         {"from_id": "pump_b1", "to_id": "chw_main_supply", "system": "chilled_water"},
         {"from_id": "chw_main_supply", "to_id": "supply_header", "system": "chilled_water"},

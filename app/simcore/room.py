@@ -120,11 +120,24 @@ def step_room_humidity(
     fresh_air_m3_h: float = 0.0,
     fresh_air_latent_capacity_kw: float = 0.0,
     ventilation_latent_kw: float = 0.0,
+    air_exchange_kg_s: float = 0.0,
 ) -> RoomHumidityBalance:
     """推进一个时间步的房间湿度
 
-    以含湿量为状态量做显式欧拉积分：
-    `Δw = (新风带入 + 室内散湿 - 盘管除湿) · Δt / (空气质量 · 汽化潜热)`。
+    以含湿量为状态量积分：
+    `Δw = (新风带入 + 室内散湿 - 盘管除湿) · Δt / (空气质量 · 汽化潜热) · φ`。
+
+    **φ 是指数欧拉修正**，`air_exchange_kg_s`（与房间交换水分的风量 ṁ）给出时启用。
+    盘管与新风对房间湿度都是"向某个含湿量松弛"：dw/dt = ṁ/M·(w_送 − w) + …，
+    时间常数 M/ṁ 只有几分钟。显式欧拉在 Δt·ṁ/M > 2 时失稳——稳态求解用 300 s
+    步长、手动控制下风机全开，`complete` 会议室 Δt·ṁ/M = 2.61，湿度每步在 75%
+    与 95% 之间来回跳、永不收敛（`SIM_NOT_CONVERGED`）。线性松弛的精确解是
+
+        w(t+Δt) = w + 速率 · Δt · φ,   φ = (1 − e^{−x}) / x,   x = Δt·ṁ/M
+
+    φ 只缩放步长、不改变速率为零的点，所以**不动点与显式欧拉完全相同**；
+    x → 0 时 φ → 1 退回显式欧拉，x 任意大都不越过平衡点。分项读数仍是本步
+    起点的速率。
 
     三项都先折成潜热功率（kW）再统一换算，与显热侧的写法保持一致。
     新风项按室内外含湿量差计算，室外更湿则带入水分，反之带走。
@@ -176,9 +189,15 @@ def step_room_humidity(
         infiltration_latent_kw + internal_latent_kw - dehumidification_kw
     )
 
+    exchange_x = (
+        max(air_exchange_kg_s, 0.0) * step_seconds / air_mass_kg
+        if math.isfinite(air_exchange_kg_s)
+        else 0.0
+    )
+    phi = -math.expm1(-exchange_x) / exchange_x if exchange_x > 1e-12 else 1.0
     next_ratio = current_ratio + net_latent_kw * step_seconds / (
         air_mass_kg * LATENT_HEAT_KJ_KG
-    )
+    ) * phi
     next_ratio = max(next_ratio, MIN_HUMIDITY_RATIO)
     next_rh = _clamp(
         rh_from_humidity_ratio(next_temp_c, next_ratio),

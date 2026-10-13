@@ -115,8 +115,11 @@ def test_air_outlet_uses_a_single_port_for_both_edges():
 def test_genuinely_unwired_devices_still_report_isolated_ports():
     """真实漏接必须继续报——降噪不能把真信号一起消掉
 
-    `bad` 是故意接错的样例，`manifold_fcu` 的冷机冷却水侧完全没接。
+    `bad` 是故意接错的样例；`manifold_fcu` 的风机盘管没接风管（风侧两个口全空）。
     两者的孤立端口都来自**同介质端口全空**的真实漏接，不是结构性冗余。
+
+    （`manifold_fcu` 原先还缺整个冷却水侧、冷机冷却水口全空，2026-10 补齐冷却水
+    回路后那两条消失，这里改钉仍然真实存在的风机盘管风侧漏接。）
     """
     bad = _isolated_ports(SAMPLES["bad"])
     assert bad, "bad 样例不再报孤立端口；降噪把真实漏接一起消掉了"
@@ -127,8 +130,8 @@ def test_genuinely_unwired_devices_still_report_isolated_ports():
 
     manifold = _isolated_ports(SAMPLES["manifold_fcu"])
     assert any(
-        role == "chiller" for _, role, _ in manifold
-    ), "manifold_fcu 冷机的冷却水漏接未报出"
+        role == "fcu" for _, role, _ in manifold
+    ), "manifold_fcu 风机盘管的风侧漏接未报出"
 
 
 def test_all_samples_still_work_after_port_change():
@@ -196,14 +199,19 @@ def test_isolated_port_counts_match_the_measured_baseline():
 
     这些数字全部来自真实漏接（角色同介质端口全空），改动端口布局不得减少。
     任何一条下降都说明有真信号被误消。
+
+    2026-10 补齐样例接线后的下降是**修掉了漏接本身**，不是降噪误消：
+    `air` 1 → 0（组合式机组回风口接上了回风管）；`multi_floor` 8 → 4、两个
+    manifold 6 → 4（冷机冷却水口接上了冷却水回路）。剩下的全是风机盘管
+    没接风管的风侧口。
     """
     expected = {
         "complete": 2,
-        "air": 1,
+        "air": 0,
         "bad": 10,
-        "multi_floor": 8,
-        "manifold_fcu": 6,
-        "manifold_fcu_dual_water": 6,
+        "multi_floor": 4,
+        "manifold_fcu": 4,
+        "manifold_fcu_dual_water": 4,
         "four_floor_fcu_fresh_air": 0,
         "multi_zone_all_air": 0,
         "ducted_fresh_air": 0,

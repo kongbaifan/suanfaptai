@@ -10,11 +10,11 @@
    ``fcu_fresh_air``，``multi_zone_all_air`` 声明为 ``all_air``。
 3. **每条制式规则都有正例**，且反向制式能被识别出来（全空气项目里混进风机盘管）。
 
-关于 ``air`` 样例：它声明为 ``all_air`` 时**会**报
-``SYSTEM_FORM_AHU_DUCT_INCOMPLETE``，这不是误报。该样例只有一条空气连接
-（``ahu_1 -> duct_1``，见 ``samples.py`` 的 ``AIR_SYSTEM_SAMPLE``），回风侧
-完全悬空、也没有任何风口——它本来就是一个"有组合式机组但风网不完整"的
-教学案例。这条断言钉住的是**制式校验能识别真实的风网缺陷**。
+关于 ``air`` 样例：它原先只有一条空气连接（``ahu_1 -> duct_1``），回风侧完全
+悬空、也没有任何风口，声明为 ``all_air`` 时报 ``SYSTEM_FORM_AHU_DUCT_INCOMPLETE``
+（真实缺陷，不是误报）；实时仿真里机组也因此送不出风（``SIM_AIR_PATH_INCOMPLETE``）。
+2026-10 补齐了送风 → 风口 → 回风的闭合风路，现在它声明 ``all_air`` 必须零 issue；
+"制式校验能识别真实的风网缺陷"改由**拆掉回风管的派生样例**钉住。
 """
 
 from copy import deepcopy
@@ -108,9 +108,24 @@ def test_canonical_sample_is_compliant_under_its_own_form(sample_name: str):
     assert _errors(SAMPLES[sample_name], form) == []
 
 
-def test_all_air_sample_reports_incomplete_duct_network():
-    """``air`` 样例只有送风管、没有回风管，声明全空气后必须报出来"""
-    codes = _codes(AIR_SYSTEM_SAMPLE, SystemForm.ALL_AIR)
+def test_air_sample_with_closed_duct_loop_is_clean_under_all_air():
+    """``air`` 样例补齐风路后，声明全空气不得再报任何制式问题"""
+    assert _issues(AIR_SYSTEM_SAMPLE, SystemForm.ALL_AIR) == []
+
+
+def test_ahu_with_dangling_return_side_reports_incomplete_duct_network():
+    """回风侧悬空的组合式机组，声明全空气后必须报出来
+
+    派生自 ``air`` 样例：拆掉回风管接回机组的那一条连接。必须用端口图判断——
+    送回风两侧会被并成一张图，只看节点连通性会把它误判为完整。
+    """
+    broken = deepcopy(AIR_SYSTEM_SAMPLE)
+    broken["connections"] = [
+        c for c in broken["connections"]
+        if not (c["from_id"] == "return_duct_1" and c["to_id"] == "ahu_1")
+    ]
+    assert len(broken["connections"]) == len(AIR_SYSTEM_SAMPLE["connections"]) - 1
+    codes = _codes(broken, SystemForm.ALL_AIR)
     assert "SYSTEM_FORM_AHU_DUCT_INCOMPLETE" in codes
 
 

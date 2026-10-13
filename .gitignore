@@ -43,3 +43,7 @@ node_modules/
 app/data/equipment_catalog.json.backup
 app/data/equipment_catalog_new_part1.json
 *.zip
+
+# 工作区说明与本地素材，不入库
+AGENTS.md
+pelican-bike.svg
